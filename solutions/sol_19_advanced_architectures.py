@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 19."""
+"""Reference solutions for topic 19."""
 
 import torch
 import torch.nn.functional as F
@@ -47,10 +47,10 @@ def top2_routing(router_logits: Tensor) -> tuple[Tensor, Tensor]:
 
 def capacity_mask(expert_idx: Tensor, num_experts: int, capacity: int) -> Tensor:
     n, k = expert_idx.shape
-    # порядок занятия слотов: сначала весь слот 0 по всем токенам, потом слот 1
+    # the order in which slots are taken: all of slot 0 across every token first, then slot 1
     order = expert_idx.T.reshape(-1)  # (K*N,)
     onehot = F.one_hot(order, num_experts)
-    position = onehot.cumsum(dim=0) - onehot  # сколько токенов уже у этого эксперта
+    position = onehot.cumsum(dim=0) - onehot  # how many tokens this expert already has
     rank = (position * onehot).sum(dim=-1)
     keep = rank < capacity
     return keep.reshape(k, n).T

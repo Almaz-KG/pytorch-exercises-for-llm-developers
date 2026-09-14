@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 08."""
+"""Reference solutions for topic 08."""
 
 from collections.abc import Callable
 

@@ -1,11 +1,11 @@
-"""Топик 09 - nn.Module: параметры, буферы, state_dict, инициализация.
+"""Topic 09 - nn.Module: parameters, buffers, state_dict, initialization.
 
-Ключевые различия, которые надо чувствовать:
-  - Parameter -> обучается, лежит в .parameters() и в state_dict;
-  - buffer -> НЕ обучается, но лежит в state_dict и едет на device вместе с модулем
-    (типичный пример: маска или RoPE-кеш);
-  - обычный атрибут-тензор -> не едет никуда и теряется при .to(device). Классический баг.
-  - список модулей надо класть в nn.ModuleList, иначе параметров как будто нет.
+The key distinctions that have to be felt:
+  - Parameter -> is trained, lives in .parameters() and in the state_dict;
+  - buffer -> is NOT trained, but lives in the state_dict and travels to the device with the module
+    (the typical example: a mask or a RoPE cache);
+  - an ordinary tensor attribute -> travels nowhere and is lost on .to(device). The classic bug.
+  - a list of modules has to go into an nn.ModuleList, otherwise it is as if the parameters do not exist.
 """
 
 import io
@@ -17,17 +17,17 @@ import torch.nn.functional as F
 from torch import Tensor
 
 # ==========================================================================
-# 9.1 Свои слои
+# 9.1 Layers of your own
 # ==========================================================================
 
 
 class MyLinear(nn.Module):
-    """Линейный слой без сюрпризов: вес (out_features, in_features), опциональный bias.
+    """A linear layer with no surprises: weight (out_features, in_features), an optional bias.
 
-    Требования:
-      - параметры называются `weight` и `bias` (это фиксирует state_dict);
-      - при bias=False атрибут bias должен быть None и НЕ появляться в state_dict;
-      - forward работает с любым числом ведущих осей.
+    The requirements:
+      - the parameters are named `weight` and `bias` (this pins the state_dict);
+      - with bias=False the bias attribute must be None and must NOT appear in the state_dict;
+      - forward works with any number of leading axes.
     """
 
     def __init__(self, in_features: int, out_features: int, bias: bool = True):
@@ -39,7 +39,7 @@ class MyLinear(nn.Module):
 
 
 class MyEmbedding(nn.Module):
-    """Таблица эмбеддингов: параметр `weight` формы (num_embeddings, embedding_dim)."""
+    """An embedding table: a `weight` parameter of shape (num_embeddings, embedding_dim)."""
 
     def __init__(self, num_embeddings: int, embedding_dim: int):
         super().__init__()
@@ -50,10 +50,10 @@ class MyEmbedding(nn.Module):
 
 
 class CausalSelfAttentionSkeleton(nn.Module):
-    """Только про буферы: слой хранит причинную маску (max_len, max_len) bool как БУФЕР
-    с именем `mask`, а forward возвращает срез маски под текущую длину.
+    """Only about buffers: the layer stores a causal mask (max_len, max_len) bool as a BUFFER
+    named `mask`, and forward returns a slice of the mask for the current length.
 
-    Так делают все реализации: маску считают один раз, а не на каждом шаге.
+    This is what every implementation does: the mask is computed once, not at every step.
     """
 
     def __init__(self, max_len: int):
@@ -65,9 +65,9 @@ class CausalSelfAttentionSkeleton(nn.Module):
 
 
 class BlockStack(nn.Module):
-    """Стек из n одинаковых по форме линейных слоёв d->d, применяемых последовательно.
+    """A stack of n linear layers d->d of identical shape, applied one after another.
 
-    Слои обязаны лежать в nn.ModuleList (обычный python-список не регистрирует параметры).
+    The layers must live in an nn.ModuleList (an ordinary python list does not register the parameters).
     """
 
     def __init__(self, d_model: int, n_layers: int):
@@ -79,51 +79,51 @@ class BlockStack(nn.Module):
 
 
 # ==========================================================================
-# 9.2 Инспекция модели
+# 9.2 Inspecting a model
 # ==========================================================================
 
 
 def count_parameters(model: nn.Module, trainable_only: bool = True) -> int:
-    """Число элементов (не тензоров) в параметрах модели."""
+    """The number of elements (not tensors) in the parameters of the model."""
     raise NotImplementedError
 
 
 def parameter_names(model: nn.Module) -> list[str]:
-    """Отсортированный список полных имён параметров, как они лежат в state_dict."""
+    """A sorted list of the full parameter names, as they sit in the state_dict."""
     raise NotImplementedError
 
 
 def total_bytes(model: nn.Module) -> int:
-    """Сколько байт занимают все параметры и буферы модели."""
+    """How many bytes all the parameters and buffers of the model take."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# 9.3 Инициализация
+# 9.3 Initialization
 # ==========================================================================
 
 
 def init_linear_(layer: nn.Linear, std: float) -> nn.Linear:
-    """Инициализировать вес усечённым нормальным N(0, std) в пределах [-3*std, 3*std],
-    bias занулить. Вернуть тот же слой.
+    """Initialize the weight with a truncated normal N(0, std) within [-3*std, 3*std],
+    and zero out the bias. Return the same layer.
 
-    Подсказка: nn.init.trunc_normal_ и nn.init.zeros_. Всё in-place, под torch.no_grad
-    (функции из nn.init уже это делают за тебя).
+    Hint: nn.init.trunc_normal_ and nn.init.zeros_. Everything in-place, under torch.no_grad
+    (the functions from nn.init already do that for you).
     """
     raise NotImplementedError
 
 
 def init_all_linears_(model: nn.Module, std: float) -> nn.Module:
-    """Пройти по всему дереву модулей и инициализировать КАЖДЫЙ nn.Linear через init_linear_.
+    """Walk the whole module tree and initialize EVERY nn.Linear through init_linear_.
 
-    Подсказка: model.apply(fn) вызывает fn на каждом подмодуле.
+    Hint: model.apply(fn) calls fn on every submodule.
     """
     raise NotImplementedError
 
 
 def scaled_residual_std(base_std: float, n_layers: int) -> float:
-    """GPT-2-трюк: веса, пишущие в остаточный поток, инициализируют с std / sqrt(2*n_layers),
-    иначе дисперсия резидуала растёт с глубиной. Верни это значение.
+    """The GPT-2 trick: the weights that write into the residual stream are initialized with
+    std / sqrt(2*n_layers), otherwise the variance of the residual grows with depth. Return that value.
     """
     raise NotImplementedError
 
@@ -134,56 +134,56 @@ def scaled_residual_std(base_std: float, n_layers: int) -> float:
 
 
 def save_load_roundtrip(model: nn.Module) -> nn.Module:
-    """Сохранить state_dict в байтовый буфер (io.BytesIO) через torch.save,
-    создать НОВУЮ модель того же класса и формы, загрузить в неё веса, вернуть её.
+    """Save the state_dict into a byte buffer (io.BytesIO) through torch.save,
+    create a NEW model of the same class and shape, load the weights into it, and return it.
 
-    Для простоты считаем, что модель - это MyLinear(in, out).
+    For simplicity assume the model is a MyLinear(in, out).
     """
     raise NotImplementedError
 
 
 def strip_prefix(state_dict: dict[str, Tensor], prefix: str) -> dict[str, Tensor]:
-    """Убрать префикс из ключей (например `_orig_mod.`, который дописывает torch.compile,
-    или `module.`, который дописывает DDP). Ключи без префикса оставить как есть.
+    """Remove the prefix from the keys (for example `_orig_mod.`, which torch.compile prepends,
+    or `module.`, which DDP prepends). Leave the keys without the prefix as they are.
 
-    Ровно эта функция живёт в conftest.py первого ассайнмента CS336.
+    This exact function lives in the conftest.py of the first CS336 assignment.
     """
     raise NotImplementedError
 
 
 def tie_weights(embedding: MyEmbedding, head: MyLinear) -> None:
-    """Связать веса эмбеддинга и выходной проекции (weight tying): один и тот же тензор.
+    """Tie the weights of the embedding and the output projection (weight tying): one and the same tensor.
 
-    После вызова изменение одного должно быть видно в другом, а число уникальных
-    параметров модели - уменьшиться.
+    After the call a change in one must be visible in the other, and the number of unique
+    parameters of the model must go down.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 9.5 Режимы и хуки
+# 9.5 Modes and hooks
 # ==========================================================================
 
 
 def dropout_behaviour(p: float, x: Tensor) -> tuple[Tensor, Tensor]:
-    """Создать nn.Dropout(p) и вернуть (выход в train-режиме, выход в eval-режиме).
+    """Create an nn.Dropout(p) and return (the output in train mode, the output in eval mode).
 
-    Смысл: убедиться руками, что model.eval() выключает dropout, а не "уменьшает" его.
+    The point: to convince yourself by hand that model.eval() switches dropout off rather than "reducing" it.
     """
     raise NotImplementedError
 
 
 def capture_activations(model: nn.Sequential, x: Tensor) -> dict[str, Tensor]:
-    """Повесить forward-хуки на все подмодули и вернуть словарь {имя_модуля: выход}.
+    """Hang forward hooks on all the submodules and return a dict {module_name: output}.
 
-    Это основной способ дебажить "где взорвались активации" в большой модели.
-    Хуки после использования лучше снимать.
+    This is the main way to debug "where the activations blew up" in a large model.
+    The hooks are better removed once they have been used.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -216,7 +216,7 @@ def test_my_embedding():
 
 def test_buffer_is_not_a_parameter():
     layer = CausalSelfAttentionSkeleton(8)
-    assert "mask" in dict(layer.named_buffers()), "маска должна быть буфером"
+    assert "mask" in dict(layer.named_buffers()), "the mask must be a buffer"
     assert "mask" not in dict(layer.named_parameters())
     assert "mask" in layer.state_dict()
     assert count_parameters(layer) == 0
@@ -241,7 +241,7 @@ def test_parameter_names():
 
 
 def test_total_bytes():
-    model = MyLinear(4, 6)  # 24 весов + 6 bias, float32
+    model = MyLinear(4, 6)  # 24 weights + 6 bias, float32
     assert total_bytes(model) == (24 + 6) * 4
 
 
@@ -300,7 +300,7 @@ def test_tie_weights():
 
     model = nn.Sequential(emb, head)
     unique = {p.data_ptr() for p in model.parameters()}
-    assert len(unique) == 1, "после tying уникальный параметр должен быть один"
+    assert len(unique) == 1, "after tying there must be exactly one unique parameter"
 
 
 def test_dropout_behaviour():
@@ -317,7 +317,7 @@ def test_capture_activations():
     assert set(acts.keys()) == {"0", "1", "2"}
     assert acts["0"].shape == (5, 4)
     assert acts["2"].shape == (5, 2)
-    assert (acts["1"] >= 0).all(), "после ReLU не должно быть отрицательных"
+    assert (acts["1"] >= 0).all(), "after a ReLU there must be no negative values"
     assert model._forward_hooks == {} or len(model._forward_hooks) == 0
 
 

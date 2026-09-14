@@ -1,13 +1,13 @@
-"""Топик 17 - генерация: сэмплирование и KV-кеш.
+"""Topic 17 - generation: sampling and the KV cache.
 
-Две независимые темы, которые всегда идут вместе.
+Two independent topics that always go together.
 
-Сэмплирование: из логитов надо выбрать токен. Температура растягивает или сжимает
-распределение, top-k и top-p отрезают хвост, из которого модель несёт чушь.
+Sampling: a token has to be picked out of the logits. The temperature stretches or squeezes
+the distribution, top-k and top-p cut off the tail out of which the model talks nonsense.
 
-KV-кеш: при генерации по одному токену пересчитывать внимание по всему префиксу
-заново - это O(T^2) на каждый шаг. Вместо этого K и V прошлых позиций хранят и
-дописывают. Главное, что надо проверить - что с кешем получается РОВНО то же самое.
+The KV cache: when generating one token at a time, recomputing the attention over the whole prefix
+from scratch is O(T^2) per step. Instead the K and V of the past positions are stored and
+appended to. The main thing to check is that the cache gives EXACTLY the same result.
 """
 
 import pytest
@@ -17,39 +17,39 @@ import torch.nn.functional as F
 from torch import Tensor
 
 # ==========================================================================
-# 17.1 Фильтры для логитов
+# 17.1 Filters for the logits
 # ==========================================================================
 
 
 def apply_temperature(logits: Tensor, temperature: float) -> Tensor:
-    """Поделить логиты на температуру. При temperature == 0 вернуть логиты,
-    из которых argmax выбирается детерминированно (например, one-hot из -inf и 0):
-    это режим greedy.
+    """Divide the logits by the temperature. At temperature == 0 return logits
+    from which the argmax is picked deterministically (for example a one-hot of -inf and 0):
+    that is greedy mode.
     """
     raise NotImplementedError
 
 
 def top_k_filter(logits: Tensor, k: int) -> Tensor:
-    """(B, V) -> (B, V): всё, кроме top-k, заменить на -inf. При k <= 0 вернуть как есть."""
+    """(B, V) -> (B, V): replace everything except the top-k with -inf. At k <= 0 return it as is."""
     raise NotImplementedError
 
 
 def top_p_filter(logits: Tensor, p: float) -> Tensor:
-    """Nucleus sampling. Оставить минимальное множество токенов, суммарная вероятность
-    которых >= p (токен, который пересекает порог, ОСТАВЛЯЕМ), остальное -> -inf.
+    """Nucleus sampling. Keep the smallest set of tokens whose total probability
+    is >= p (the token that crosses the threshold IS KEPT), everything else -> -inf.
 
-    Алгоритм: отсортировать по убыванию, взять cumsum вероятностей, отбросить те,
-    у кого накопленная сумма ДО них уже >= p, вернуть маску в исходном порядке
-    (пригодится scatter из топика 05).
+    The algorithm: sort in descending order, take the cumsum of the probabilities, drop those
+    whose accumulated sum BEFORE them is already >= p, return the mask in the original order
+    (the scatter from topic 05 comes in handy).
     """
     raise NotImplementedError
 
 
 def repetition_penalty(logits: Tensor, generated: Tensor, penalty: float) -> Tensor:
-    """Штраф за повтор: логиты уже сгенерированных токенов делятся на penalty,
-    если они положительные, и умножаются на penalty, если отрицательные.
+    """The penalty for repetition: the logits of the already generated tokens are divided by penalty
+    if they are positive, and multiplied by penalty if they are negative.
 
-    logits: (B, V), generated: (B, T) уже выданные токены.
+    logits: (B, V), generated: (B, T) the tokens already produced.
     """
     raise NotImplementedError
 
@@ -61,22 +61,22 @@ def sample_from_logits(
     top_p: float = 1.0,
     generator: torch.Generator | None = None,
 ) -> Tensor:
-    """(B, V) -> (B,) int64. Порядок операций стандартный: температура, top-k, top-p, softmax,
-    multinomial. При temperature == 0 - жадный выбор без случайности.
+    """(B, V) -> (B,) int64. The order of the operations is the standard one: temperature, top-k, top-p, softmax,
+    multinomial. At temperature == 0 - a greedy choice without any randomness.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 17.2 KV-кеш
+# 17.2 The KV cache
 # ==========================================================================
 
 
 class KVCache:
-    """Хранилище K и V для одного слоя.
+    """The store of K and V for one layer.
 
-    append(k, v) дописывает новые позиции по оси времени и возвращает полные (k, v).
-    len(cache) - сколько позиций уже накоплено. Форма тензоров: (B, H, T, Dh).
+    append(k, v) appends the new positions along the time axis and returns the full (k, v).
+    len(cache) is how many positions have accumulated. The shape of the tensors: (B, H, T, Dh).
     """
 
     def __init__(self):
@@ -90,15 +90,15 @@ class KVCache:
 
 
 class CachedSelfAttention(nn.Module):
-    """Причинное самовнимание, умеющее работать пошагово.
+    """Causal self-attention that can work step by step.
 
     forward(x, cache=None):
-      - x: (B, T, D) - при первом вызове весь префикс, дальше по одному токену;
-      - если cache передан, новые k и v дописываются в него, а внимание считается
-        по всей накопленной истории;
-      - причинная маска нужна только когда T > 1: один новый токен и так видит всё прошлое.
+      - x: (B, T, D) - the whole prefix on the first call, one token at a time afterwards;
+      - if a cache is passed, the new k and v are appended to it and the attention is computed
+        over the whole accumulated history;
+      - the causal mask is only needed when T > 1: a single new token sees the whole past anyway.
 
-    Проекции: q_proj, k_proj, v_proj, output_proj без bias.
+    The projections: q_proj, k_proj, v_proj, output_proj without a bias.
     """
 
     def __init__(self, d_model: int, num_heads: int):
@@ -112,29 +112,29 @@ class CachedSelfAttention(nn.Module):
 def cache_memory_bytes(
     batch: int, num_layers: int, num_kv_heads: int, seq_len: int, head_dim: int, dtype: torch.dtype
 ) -> int:
-    """Память под KV-кеш: два тензора (K и V) на каждый слой.
+    """The memory for the KV cache: two tensors (K and V) per layer.
 
-    Именно эта величина - причина существования GQA и MQA.
+    This exact quantity is the reason GQA and MQA exist.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 17.3 Генерация
+# 17.3 Generation
 # ==========================================================================
 
 
 def greedy_generate(step_fn, prompt: Tensor, max_new_tokens: int) -> Tensor:
-    """step_fn(ids) -> логиты (B, T, V) для всего входа. Дописывать по одному
-    самому вероятному токену, возвращая (B, T_prompt + max_new_tokens).
+    """step_fn(ids) -> the logits (B, T, V) for the whole input. Append one
+    most probable token at a time, returning (B, T_prompt + max_new_tokens).
 
-    Это наивная версия без кеша: на каждом шаге прогоняется весь префикс.
+    This is the naive version without a cache: the whole prefix is run through at every step.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -143,7 +143,7 @@ def test_apply_temperature():
     torch.testing.assert_close(apply_temperature(logits, 2.0), logits / 2.0)
     hot = apply_temperature(logits, 0.5).softmax(-1)
     warm = apply_temperature(logits, 1.0).softmax(-1)
-    assert hot.max() > warm.max(), "низкая температура должна заострять распределение"
+    assert hot.max() > warm.max(), "a low temperature must sharpen the distribution"
 
     greedy = apply_temperature(logits, 0.0)
     assert greedy.argmax(-1).item() == 2
@@ -165,9 +165,9 @@ def test_top_p_filter():
     assert torch.isfinite(out[0, 0]) and torch.isfinite(out[0, 1])
     assert torch.isinf(out[0, 2]) and torch.isinf(out[0, 3])
 
-    # p = 1.0 не должен отрезать ничего
+    # p = 1.0 must not cut anything off
     torch.testing.assert_close(top_p_filter(logits, 1.0).softmax(-1), probs, atol=1e-6, rtol=1e-5)
-    # даже при крошечном p один токен обязан остаться, иначе сэмплировать не из чего
+    # even at a tiny p one token is obliged to remain, otherwise there is nothing to sample from
     assert torch.isfinite(top_p_filter(logits, 0.01)).sum().item() >= 1
 
 
@@ -175,7 +175,7 @@ def test_top_p_keeps_order_of_original_vocab():
     logits = torch.tensor([[0.1, 5.0, 0.2, 4.0]])
     out = top_p_filter(logits, 0.9)
     kept = torch.isfinite(out)[0]
-    assert bool(kept[1]) and bool(kept[3]), "оставлять надо самые вероятные, но на их исходных местах"
+    assert bool(kept[1]) and bool(kept[3]), "the most probable ones are kept, but in their original places"
     assert not bool(kept[0])
 
 
@@ -198,7 +198,7 @@ def test_sample_from_logits_respects_top_k():
     g = torch.Generator().manual_seed(0)
     logits = torch.tensor([[3.0, 2.9, 0.0, -5.0]])
     samples = torch.stack([sample_from_logits(logits, top_k=2, generator=g) for _ in range(200)])
-    assert set(samples.flatten().tolist()) <= {0, 1}, "top-k пропустил отрезанные токены"
+    assert set(samples.flatten().tolist()) <= {0, 1}, "top-k let the cut-off tokens through"
 
 
 def test_sample_from_logits_distribution():
@@ -224,8 +224,8 @@ def test_kv_cache_append():
 
 
 def test_incremental_decoding_matches_full_forward():
-    """Главный тест топика: пошаговая генерация с кешем обязана дать те же числа,
-    что и один проход по всей последовательности."""
+    """The main test of the topic: step-by-step generation with a cache is obliged to give the same numbers
+    as a single pass over the whole sequence."""
     torch.manual_seed(0)
     attn = CachedSelfAttention(32, 4)
     x = torch.randn(2, 6, 32)
@@ -241,7 +241,7 @@ def test_incremental_decoding_matches_full_forward():
 
 
 def test_prefill_then_decode():
-    """Реальный режим: сначала префилл всего промпта, потом по одному токену."""
+    """The real mode: first a prefill of the whole prompt, then one token at a time."""
     torch.manual_seed(0)
     attn = CachedSelfAttention(16, 2)
     x = torch.randn(1, 5, 16)
@@ -257,16 +257,16 @@ def test_prefill_then_decode():
 
 
 def test_cache_memory_bytes():
-    # LLaMA-2-7B: 32 слоя, 32 kv-головы, head_dim 128, bf16, батч 1, контекст 4096
+    # LLaMA-2-7B: 32 layers, 32 kv heads, head_dim 128, bf16, batch 1, a context of 4096
     mha = cache_memory_bytes(1, 32, 32, 4096, 128, torch.bfloat16)
     assert mha == 2 * 1 * 32 * 32 * 4096 * 128 * 2
-    # GQA с 8 kv-головами уменьшает кеш ровно в 4 раза
+    # GQA with 8 kv heads shrinks the cache exactly fourfold
     gqa = cache_memory_bytes(1, 32, 8, 4096, 128, torch.bfloat16)
     assert mha // gqa == 4
 
 
 def test_greedy_generate():
-    """Модель-заглушка всегда предсказывает "следующий токен = предыдущий + 1"."""
+    """The stub model always predicts "the next token = the previous one + 1"."""
 
     def step_fn(ids: Tensor) -> Tensor:
         B, T = ids.shape

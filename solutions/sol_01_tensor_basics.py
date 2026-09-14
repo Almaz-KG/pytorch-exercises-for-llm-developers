@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 01."""
+"""Reference solutions for topic 01."""
 
 import torch
 from torch import Tensor
@@ -36,7 +36,7 @@ def linear_combination(a: Tensor, b: Tensor, alpha: float, beta: float) -> Tenso
 
 
 def to_float32(x: Tensor) -> Tensor:
-    return x.to(torch.float32)  # .to() возвращает self, если dtype уже совпадает
+    return x.to(torch.float32)  # .to() returns self if the dtype already matches
 
 
 def mean_of_ints(x: Tensor) -> Tensor:

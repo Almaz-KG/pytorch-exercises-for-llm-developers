@@ -1,12 +1,12 @@
-"""Топик 06 - матричное умножение.
+"""Topic 06 - matrix multiplication.
 
-Что надо держать в голове:
-  - (M, K) @ (K, N) -> (M, N): совпадать должна внутренняя размерность;
-  - у torch.matmul ведущие оси broadcast-ятся, последние две перемножаются;
-  - nn.Linear хранит вес как (out_features, in_features) и считает x @ W.T;
-  - FLOPs одного matmul (M,K)x(K,N) = 2*M*N*K (умножение + сложение).
+What has to be kept in mind:
+  - (M, K) @ (K, N) -> (M, N): the inner dimension is the one that must match;
+  - in torch.matmul the leading axes broadcast and the last two get multiplied;
+  - nn.Linear stores the weight as (out_features, in_features) and computes x @ W.T;
+  - the FLOPs of one matmul (M,K)x(K,N) = 2*M*N*K (a multiply plus an add).
 
-Это тот самый слой, где рождается 99% времени обучения LLM.
+This is the very layer where 99% of LLM training time is born.
 """
 
 import pytest
@@ -14,7 +14,7 @@ import torch
 from torch import Tensor
 
 # ==========================================================================
-# 6.1 Базовые формы
+# 6.1 Basic shapes
 # ==========================================================================
 
 
@@ -24,66 +24,66 @@ def matvec(A: Tensor, x: Tensor) -> Tensor:
 
 
 def matmul_shape(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
-    """Предсказать форму torch.matmul(a, b) по формам (обе >= 2 осей),
-    учитывая broadcasting ведущих осей. Несовместимость - ValueError.
+    """Predict the shape of torch.matmul(a, b) from the shapes (both with >= 2 axes),
+    taking the broadcasting of the leading axes into account. Incompatibility - ValueError.
     """
     raise NotImplementedError
 
 
 def batched_matmul(a: Tensor, b: Tensor) -> Tensor:
-    """a: (B, H, T, Dh), b: (B, H, Dh, S) -> (B, H, T, S). Одним вызовом, без циклов по головам."""
+    """a: (B, H, T, Dh), b: (B, H, Dh, S) -> (B, H, T, S). In one call, without loops over the heads."""
     raise NotImplementedError
 
 
 def gram_matrix(x: Tensor) -> Tensor:
-    """x: (N, D) -> (N, N) матрица попарных скалярных произведений."""
+    """x: (N, D) -> (N, N) the matrix of pairwise dot products."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# 6.2 Линейный слой руками
+# 6.2 A linear layer by hand
 # ==========================================================================
 
 
 def linear_forward(x: Tensor, weight: Tensor, bias: Tensor | None = None) -> Tensor:
-    """Точная семантика nn.Linear: x: (..., in), weight: (out, in), bias: (out,) или None -> (..., out).
+    """The exact semantics of nn.Linear: x: (..., in), weight: (out, in), bias: (out,) or None -> (..., out).
 
-    Никакого reshape батча не нужно - matmul сам разберётся с ведущими осями.
+    No reshaping of the batch is needed - matmul sorts the leading axes out by itself.
     """
     raise NotImplementedError
 
 
 def linear_backward(grad_out: Tensor, x: Tensor, weight: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-    """Градиенты линейного слоя руками (без autograd).
+    """The gradients of a linear layer by hand (without autograd).
 
-    Вход: grad_out (N, out), x (N, in), weight (out, in).
-    Вернуть (grad_x (N, in), grad_weight (out, in), grad_bias (out,)).
+    Input: grad_out (N, out), x (N, in), weight (out, in).
+    Return (grad_x (N, in), grad_weight (out, in), grad_bias (out,)).
 
-    Формулы, которые стоит вывести на бумаге один раз и запомнить навсегда:
+    The formulas worth deriving on paper once and remembering forever:
       grad_x = grad_out @ W
       grad_W = grad_out^T @ x
-      grad_b = сумма grad_out по батчу
+      grad_b = the sum of grad_out over the batch
     """
     raise NotImplementedError
 
 
 def lora_delta(x: Tensor, A: Tensor, B: Tensor, alpha: float, rank: int) -> Tensor:
-    """LoRA-поправка: x: (N, in), A: (in, r), B: (r, out) -> (N, out), умноженная на alpha / rank.
+    """The LoRA correction: x: (N, in), A: (in, r), B: (r, out) -> (N, out), multiplied by alpha / rank.
 
-    Заодно вопрос на понимание: почему выгодно считать (x @ A) @ B, а не x @ (A @ B).
+    And a question of understanding along the way: why is it cheaper to compute (x @ A) @ B than x @ (A @ B).
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 6.3 Attention без einsum
+# 6.3 Attention without einsum
 # ==========================================================================
 
 
 def attention_scores(q: Tensor, k: Tensor) -> Tensor:
-    """q: (B, H, T, Dh), k: (B, H, S, Dh) -> (B, H, T, S), делённые на sqrt(Dh).
+    """q: (B, H, T, Dh), k: (B, H, S, Dh) -> (B, H, T, S), divided by sqrt(Dh).
 
-    Только matmul и transpose - никаких einsum, это упражнение на формы.
+    Only matmul and transpose - no einsum, this is an exercise in shapes.
     """
     raise NotImplementedError
 
@@ -94,50 +94,50 @@ def attention_output(weights: Tensor, v: Tensor) -> Tensor:
 
 
 # ==========================================================================
-# 6.4 Арифметика стоимости
+# 6.4 The arithmetic of cost
 # ==========================================================================
 
 
 def matmul_flops(m: int, k: int, n: int) -> int:
-    """FLOPs для (m, k) @ (k, n). Считаем умножение и сложение по одному флопу: 2*m*n*k."""
+    """The FLOPs for (m, k) @ (k, n). Count a multiply and an add as one flop each: 2*m*n*k."""
     raise NotImplementedError
 
 
 def cheaper_order(m: int, k: int, n: int, p: int) -> str:
-    """Даны A: (m, k), B: (k, n), C: (n, p).
-    Вернуть "left", если (A@B)@C дешевле, "right", если A@(B@C), "equal" при равенстве.
+    """Given A: (m, k), B: (k, n), C: (n, p).
+    Return "left" if (A@B)@C is cheaper, "right" if A@(B@C), "equal" if they are the same.
 
-    Это не абстракция: ровно так решают, считать ли (x@A)@B или x@(A@B) в LoRA
-    и в каком порядке сворачивать attention при очень длинном контексте.
+    This is not an abstraction: it is exactly how one decides whether to compute (x@A)@B or x@(A@B) in LoRA,
+    and in which order to contract attention on a very long context.
     """
     raise NotImplementedError
 
 
 def transformer_block_params(d_model: int, d_ff: int, num_heads: int) -> int:
-    """Число параметров одного блока трансформера БЕЗ bias и без нормализаций:
-    четыре матрицы attention (q, k, v, out) размера d_model x d_model
-    плюс FFN с двумя матрицами d_model x d_ff.
+    """The number of parameters of one transformer block WITHOUT biases and without normalizations:
+    four attention matrices (q, k, v, out) of size d_model x d_model
+    plus an FFN with two matrices d_model x d_ff.
 
-    num_heads на число параметров не влияет - это тоже часть проверки понимания.
+    num_heads does not affect the number of parameters - that too is part of the understanding check.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 6.5 Численность
+# 6.5 Numerics
 # ==========================================================================
 
 
 def matmul_accumulate_fp32(a: Tensor, b: Tensor) -> Tensor:
-    """a, b в bfloat16. Перемножить их с накоплением в float32 и вернуть float32.
+    """a, b are in bfloat16. Multiply them with accumulation in float32 and return float32.
 
-    Так делает реальный GPU-kernel: входы низкой точности, аккумулятор высокой.
+    This is what a real GPU kernel does: low precision inputs, a high precision accumulator.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -231,14 +231,14 @@ def test_attention_scores_and_output():
 
 def test_matmul_flops():
     assert matmul_flops(2, 3, 4) == 48
-    # forward одного слоя (batch 1024, d_model 4096, d_ff 16384)
+    # the forward pass of one layer (batch 1024, d_model 4096, d_ff 16384)
     assert matmul_flops(1024, 4096, 16384) == 2 * 1024 * 4096 * 16384
 
 
 def test_cheaper_order():
-    # узкое место посередине (n=2): дешевле сначала A@B, промежуточная матрица крошечная
+    # the bottleneck in the middle (n=2): cheaper to do A@B first, the intermediate matrix is tiny
     assert cheaper_order(1000, 1000, 2, 1000) == "left"
-    # узкий выход (p=2): дешевле сначала B@C - ровно логика LoRA и lm_head
+    # a narrow output (p=2): cheaper to do B@C first - exactly the logic of LoRA and lm_head
     assert cheaper_order(1000, 1000, 1000, 2) == "right"
     assert cheaper_order(10, 10, 10, 10) == "equal"
 

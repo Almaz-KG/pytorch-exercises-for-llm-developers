@@ -1,13 +1,13 @@
-"""Топик 12 - активации и FFN-блок.
+"""Topic 12 - activations and the FFN block.
 
-Эволюция FFN в трансформерах:
-  2017: FFN(x) = W2 @ ReLU(W1 @ x),                     две матрицы, d_ff = 4 * d_model
-  2020: GELU вместо ReLU (GPT-2/3)
-  2022+: SwiGLU (PaLM, LLaMA, задание CS336):
-         FFN(x) = W2 @ (SiLU(W1 @ x) * W3 @ x),         три матрицы, d_ff = 8/3 * d_model
+The evolution of the FFN in transformers:
+  2017: FFN(x) = W2 @ ReLU(W1 @ x),                     two matrices, d_ff = 4 * d_model
+  2020: GELU instead of ReLU (GPT-2/3)
+  2022+: SwiGLU (PaLM, LLaMA, the CS336 assignment):
+         FFN(x) = W2 @ (SiLU(W1 @ x) * W3 @ x),         three matrices, d_ff = 8/3 * d_model
 
-Множитель 8/3 не случаен: он подобран так, чтобы три матрицы SwiGLU весили столько же,
-сколько две матрицы обычного FFN с d_ff = 4 * d_model.
+The factor 8/3 is no accident: it is chosen so that the three matrices of SwiGLU weigh as much
+as the two matrices of an ordinary FFN with d_ff = 4 * d_model.
 """
 
 import pytest
@@ -17,52 +17,52 @@ import torch.nn.functional as F
 from torch import Tensor
 
 # ==========================================================================
-# 12.1 Активации руками
+# 12.1 Activations by hand
 # ==========================================================================
 
 
 def relu(x: Tensor) -> Tensor:
-    """max(x, 0) без F.relu."""
+    """max(x, 0) without F.relu."""
     raise NotImplementedError
 
 
 def gelu_exact(x: Tensor) -> Tensor:
-    """Точный GELU: x * 0.5 * (1 + erf(x / sqrt(2))). Без F.gelu."""
+    """The exact GELU: x * 0.5 * (1 + erf(x / sqrt(2))). Without F.gelu."""
     raise NotImplementedError
 
 
 def gelu_tanh(x: Tensor) -> Tensor:
-    """Приближение GELU через tanh (то, что стоит в GPT-2):
+    """The tanh approximation of GELU (the one that sits in GPT-2):
     0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))).
     """
     raise NotImplementedError
 
 
 def silu(x: Tensor) -> Tensor:
-    """SiLU (он же swish): x * sigmoid(x). Без F.silu."""
+    """SiLU (also known as swish): x * sigmoid(x). Without F.silu."""
     raise NotImplementedError
 
 
 def silu_grad(x: Tensor) -> Tensor:
-    """Производная SiLU, выведенная руками: sigmoid(x) * (1 + x * (1 - sigmoid(x)))."""
+    """The derivative of SiLU, derived by hand: sigmoid(x) * (1 + x * (1 - sigmoid(x)))."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# 12.2 FFN-блоки
+# 12.2 FFN blocks
 # ==========================================================================
 
 
 def ffn_relu(x: Tensor, w1: Tensor, w2: Tensor) -> Tensor:
-    """Классический FFN: x: (..., d_model), w1: (d_ff, d_model), w2: (d_model, d_ff).
+    """The classic FFN: x: (..., d_model), w1: (d_ff, d_model), w2: (d_model, d_ff).
 
-    Веса заданы в конвенции nn.Linear (out, in), то есть умножать надо на транспонированные.
+    The weights are given in the nn.Linear convention (out, in), so they have to be multiplied transposed.
     """
     raise NotImplementedError
 
 
 def swiglu(x: Tensor, w1: Tensor, w2: Tensor, w3: Tensor) -> Tensor:
-    """SwiGLU-FFN в конвенции CS336:
+    """The SwiGLU FFN in the CS336 convention:
     w1: (d_ff, d_model), w2: (d_model, d_ff), w3: (d_ff, d_model)
     out = (SiLU(x @ w1.T) * (x @ w3.T)) @ w2.T
     """
@@ -70,9 +70,9 @@ def swiglu(x: Tensor, w1: Tensor, w2: Tensor, w3: Tensor) -> Tensor:
 
 
 class SwiGLUFFN(nn.Module):
-    """Модуль SwiGLU с параметрами w1, w2, w3 (именно так они называются в тестах CS336).
+    """The SwiGLU module with the parameters w1, w2, w3 (that is exactly how they are named in the CS336 tests).
 
-    Смещений (bias) нет.
+    There are no biases.
     """
 
     def __init__(self, d_model: int, d_ff: int):
@@ -84,30 +84,30 @@ class SwiGLUFFN(nn.Module):
 
 
 # ==========================================================================
-# 12.3 Арифметика размеров
+# 12.3 The arithmetic of sizes
 # ==========================================================================
 
 
 def swiglu_d_ff(d_model: int, multiple_of: int = 64) -> int:
-    """Подобрать d_ff для SwiGLU: 8/3 * d_model, округлённое ВВЕРХ до кратного multiple_of.
+    """Pick d_ff for SwiGLU: 8/3 * d_model, rounded UP to a multiple of multiple_of.
 
-    Кратность нужна ради эффективности тензорных ядер GPU.
+    The multiple is needed for the efficiency of the GPU tensor cores.
     """
     raise NotImplementedError
 
 
 def ffn_params(d_model: int, d_ff: int, gated: bool) -> int:
-    """Число параметров FFN без bias: две матрицы для обычного, три для gated (SwiGLU)."""
+    """The number of FFN parameters without biases: two matrices for the ordinary one, three for a gated one (SwiGLU)."""
     raise NotImplementedError
 
 
 def ffn_flops(batch_tokens: int, d_model: int, d_ff: int, gated: bool) -> int:
-    """FLOPs forward-прохода FFN: сумма 2*m*n*k по всем матричным умножениям."""
+    """The FLOPs of the FFN forward pass: the sum of 2*m*n*k over all the matrix multiplications."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -127,7 +127,7 @@ def test_gelu_approximations_are_close():
 def test_activation_shapes_and_signs():
     x = torch.tensor([-3.0, 0.0, 3.0])
     torch.testing.assert_close(relu(x), torch.tensor([0.0, 0.0, 3.0]))
-    # в отличие от ReLU, GELU и SiLU не обнуляют слегка отрицательные значения полностью
+    # unlike ReLU, GELU and SiLU do not zero slightly negative values out completely
     assert gelu_exact(torch.tensor([-1.0])).item() < 0
     assert silu(torch.tensor([-1.0])).item() < 0
     torch.testing.assert_close(silu(torch.tensor([0.0])), torch.tensor([0.0]))
@@ -166,10 +166,10 @@ def test_swiglu_module():
 
 
 def test_swiglu_d_ff():
-    assert swiglu_d_ff(512) == 1408  # 8/3*512 = 1365.3 -> вверх до кратного 64
+    assert swiglu_d_ff(512) == 1408  # 8/3*512 = 1365.3 -> up to a multiple of 64
     assert swiglu_d_ff(768) == 2048
     assert swiglu_d_ff(4096) == 10944
-    assert swiglu_d_ff(4096, multiple_of=256) == 11008  # ровно d_ff LLaMA-7B
+    assert swiglu_d_ff(4096, multiple_of=256) == 11008  # exactly the d_ff of LLaMA-7B
     assert swiglu_d_ff(64, multiple_of=1) == 171
 
 
@@ -178,7 +178,7 @@ def test_ffn_params_are_comparable():
     plain = ffn_params(d, 4 * d, gated=False)
     gated = ffn_params(d, swiglu_d_ff(d), gated=True)
     assert plain == 2 * d * 4 * d
-    # три матрицы с d_ff = 8/3 d весят примерно столько же, сколько две с 4d
+    # three matrices with d_ff = 8/3 d weigh roughly as much as two with 4d
     assert abs(gated - plain) / plain < 0.1
 
 

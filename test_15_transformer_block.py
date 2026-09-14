@@ -1,16 +1,16 @@
-"""Топик 15 - собираем блок трансформера и целиком языковую модель.
+"""Topic 15 - assembling the transformer block and the whole language model.
 
-Да, часть кирпичей ты уже писал в топиках 11-14. Здесь они пишутся ещё раз, и это
-намеренно: цель упражнений - чтобы блок трансформера набирался руками без раздумий.
+Yes, some of these bricks were already written in topics 11-14. Here they are written once more, and that
+is deliberate: the goal of the exercises is for a transformer block to come out of the hands without thinking.
 
-Архитектура ровно та, что в задании CS336 (pre-norm, RMSNorm, RoPE опущен для краткости):
+The architecture is exactly the one in the CS336 assignment (pre-norm, RMSNorm, RoPE omitted for brevity):
 
     x = x + attn(ln1(x))
     x = x + ffn(ln2(x))
     ...
     logits = lm_head(ln_final(x))
 
-Имена подмодулей повторяют эталонный state_dict курса:
+The submodule names repeat the reference state_dict of the course:
     token_embeddings, layers.{i}.attn, layers.{i}.ffn, layers.{i}.ln1, layers.{i}.ln2,
     ln_final, lm_head
 """
@@ -23,12 +23,12 @@ import torch.nn as nn
 from torch import Tensor
 
 # ==========================================================================
-# 15.1 Кирпичи (повторение - мать мышечной памяти)
+# 15.1 The bricks (repetition is the mother of muscle memory)
 # ==========================================================================
 
 
 class RMSNorm(nn.Module):
-    """Параметр `weight` формы (d_model,), инициализирован единицами."""
+    """A `weight` parameter of shape (d_model,), initialized with ones."""
 
     def __init__(self, d_model: int, eps: float = 1e-5):
         super().__init__()
@@ -39,7 +39,7 @@ class RMSNorm(nn.Module):
 
 
 class SwiGLU(nn.Module):
-    """Подмодули w1, w2, w3 - nn.Linear без bias. out = w2(silu(w1(x)) * w3(x))."""
+    """The submodules w1, w2, w3 are nn.Linear without a bias. out = w2(silu(w1(x)) * w3(x))."""
 
     def __init__(self, d_model: int, d_ff: int):
         super().__init__()
@@ -50,8 +50,8 @@ class SwiGLU(nn.Module):
 
 
 class CausalSelfAttention(nn.Module):
-    """Подмодули q_proj, k_proj, v_proj, output_proj - nn.Linear(d_model, d_model, bias=False).
-    Причинное многоголовое внимание.
+    """The submodules q_proj, k_proj, v_proj, output_proj are nn.Linear(d_model, d_model, bias=False).
+    Causal multi-head attention.
     """
 
     def __init__(self, d_model: int, num_heads: int):
@@ -63,12 +63,12 @@ class CausalSelfAttention(nn.Module):
 
 
 # ==========================================================================
-# 15.2 Блок
+# 15.2 The block
 # ==========================================================================
 
 
 class TransformerBlock(nn.Module):
-    """Pre-norm блок. Подмодули обязаны называться ln1, attn, ln2, ffn.
+    """A pre-norm block. The submodules must be named ln1, attn, ln2, ffn.
 
     x = x + attn(ln1(x))
     x = x + ffn(ln2(x))
@@ -83,20 +83,20 @@ class TransformerBlock(nn.Module):
 
 
 # ==========================================================================
-# 15.3 Модель целиком
+# 15.3 The whole model
 # ==========================================================================
 
 
 class TransformerLM(nn.Module):
-    """Языковая модель.
+    """The language model.
 
-    Подмодули: token_embeddings (nn.Embedding), layers (nn.ModuleList из TransformerBlock),
+    The submodules: token_embeddings (nn.Embedding), layers (an nn.ModuleList of TransformerBlock),
     ln_final (RMSNorm), lm_head (nn.Linear(d_model, vocab_size, bias=False)).
 
     forward(ids: (B, T) int64) -> logits (B, T, vocab_size).
 
-    Инициализация: эмбеддинги и все линейные веса нормальным с std=0.02.
-    Это важно для теста "лосс необученной модели равен log(V)".
+    Initialization: the embeddings and all the linear weights from a normal with std=0.02.
+    This matters for the test "the loss of an untrained model equals log(V)".
     """
 
     def __init__(self, vocab_size: int, d_model: int, num_heads: int, d_ff: int, num_layers: int):
@@ -108,28 +108,28 @@ class TransformerLM(nn.Module):
 
 
 # ==========================================================================
-# 15.4 Арифметика модели
+# 15.4 The arithmetic of the model
 # ==========================================================================
 
 
 def count_lm_params(vocab_size: int, d_model: int, d_ff: int, num_layers: int, tied_embeddings: bool) -> int:
-    """Число параметров модели по формуле, без создания модели.
+    """The number of parameters of the model by formula, without creating the model.
 
-    Считаем: эмбеддинги + num_layers * (4 * d^2 внимания + 3 * d * d_ff у SwiGLU) + lm_head.
-    Нормализации и bias-ы игнорируем. При tied_embeddings=True lm_head не считается отдельно.
+    We count: the embeddings + num_layers * (4 * d^2 of attention + 3 * d * d_ff of SwiGLU) + lm_head.
+    Normalizations and biases are ignored. With tied_embeddings=True lm_head is not counted separately.
     """
     raise NotImplementedError
 
 
 def activation_memory_bytes(batch: int, seq_len: int, d_model: int, num_layers: int, dtype: torch.dtype) -> int:
-    """Грубая оценка памяти под активации остаточного потока: по одному тензору (B, T, D)
-    на каждый слой. Реальность хуже в разы, но порядок величины эта формула даёт.
+    """A rough estimate of the memory for the activations of the residual stream: one tensor (B, T, D)
+    per layer. Reality is several times worse, but this formula gives the order of magnitude.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -151,7 +151,7 @@ def test_block_is_pre_norm_with_residuals():
 
 
 def test_block_identity_when_sublayers_are_zero():
-    """Занулим выходные проекции - остаточный поток обязан пройти вход без изменений."""
+    """Zero out the output projections - the residual stream is obliged to carry the input through unchanged."""
     block = TransformerBlock(16, 2, 32)
     with torch.no_grad():
         block.attn.output_proj.weight.zero_()
@@ -186,23 +186,23 @@ def test_lm_is_causal():
     logits = model.lm_head(model.ln_final(h))
     logits[0, 2].sum().backward()
 
-    assert emb.grad[0, 3:].abs().max().item() == 0.0, "модель подглядывает в будущее"
+    assert emb.grad[0, 3:].abs().max().item() == 0.0, "the model is peeking into the future"
     assert emb.grad[0, :3].abs().max().item() > 0.0
 
 
 def test_untrained_loss_is_log_vocab():
-    """Первая проверка любого запуска обучения: лосс на старте должен быть ~log(V)."""
+    """The first check of any training run: the loss at the start must be ~log(V)."""
     torch.manual_seed(0)
     V = 512
     model = TransformerLM(vocab_size=V, d_model=64, num_heads=4, d_ff=128, num_layers=2)
     ids = torch.randint(0, V, (4, 16))
     logits = model(ids)
     loss = nn.functional.cross_entropy(logits.reshape(-1, V), ids.reshape(-1))
-    assert abs(loss.item() - math.log(V)) < 0.3, f"лосс {loss.item():.3f}, ожидалось ~{math.log(V):.3f}"
+    assert abs(loss.item() - math.log(V)) < 0.3, f"loss {loss.item():.3f}, expected ~{math.log(V):.3f}"
 
 
 def test_lm_can_overfit_one_batch():
-    """Модель обязана уметь запомнить один батч - иначе где-то оборван граф или маска."""
+    """The model must be able to memorize a single batch - otherwise the graph or the mask is broken somewhere."""
     torch.manual_seed(0)
     V = 32
     model = TransformerLM(vocab_size=V, d_model=64, num_heads=4, d_ff=128, num_layers=2)
@@ -219,11 +219,11 @@ def test_lm_can_overfit_one_batch():
         opt.step()
         if step == 0:
             first = loss.item()
-    assert loss.item() < 0.1 * first, f"лосс не упал: {first:.3f} -> {loss.item():.3f}"
+    assert loss.item() < 0.1 * first, f"the loss did not fall: {first:.3f} -> {loss.item():.3f}"
 
 
 def test_count_lm_params():
-    # упрощённый GPT-2 small: 12 слоёв, d=768, но с SwiGLU FFN
+    # a simplified GPT-2 small: 12 layers, d=768, but with a SwiGLU FFN
     n = count_lm_params(vocab_size=50257, d_model=768, d_ff=3072, num_layers=12, tied_embeddings=True)
     per_layer = 4 * 768 * 768 + 3 * 768 * 3072
     assert n == 50257 * 768 + 12 * per_layer
@@ -236,7 +236,7 @@ def test_count_matches_real_model():
     model = TransformerLM(vocab_size=100, d_model=32, num_heads=4, d_ff=64, num_layers=2)
     formula = count_lm_params(100, 32, 64, 2, tied_embeddings=False)
     real = sum(p.numel() for p in model.parameters())
-    # разница - только веса нормализаций: 2 на слой плюс финальная
+    # the difference is only the normalization weights: 2 per layer plus the final one
     assert real - formula == (2 * 2 + 1) * 32
 
 

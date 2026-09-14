@@ -1,14 +1,14 @@
-"""Топик 11 - LayerNorm и RMSNorm.
+"""Topic 11 - LayerNorm and RMSNorm.
 
-Формулы:
-  LayerNorm: (x - mean) / sqrt(var + eps) * gamma + beta, статистики по последней оси.
-  RMSNorm:   x / sqrt(mean(x^2) + eps) * gamma - без вычитания среднего и без bias.
+The formulas:
+  LayerNorm: (x - mean) / sqrt(var + eps) * gamma + beta, with the statistics over the last axis.
+  RMSNorm:   x / sqrt(mean(x^2) + eps) * gamma - without subtracting the mean and without a bias.
 
-Почему это важно: RMSNorm дешевле (нет среднего, нет beta) и работает не хуже,
-поэтому LLaMA, Qwen, Mistral и задание CS336 используют именно его.
+Why this matters: RMSNorm is cheaper (no mean, no beta) and works no worse,
+which is why LLaMA, Qwen, Mistral and the CS336 assignment all use it.
 
-Отдельная тема - точность: статистики считают в float32, даже если модель в bf16,
-иначе дисперсия схлопывается в мусор.
+A separate topic is precision: the statistics are computed in float32 even when the model is in bf16,
+otherwise the variance collapses into garbage.
 """
 
 import pytest
@@ -18,38 +18,38 @@ import torch.nn.functional as F
 from torch import Tensor
 
 # ==========================================================================
-# 11.1 Функциональные версии
+# 11.1 The functional versions
 # ==========================================================================
 
 
 def layer_norm(x: Tensor, weight: Tensor, bias: Tensor, eps: float = 1e-5) -> Tensor:
-    """LayerNorm по последней оси, без F.layer_norm. Дисперсия смещённая (знаменатель N)."""
+    """LayerNorm along the last axis, without F.layer_norm. The variance is biased (denominator N)."""
     raise NotImplementedError
 
 
 def rms_norm(x: Tensor, weight: Tensor, eps: float = 1e-5) -> Tensor:
-    """RMSNorm по последней оси: x / sqrt(mean(x^2) + eps) * weight."""
+    """RMSNorm along the last axis: x / sqrt(mean(x^2) + eps) * weight."""
     raise NotImplementedError
 
 
 def rms_norm_upcast(x: Tensor, weight: Tensor, eps: float = 1e-5) -> Tensor:
-    """То же, но вход может быть bfloat16: посчитать нормализацию в float32
-    и вернуть результат В ИСХОДНОМ dtype входа.
+    """The same, but the input may be bfloat16: compute the normalization in float32
+    and return the result IN THE ORIGINAL dtype of the input.
 
-    Именно так написан RMSNorm в реальных репозиториях.
+    This is exactly how RMSNorm is written in real repositories.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 11.2 Модули
+# 11.2 The modules
 # ==========================================================================
 
 
 class RMSNorm(nn.Module):
-    """Модуль RMSNorm: обучаемый параметр `weight` формы (d_model,), инициализированный единицами.
+    """The RMSNorm module: a trainable `weight` parameter of shape (d_model,), initialized with ones.
 
-    Никаких buffer-ов и bias-а.
+    No buffers and no bias.
     """
 
     def __init__(self, d_model: int, eps: float = 1e-5):
@@ -61,7 +61,7 @@ class RMSNorm(nn.Module):
 
 
 class LayerNormModule(nn.Module):
-    """Модуль LayerNorm с параметрами `weight` (единицы) и `bias` (нули)."""
+    """The LayerNorm module with the parameters `weight` (ones) and `bias` (zeros)."""
 
     def __init__(self, d_model: int, eps: float = 1e-5):
         super().__init__()
@@ -72,48 +72,48 @@ class LayerNormModule(nn.Module):
 
 
 # ==========================================================================
-# 11.3 Куда ставить норму
+# 11.3 Where to put the norm
 # ==========================================================================
 
 
 def post_norm_residual(x: Tensor, sublayer_out: Tensor, norm: nn.Module) -> Tensor:
-    """Оригинальный трансформер (2017): norm(x + sublayer(x))."""
+    """The original transformer (2017): norm(x + sublayer(x))."""
     raise NotImplementedError
 
 
 def pre_norm_residual(x: Tensor, sublayer: nn.Module, norm: nn.Module) -> Tensor:
-    """Современный вариант: x + sublayer(norm(x)).
+    """The modern variant: x + sublayer(norm(x)).
 
-    Разница не косметическая: в pre-norm остаточный поток идёт от входа к выходу
-    без единой нормализации, поэтому градиент не затухает и модель учится без warmup-костылей.
+    The difference is not cosmetic: in pre-norm the residual stream runs from the input to the output
+    without a single normalization, so the gradient does not decay and the model trains without warmup crutches.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 11.4 Свойства
+# 11.4 Properties
 # ==========================================================================
 
 
 def scale_invariance_gap(x: Tensor, c: float) -> Tensor:
-    """Максимальная разница между rms_norm(x) и rms_norm(c*x) при c > 0 (weight=1).
+    """The maximum difference between rms_norm(x) and rms_norm(c*x) for c > 0 (weight=1).
 
-    RMSNorm инвариантен к масштабу входа - вот почему он стабилизирует обучение.
+    RMSNorm is invariant to the scale of the input - that is why it stabilizes training.
     """
     raise NotImplementedError
 
 
 def stats_after_layernorm(x: Tensor) -> tuple[Tensor, Tensor]:
-    """Применить layer_norm с weight=1, bias=0 и вернуть (среднее по последней оси,
-    смещённое стандартное отклонение по последней оси).
+    """Apply layer_norm with weight=1, bias=0 and return (the mean over the last axis,
+    the biased standard deviation over the last axis).
 
-    Должно получиться примерно 0 и 1 - это определение LayerNorm.
+    It should come out as roughly 0 and 1 - that is the definition of LayerNorm.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -126,7 +126,7 @@ def test_layer_norm_matches_torch():
 def test_layer_norm_zero_input_is_finite():
     x = torch.zeros(2, 8)
     out = layer_norm(x, torch.ones(8), torch.zeros(8))
-    assert torch.isfinite(out).all(), "нулевой вход не должен давать nan - для этого eps"
+    assert torch.isfinite(out).all(), "a zero input must not give nan - that is what eps is for"
 
 
 def test_rms_norm_matches_reference():
@@ -137,7 +137,7 @@ def test_rms_norm_matches_reference():
 
 
 def test_rms_norm_no_mean_subtraction():
-    """Сдвиг всего вектора на константу МЕНЯЕТ выход RMSNorm (в отличие от LayerNorm)."""
+    """Shifting the whole vector by a constant DOES change the output of RMSNorm (unlike LayerNorm)."""
     x = torch.randn(4, 8)
     w = torch.ones(8)
     assert not torch.allclose(rms_norm(x, w), rms_norm(x + 5.0, w), atol=1e-3)
@@ -150,7 +150,7 @@ def test_rms_norm_upcast():
     x = torch.randn(4, 64).to(torch.bfloat16)
     w = torch.ones(64, dtype=torch.bfloat16)
     out = rms_norm_upcast(x, w)
-    assert out.dtype == torch.bfloat16, "вернуть надо исходный dtype"
+    assert out.dtype == torch.bfloat16, "the original dtype is what has to be returned"
     reference = rms_norm(x.float(), w.float()).to(torch.bfloat16)
     torch.testing.assert_close(out, reference, atol=1e-2, rtol=1e-2)
 
@@ -159,7 +159,7 @@ def test_rms_norm_module():
     norm = RMSNorm(16)
     assert isinstance(norm.weight, nn.Parameter)
     torch.testing.assert_close(norm.weight, torch.ones(16))
-    assert set(norm.state_dict().keys()) == {"weight"}, "у RMSNorm нет bias"
+    assert set(norm.state_dict().keys()) == {"weight"}, "RMSNorm has no bias"
 
     x = torch.randn(2, 5, 16)
     torch.testing.assert_close(norm(x), rms_norm(x, norm.weight.detach()))
@@ -187,7 +187,7 @@ def test_norm_placement():
 
 
 def test_pre_norm_keeps_identity_path():
-    """Если подслой выдаёт нули, pre-norm обязан вернуть вход БЕЗ изменений."""
+    """If the sublayer outputs zeros, pre-norm must return the input UNCHANGED."""
 
     class Zero(nn.Module):
         def forward(self, t: Tensor) -> Tensor:
@@ -212,7 +212,7 @@ def test_stats_after_layernorm():
 def test_rms_norm_gradients():
     x = torch.randn(3, 8, dtype=torch.float64, requires_grad=True)
     w = torch.randn(8, dtype=torch.float64, requires_grad=True)
-    assert torch.autograd.gradcheck(lambda a, b: rms_norm(a, b), (x, w)), "градиенты RMSNorm не сошлись"
+    assert torch.autograd.gradcheck(lambda a, b: rms_norm(a, b), (x, w)), "the RMSNorm gradients did not converge"
 
 
 @pytest.mark.parametrize("shape", [(8,), (3, 8), (2, 3, 8)])

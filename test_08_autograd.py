@@ -1,11 +1,11 @@
-"""Топик 08 - autograd.
+"""Topic 08 - autograd.
 
-Модель мышления: каждая операция над тензором с requires_grad=True дописывает узел
-в граф. backward() идёт по графу назад и КОПИТ (не перезаписывает!) градиенты в .grad
-у листовых тензоров.
+The mental model: every operation on a tensor with requires_grad=True appends a node
+to the graph. backward() walks the graph backwards and ACCUMULATES (does not overwrite!)
+the gradients in .grad on the leaf tensors.
 
-Здесь же - ручной вывод градиентов, который дальше понадобится для flash-attention
-и кастомных ядер: если ты умеешь написать backward сам, ты понимаешь слой по-настоящему.
+Here too is the manual derivation of gradients, which will be needed later for flash-attention
+and custom kernels: if you can write a backward yourself, you understand the layer for real.
 """
 
 from collections.abc import Callable
@@ -16,105 +16,105 @@ import torch.nn as nn
 from torch import Tensor
 
 # ==========================================================================
-# 8.1 Базовый цикл backward
+# 8.1 The basic backward cycle
 # ==========================================================================
 
 
 def grad_of_sum_of_squares(x: Tensor) -> Tensor:
-    """x - тензор без requires_grad. Посчитать d(sum(x^2))/dx и вернуть градиент.
+    """x is a tensor without requires_grad. Compute d(sum(x^2))/dx and return the gradient.
 
-    Ожидаемо это 2*x, но получить его надо через autograd, а не формулой.
+    It is 2*x as expected, but it has to be obtained through autograd, not by the formula.
     """
     raise NotImplementedError
 
 
 def grad_functional(x: Tensor) -> Tensor:
-    """То же самое, но через torch.autograd.grad (без .backward() и без .grad).
+    """The same thing, but through torch.autograd.grad (without .backward() and without .grad).
 
-    Функциональный API удобен, когда не хочется трогать .grad у параметров.
+    The functional API is convenient when you do not want to touch .grad on the parameters.
     """
     raise NotImplementedError
 
 
 def grads_accumulate(x: Tensor) -> tuple[Tensor, Tensor]:
-    """Взять y = sum(x^2), вызвать backward ДВАЖДЫ (сохрани граф) и вернуть
-    (градиент после первого вызова, градиент после второго).
+    """Take y = sum(x^2), call backward TWICE (keep the graph) and return
+    (the gradient after the first call, the gradient after the second).
 
-    Смысл: показать себе руками, что второй backward прибавляется к первому.
-    Именно поэтому в цикле обучения есть optimizer.zero_grad().
+    The point: to show yourself by hand that the second backward is added to the first.
+    That is exactly why the training loop has optimizer.zero_grad().
     """
     raise NotImplementedError
 
 
 def stop_gradient(a: Tensor, b: Tensor) -> tuple[Tensor, Tensor]:
-    """a, b - листья с requires_grad=True. Посчитать y = sum(a * b), но так,
-    чтобы градиент НЕ шёл в b. Вернуть (a.grad, b.grad) - второй должен быть None.
+    """a, b are leaves with requires_grad=True. Compute y = sum(a * b), but in such a way
+    that the gradient does NOT flow into b. Return (a.grad, b.grad) - the second must be None.
     """
     raise NotImplementedError
 
 
 def forward_without_graph(x: Tensor, w: Tensor) -> Tensor:
-    """Посчитать x @ w так, чтобы результат не требовал градиента и граф не строился.
+    """Compute x @ w so that the result does not require a gradient and no graph is built.
 
-    Это режим inference: экономит память в разы.
+    This is inference mode: it saves memory several times over.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 8.2 Производные посложнее
+# 8.2 Harder derivatives
 # ==========================================================================
 
 
 def second_derivative(x: Tensor) -> Tensor:
-    """Вторая производная f(x) = sum(x^3) по x, то есть 6*x, через autograd.
+    """The second derivative of f(x) = sum(x^3) with respect to x, that is 6*x, through autograd.
 
-    Подсказка: create_graph=True на первом дифференцировании.
+    Hint: create_graph=True on the first differentiation.
     """
     raise NotImplementedError
 
 
 def vjp(f: Callable[[Tensor], Tensor], x: Tensor, v: Tensor) -> Tensor:
-    """Vector-Jacobian product: (v^T J) для f в точке x. Это ровно то, что делает backward.
+    """Vector-Jacobian product: (v^T J) for f at the point x. This is exactly what backward does.
 
-    x без requires_grad, вернуть тензор формы x.
+    x comes without requires_grad, return a tensor with the shape of x.
     """
     raise NotImplementedError
 
 
 def numeric_grad(f: Callable[[Tensor], Tensor], x: Tensor, eps: float = 1e-4) -> Tensor:
-    """Численный градиент скалярной функции центральными разностями.
+    """The numeric gradient of a scalar function by central differences.
 
-    (f(x + eps*e_i) - f(x - eps*e_i)) / (2*eps) для каждой координаты.
-    Здесь цикл по элементам разрешён - это отладочный инструмент, им проверяют
-    правильность аналитических градиентов.
+    (f(x + eps*e_i) - f(x - eps*e_i)) / (2*eps) for every coordinate.
+    A loop over the elements is allowed here - this is a debugging instrument,
+    the one used to check that analytic gradients are right.
     """
     raise NotImplementedError
 
 
 def softmax_vjp(probs: Tensor, grad_out: Tensor) -> Tensor:
-    """Градиент softmax, выведенный руками (без autograd).
+    """The gradient of softmax, derived by hand (without autograd).
 
-    probs - УЖЕ посчитанный softmax по последней оси, grad_out - градиент сверху.
-    Известный результат: grad_in = probs * (grad_out - sum(grad_out * probs, dim=-1, keepdim=True)).
+    probs is the ALREADY computed softmax along the last axis, grad_out is the gradient from above.
+    The known result: grad_in = probs * (grad_out - sum(grad_out * probs, dim=-1, keepdim=True)).
 
-    Выведи его сам из J_ij = p_i (delta_ij - p_j) - эта формула ещё встретится
-    в backward attention.
+    Derive it yourself from J_ij = p_i (delta_ij - p_j) - this formula will come up again
+    in the backward pass of attention.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 8.3 Кастомные autograd-функции
+# 8.3 Custom autograd functions
 # ==========================================================================
 
 
 class SquareFunction(torch.autograd.Function):
-    """y = x^2 со своим backward. Реализуй forward и backward.
+    """y = x^2 with its own backward. Implement forward and backward.
 
-    Правила: forward принимает ctx первым аргументом, сохраняет нужное через
-    ctx.save_for_backward, backward получает grad_output и возвращает градиент
-    по каждому входу forward.
+    The rules: forward takes ctx as its first argument and saves what it needs through
+    ctx.save_for_backward, backward receives grad_output and returns the gradient
+    with respect to every input of forward.
     """
 
     @staticmethod
@@ -127,11 +127,11 @@ class SquareFunction(torch.autograd.Function):
 
 
 class STEQuantize(torch.autograd.Function):
-    """Straight-through estimator: округляем в forward, а в backward делаем вид,
-    что операция была тождественной.
+    """Straight-through estimator: we round in forward, and in backward we pretend
+    the operation was the identity.
 
-    На этом трюке держится квантизационно-осознанное обучение (QAT):
-    round недифференцируем, но обучать модель как-то надо.
+    Quantization-aware training (QAT) rests on this trick:
+    round is not differentiable, but the model has to be trained somehow.
     """
 
     @staticmethod
@@ -144,39 +144,39 @@ class STEQuantize(torch.autograd.Function):
 
 
 # ==========================================================================
-# 8.4 Градиенты в реальном коде модели
+# 8.4 Gradients in real model code
 # ==========================================================================
 
 
 def embedding_grad(table_size: tuple[int, int], ids: Tensor) -> Tensor:
-    """Создать таблицу эмбеддингов нужного размера, требующую градиент,
-    сделать lookup по ids, взять сумму всех значений, вызвать backward
-    и вернуть градиент таблицы.
+    """Create an embedding table of the given size that requires a gradient,
+    do a lookup by ids, take the sum of all the values, call backward
+    and return the gradient of the table.
 
-    Итог поучителен: градиент строки равен числу её употреблений.
-    Именно поэтому редкие токены учатся медленно.
+    The result is instructive: the gradient of a row equals the number of its uses.
+    That is exactly why rare tokens learn slowly.
     """
     raise NotImplementedError
 
 
 def freeze_all_but_last(model: nn.Sequential) -> int:
-    """Заморозить все параметры, кроме параметров последнего модуля,
-    и вернуть число обучаемых параметров (элементов, не тензоров).
+    """Freeze every parameter except the parameters of the last module,
+    and return the number of trainable parameters (elements, not tensors).
 
-    Это буквально linear probing / частичный fine-tuning.
+    This is literally linear probing / partial fine-tuning.
     """
     raise NotImplementedError
 
 
 def grad_norm_after_backward(model: nn.Module, x: Tensor, target: Tensor) -> float:
-    """Прогнать x через model, взять MSE-лосс к target, backward, вернуть
-    глобальную L2-норму градиентов всех параметров как python float.
+    """Run x through model, take the MSE loss against target, backward, and return
+    the global L2 norm of the gradients of all the parameters as a python float.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -203,7 +203,7 @@ def test_stop_gradient():
     b = torch.randn(3, requires_grad=True)
     ga, gb = stop_gradient(a, b)
     torch.testing.assert_close(ga, b.detach())
-    assert gb is None, "градиент в b просочился"
+    assert gb is None, "the gradient leaked into b"
 
 
 def test_forward_without_graph():
@@ -253,7 +253,7 @@ def test_square_function():
     torch.testing.assert_close(x.grad, 2 * x.detach() * g)
 
     x64 = torch.randn(4, dtype=torch.float64, requires_grad=True)
-    assert torch.autograd.gradcheck(SquareFunction.apply, (x64,)), "gradcheck не сошёлся"
+    assert torch.autograd.gradcheck(SquareFunction.apply, (x64,)), "gradcheck did not converge"
 
 
 def test_ste_quantize():
@@ -261,7 +261,7 @@ def test_ste_quantize():
     y = STEQuantize.apply(x)
     torch.testing.assert_close(y, torch.tensor([0.0, 2.0, -0.0]))
     y.sum().backward()
-    torch.testing.assert_close(x.grad, torch.ones(3), msg="STE должен пропускать градиент как есть")
+    torch.testing.assert_close(x.grad, torch.ones(3), msg="an STE must pass the gradient through as is")
 
 
 def test_embedding_grad():

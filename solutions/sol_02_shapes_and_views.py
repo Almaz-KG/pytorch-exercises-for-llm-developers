@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 02."""
+"""Reference solutions for topic 02."""
 
 import torch
 import torch.nn.functional as F

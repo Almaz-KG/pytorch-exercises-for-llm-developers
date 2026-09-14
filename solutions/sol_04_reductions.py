@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 04."""
+"""Reference solutions for topic 04."""
 
 import torch
 from torch import Tensor

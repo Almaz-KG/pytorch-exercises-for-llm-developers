@@ -1,10 +1,10 @@
-"""Топик 05 - индексация, gather/scatter, маски.
+"""Topic 05 - indexing, gather/scatter, masks.
 
-Здесь живут операции, без которых не написать ни лосс, ни сэмплирование:
-  - embedding lookup - это просто индексация матрицы;
-  - "вероятность правильного токена" - это gather;
-  - "оставить только top-k логитов" - это topk + scatter;
-  - "взять последний непустой токен" - это gather по длинам.
+Here live the operations without which neither a loss nor sampling can be written:
+  - an embedding lookup is just indexing a matrix;
+  - "the probability of the correct token" is a gather;
+  - "keep only the top-k logits" is topk + scatter;
+  - "take the last non-empty token" is a gather over the lengths.
 """
 
 import pytest
@@ -12,145 +12,145 @@ import torch
 from torch import Tensor
 
 # ==========================================================================
-# 5.1 Индексация как embedding lookup
+# 5.1 Indexing as an embedding lookup
 # ==========================================================================
 
 
 def embedding_lookup(table: Tensor, ids: Tensor) -> Tensor:
-    """table: (V, D), ids: (B, T) int64 -> (B, T, D). Обычной индексацией, без nn.Embedding."""
+    """table: (V, D), ids: (B, T) int64 -> (B, T, D). With ordinary indexing, without nn.Embedding."""
     raise NotImplementedError
 
 
 def select_rows(x: Tensor, rows: list[int]) -> Tensor:
-    """Выбрать указанные строки матрицы в указанном порядке (можно с повторами)."""
+    """Pick the given rows of a matrix in the given order (repeats allowed)."""
     raise NotImplementedError
 
 
 def fancy_index_pairs(x: Tensor, batch_idx: Tensor, pos_idx: Tensor) -> Tensor:
     """x: (B, T, D), batch_idx: (N,), pos_idx: (N,) -> (N, D),
-    где out[n] = x[batch_idx[n], pos_idx[n]].
+    where out[n] = x[batch_idx[n], pos_idx[n]].
 
-    Это "продвинутая индексация двумя тензорами" - оси индексов идут парами.
+    This is "advanced indexing with two tensors" - the index axes go in pairs.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 5.2 gather - выдёргивание значений по индексам
+# 5.2 gather - pulling out values by index
 # ==========================================================================
 
 
 def gather_target_logits(logits: Tensor, targets: Tensor) -> Tensor:
-    """logits: (B, T, V), targets: (B, T) -> (B, T): логит правильного токена.
+    """logits: (B, T, V), targets: (B, T) -> (B, T): the logit of the correct token.
 
-    Самая частая gather-конструкция во всём обучении LM.
-    Подсказка: torch.gather требует, чтобы index имел столько же осей, сколько input.
+    The most frequent gather construction in all of LM training.
+    Hint: torch.gather requires index to have as many axes as input.
     """
     raise NotImplementedError
 
 
 def last_valid_hidden(h: Tensor, lengths: Tensor) -> Tensor:
-    """h: (B, T, D), lengths: (B,) int64 (число настоящих токенов) -> (B, D):
-    скрытое состояние последнего настоящего токена каждой последовательности.
+    """h: (B, T, D), lengths: (B,) int64 (the number of real tokens) -> (B, D):
+    the hidden state of the last real token of each sequence.
 
-    Так делают pooling для классификации на decoder-only модели.
+    This is how pooling for classification is done on a decoder-only model.
     """
     raise NotImplementedError
 
 
 def gather_beams(x: Tensor, beam_idx: Tensor) -> Tensor:
-    """x: (B, D), beam_idx: (B,) -> (B, D): переупорядочить строки по индексам.
-    Так beam search перетасовывает KV-кеш после каждого шага.
+    """x: (B, D), beam_idx: (B,) -> (B, D): reorder the rows by the indices.
+    This is how beam search reshuffles the KV cache after every step.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 5.3 scatter - запись по индексам
+# 5.3 scatter - writing by index
 # ==========================================================================
 
 
 def scatter_one_hot(ids: Tensor, vocab_size: int) -> Tensor:
-    """ids: (B, T) -> (B, T, V) float one-hot, собранный через scatter_ (не F.one_hot)."""
+    """ids: (B, T) -> (B, T, V) float one-hot, assembled through scatter_ (not F.one_hot)."""
     raise NotImplementedError
 
 
 def bag_of_words(ids: Tensor, vocab_size: int) -> Tensor:
-    """ids: (B, T) -> (B, V) float: сколько раз каждый токен встретился в строке.
+    """ids: (B, T) -> (B, V) float: how many times each token occurred in the row.
 
-    Подсказка: scatter_add_ с источником из единиц.
+    Hint: scatter_add_ with a source of ones.
     """
     raise NotImplementedError
 
 
 def keep_top_k(logits: Tensor, k: int) -> Tensor:
-    """logits: (B, V) -> (B, V), где всё, кроме top-k значений в строке, заменено на -inf.
+    """logits: (B, V) -> (B, V), where everything except the top-k values in the row is replaced by -inf.
 
-    Ровно этот приём стоит внутри top-k сэмплирования.
-    Подсказка: topk даёт индексы; сделай тензор из -inf и scatter в него найденные значения.
+    This exact trick sits inside top-k sampling.
+    Hint: topk gives the indices; make a tensor of -inf and scatter the found values into it.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 5.4 Булевы маски
+# 5.4 Boolean masks
 # ==========================================================================
 
 
 def select_valid(x: Tensor, mask: Tensor) -> Tensor:
-    """x: (B, T, D), mask: (B, T) bool -> (N, D): только настоящие токены, "распрямлённые" в один список.
+    """x: (B, T, D), mask: (B, T) bool -> (N, D): only the real tokens, "straightened out" into one list.
 
-    Так делают packing перед лоссом, чтобы не считать градиенты по padding.
+    This is how packing before the loss is done, so that no gradients are computed over padding.
     """
     raise NotImplementedError
 
 
 def replace_where(x: Tensor, cond: Tensor, value: float) -> Tensor:
-    """Вернуть копию x, где по условию cond стоит value (in-place не трогаем)."""
+    """Return a copy of x where value stands wherever cond holds (leave in-place alone)."""
     raise NotImplementedError
 
 
 def find_positions(ids: Tensor, token_id: int) -> Tensor:
-    """ids: (T,) -> (N,) int64: позиции, где стоит token_id.
+    """ids: (T,) -> (N,) int64: the positions where token_id stands.
 
-    Пригодится для поиска <|endoftext|> в потоке токенов.
+    Useful for finding <|endoftext|> in a stream of tokens.
     """
     raise NotImplementedError
 
 
 def mask_after_eos(ids: Tensor, eos_id: int) -> Tensor:
-    """ids: (B, T) -> (B, T) bool: True для позиций ДО первого eos включительно,
-    False для всего, что после него. Если eos нет - вся строка True.
+    """ids: (B, T) -> (B, T) bool: True for the positions UP TO the first eos inclusive,
+    False for everything after it. If there is no eos - the whole row is True.
 
-    Подсказка: cumsum по булеву тензору "здесь был eos" даёт число встреченных eos;
-    сравни его с 1 аккуратно, чтобы сам eos остался True. Без циклов.
+    Hint: a cumsum over the boolean tensor "there was an eos here" gives the number of eos seen;
+    compare it against 1 carefully, so that the eos itself stays True. Without loops.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 5.5 Подготовка обучающих пар
+# 5.5 Preparing training pairs
 # ==========================================================================
 
 
 def make_lm_pairs(ids: Tensor) -> tuple[Tensor, Tensor]:
-    """ids: (B, T+1) -> (inputs (B, T), targets (B, T)), сдвиг на один токен.
+    """ids: (B, T+1) -> (inputs (B, T), targets (B, T)), a shift by one token.
 
-    Модель по позиции i предсказывает токен i+1 - вот и весь next token prediction.
+    At position i the model predicts token i+1 - that is the whole of next token prediction.
     """
     raise NotImplementedError
 
 
 def expand_for_beams(x: Tensor, num_beams: int) -> Tensor:
-    """x: (B, T) -> (B * num_beams, T), где строки ОДНОГО примера идут подряд.
+    """x: (B, T) -> (B * num_beams, T), where the rows of ONE example go one after another.
 
-    Подсказка: repeat_interleave, а не repeat - порядок разный, и это ловушка.
+    Hint: repeat_interleave, not repeat - the order differs, and that is the trap.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -228,7 +228,7 @@ def test_keep_top_k():
     assert torch.isinf(out[0, 3]) and out[0, 3] < 0
     torch.testing.assert_close(out[0, 1], torch.tensor(5.0))
     torch.testing.assert_close(out[0, 2], torch.tensor(3.0))
-    # softmax по такому тензору обязан дать ровно k ненулевых вероятностей
+    # a softmax over such a tensor must give exactly k non-zero probabilities
     probs = out.softmax(dim=-1)
     assert int((probs > 0).sum().item()) == 2
     torch.testing.assert_close(probs.sum(), torch.tensor(1.0))
@@ -249,7 +249,7 @@ def test_replace_where():
     original = x.clone()
     out = replace_where(x, x < 0, 0.0)
     torch.testing.assert_close(out, torch.tensor([[1.0, 0.0], [2.0, 0.0]]))
-    torch.testing.assert_close(x, original, msg="вход изменять нельзя")
+    torch.testing.assert_close(x, original, msg="the input must not be modified")
 
 
 def test_find_positions():

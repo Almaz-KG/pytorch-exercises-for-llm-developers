@@ -1,14 +1,14 @@
-"""Топик 18 (сложный) - память и численность: online softmax, flash-attention, чекпоинтинг.
+"""Topic 18 (hard) - memory and numerics: online softmax, flash-attention, checkpointing.
 
-Все задачи этого файла об одном: как посчитать то же самое, но не аллоцируя
-огромный промежуточный тензор.
+Every task in this file is about one thing: how to compute the same result without allocating
+a huge intermediate tensor.
 
-  - матрица внимания T x T не влезает в память -> online softmax и блочное внимание;
-  - логиты (N, 50257) не влезают -> кросс-энтропия по кускам;
-  - активации всех слоёв не влезают -> gradient checkpointing;
-  - fp16 переполняется -> loss scaling.
+  - the T x T attention matrix does not fit in memory -> online softmax and blockwise attention;
+  - the logits (N, 50257) do not fit -> cross-entropy in chunks;
+  - the activations of all the layers do not fit -> gradient checkpointing;
+  - fp16 overflows -> loss scaling.
 
-Это уже уровень ассайнмента 2 CS336. Если проходит - с трансформерами ты на "ты".
+This is already the level of CS336 assignment 2. If it passes, you are on first-name terms with transformers.
 """
 
 import math
@@ -26,72 +26,72 @@ from torch.utils.checkpoint import checkpoint
 
 
 def online_softmax_update(m_prev: Tensor, l_prev: Tensor, scores_block: Tensor) -> tuple[Tensor, Tensor]:
-    """Инкрементальный пересчёт статистик softmax при добавлении нового блока логитов.
+    """The incremental recomputation of the softmax statistics when a new block of logits is added.
 
-    Вход: m_prev (..., 1) - текущий максимум, l_prev (..., 1) - текущая сумма exp
-    относительно ЭТОГО максимума, scores_block (..., Sb) - новые логиты.
+    Input: m_prev (..., 1) - the current maximum, l_prev (..., 1) - the current sum of exp
+    relative to THAT maximum, scores_block (..., Sb) - the new logits.
 
-    Вернуть (m_new, l_new), где
+    Return (m_new, l_new), where
         m_new = max(m_prev, max(scores_block))
         l_new = l_prev * exp(m_prev - m_new) + sum(exp(scores_block - m_new))
 
-    Это ядро flash-attention: сумма экспонент обновляется без хранения всех логитов.
+    This is the core of flash-attention: the sum of exponentials is updated without storing all the logits.
     """
     raise NotImplementedError
 
 
 def chunked_softmax(x: Tensor, chunk: int) -> Tensor:
-    """Softmax по последней оси, посчитанный за два прохода блоками размера chunk:
-    сначала online-статистики (m, l), потом сами вероятности.
+    """A softmax along the last axis computed in two passes over blocks of size chunk:
+    first the online statistics (m, l), then the probabilities themselves.
 
-    Результат обязан совпасть с обычным softmax до последнего бита точности float32.
+    The result is obliged to match an ordinary softmax down to the last bit of float32 precision.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 18.2 Flash-attention (упрощённый, только forward)
+# 18.2 Flash-attention (simplified, forward only)
 # ==========================================================================
 
 
 def flash_attention_forward(q: Tensor, k: Tensor, v: Tensor, block_size: int = 32, causal: bool = False) -> Tensor:
-    """Блочное внимание без материализации матрицы (T, S).
+    """Blockwise attention without materializing the (T, S) matrix.
 
     q: (B, H, T, Dh), k, v: (B, H, S, Dh) -> (B, H, T, Dh).
 
-    Схема (flash-attention v2):
-      для каждого блока запросов держим бегущие (m, l, накопленный выход);
-      идём по блокам ключей, для каждого считаем локальные логиты,
-      обновляем m и l по online-правилу, корректируем накопленный выход
-      множителем exp(m_old - m_new), в конце делим на l.
+    The scheme (flash-attention v2):
+      for every block of queries we keep a running (m, l, accumulated output);
+      we walk over the blocks of keys, compute the local logits for each,
+      update m and l by the online rule, correct the accumulated output
+      by the factor exp(m_old - m_new), and divide by l at the end.
 
-    Полностью замаскированные блоки (при causal=True) можно пропускать -
-      это заодно спасает от nan вида exp(-inf - (-inf)).
+    Fully masked blocks (when causal=True) may be skipped -
+      that also saves you from a nan of the form exp(-inf - (-inf)).
 
-    Размеры НЕ обязаны делиться на block_size.
+    The sizes are NOT obliged to be divisible by block_size.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 18.3 Кросс-энтропия без материализации логитов
+# 18.3 Cross-entropy without materializing the logits
 # ==========================================================================
 
 
 def chunked_cross_entropy(hidden: Tensor, weight: Tensor, targets: Tensor, chunk: int) -> Tensor:
-    """hidden: (N, D), weight: (V, D) - вес lm_head, targets: (N,).
+    """hidden: (N, D), weight: (V, D) - the weight of lm_head, targets: (N,).
 
-    Посчитать средний CE, НЕ создавая тензор логитов (N, V) целиком:
-    идти кусками по токенам, для каждого куска считать свои логиты и его вклад в лосс.
+    Compute the mean CE WITHOUT creating the logit tensor (N, V) in full:
+    walk in chunks over the tokens, and for every chunk compute its own logits and its contribution to the loss.
 
-    Градиенты должны течь и в hidden, и в weight.
-    Для 8k токенов и словаря 128k такой тензор логитов весит 4 ГБ - отсюда и задача.
+    The gradients must flow both into hidden and into weight.
+    For 8k tokens and a vocabulary of 128k such a logit tensor weighs 4 GB - hence the task.
     """
     raise NotImplementedError
 
 
 def chunked_logsumexp(x: Tensor, chunk: int) -> Tensor:
-    """logsumexp по последней оси блоками, через online-обновление. (N, V) -> (N,)."""
+    """A logsumexp along the last axis in blocks, through the online update. (N, V) -> (N,)."""
     raise NotImplementedError
 
 
@@ -101,56 +101,56 @@ def chunked_logsumexp(x: Tensor, chunk: int) -> Tensor:
 
 
 def checkpointed_sequential(blocks: nn.ModuleList, x: Tensor, use_checkpoint: bool) -> Tensor:
-    """Прогнать x через список блоков. При use_checkpoint=True каждый блок обёрнут
-    в torch.utils.checkpoint.checkpoint (use_reentrant=False), то есть его активации
-    не сохраняются, а пересчитываются на backward.
+    """Run x through the list of blocks. With use_checkpoint=True every block is wrapped
+    in torch.utils.checkpoint.checkpoint (use_reentrant=False), that is, its activations
+    are not saved but recomputed on the backward pass.
 
-    Компромисс: примерно +30% времени, но память под активации падает с O(L) до O(sqrt(L))
-    или даже O(1) при наивной схеме.
+    The trade-off: roughly +30% time, but the memory for the activations drops from O(L) to O(sqrt(L))
+    or even O(1) under a naive scheme.
     """
     raise NotImplementedError
 
 
 def count_saved_tensors(blocks: nn.ModuleList, x: Tensor, use_checkpoint: bool) -> int:
-    """Сколько тензоров граф автограда сохранил для backward. Это прямое измерение
-    того, что даёт чекпоинтинг.
+    """How many tensors the autograd graph saved for the backward pass. This is a direct measurement
+    of what checkpointing buys.
 
-    Подсказка: контекст torch.autograd.graph.saved_tensors_hooks(pack, unpack) вызывает
-    pack на каждом сохраняемом тензоре. Считаем вызовы pack во время forward.
+    Hint: the context torch.autograd.graph.saved_tensors_hooks(pack, unpack) calls
+    pack on every saved tensor. We count the pack calls during the forward pass.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 18.5 Смешанная точность
+# 18.5 Mixed precision
 # ==========================================================================
 
 
 def scale_and_check(grads: list[Tensor], scale: float) -> tuple[list[Tensor], bool]:
-    """Разделить градиенты на scale (unscale) и сказать, встретились ли inf/nan.
+    """Divide the gradients by scale (unscale) and say whether any inf/nan showed up.
 
-    Это сердце GradScaler: если found_inf, шаг оптимизатора пропускают, а scale уменьшают.
-    Возвращать (список раз-масштабированных градиентов, found_inf).
+    This is the heart of GradScaler: if found_inf, the optimizer step is skipped and the scale is reduced.
+    Return (the list of unscaled gradients, found_inf).
     """
     raise NotImplementedError
 
 
 def next_scale(scale: float, found_inf: bool, growth_interval_reached: bool) -> float:
-    """Правило GradScaler: при found_inf уменьшить масштаб вдвое,
-    иначе при достижении интервала роста - удвоить, иначе оставить как есть.
+    """The GradScaler rule: on found_inf halve the scale,
+    otherwise, if the growth interval has been reached, double it, otherwise leave it as it is.
     """
     raise NotImplementedError
 
 
 def safe_softmax_fp16(logits: Tensor) -> Tensor:
-    """logits приходят в float16 и могут быть большими. Посчитать softmax так,
-    чтобы не было переполнения, и вернуть результат в float16.
+    """The logits arrive in float16 and may be large. Compute the softmax in such a way
+    that there is no overflow, and return the result in float16.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -191,7 +191,7 @@ def test_flash_attention_causal():
     torch.manual_seed(0)
     q, k, v = torch.randn(1, 2, 37, 8), torch.randn(1, 2, 37, 8), torch.randn(1, 2, 37, 8)
     out = flash_attention_forward(q, k, v, block_size=8, causal=True)
-    assert torch.isfinite(out).all(), "где-то получился exp(-inf - (-inf))"
+    assert torch.isfinite(out).all(), "somewhere an exp(-inf - (-inf)) came out"
     torch.testing.assert_close(out, F.scaled_dot_product_attention(q, k, v, is_causal=True), atol=1e-5, rtol=1e-5)
 
 
@@ -264,8 +264,8 @@ def test_checkpointing_shrinks_the_graph():
     x = torch.randn(3, 8, requires_grad=True)
     plain = count_saved_tensors(blocks, x, use_checkpoint=False)
     ckpt = count_saved_tensors(blocks, x, use_checkpoint=True)
-    assert ckpt < plain, f"чекпоинтинг не сократил сохранённое: {ckpt} против {plain}"
-    assert ckpt <= len(blocks), "с чекпоинтингом хранится примерно по одному входу на блок"
+    assert ckpt < plain, f"checkpointing did not shrink what is saved: {ckpt} against {plain}"
+    assert ckpt <= len(blocks), "with checkpointing roughly one input per block is kept"
 
 
 def test_scale_and_check():
@@ -295,6 +295,6 @@ def test_safe_softmax_fp16():
     logits = torch.tensor([[60000.0, 60000.0, 0.0]], dtype=torch.float16)
     out = safe_softmax_fp16(logits)
     assert out.dtype == torch.float16
-    assert torch.isfinite(out).all(), "fp16 переполнился на exp"
+    assert torch.isfinite(out).all(), "fp16 overflowed on the exp"
     torch.testing.assert_close(out.float().sum(), torch.tensor(1.0), atol=1e-3, rtol=1e-3)
     assert abs(out[0, 0].item() - 0.5) < 1e-2

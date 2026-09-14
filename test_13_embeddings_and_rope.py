@@ -1,17 +1,17 @@
-"""Топик 13 - эмбеддинги и позиционные кодировки, включая RoPE.
+"""Topic 13 - embeddings and positional encodings, RoPE included.
 
-Позиционная информация в трансформер попадает одним из трёх способов:
-  1. абсолютные синусоиды (2017): прибавляются к эмбеддингам один раз;
-  2. обучаемые абсолютные позиции (GPT-2): просто ещё одна таблица эмбеддингов;
-  3. RoPE (LLaMA, Qwen, CS336): поворот q и k на угол, пропорциональный позиции.
+Positional information reaches a transformer in one of three ways:
+  1. absolute sinusoids (2017): added to the embeddings once;
+  2. learned absolute positions (GPT-2): simply one more embedding table;
+  3. RoPE (LLaMA, Qwen, CS336): a rotation of q and k by an angle proportional to the position.
 
-Почему победил RoPE: после поворота скалярное произведение q_i . k_j зависит ТОЛЬКО
-от разности позиций i - j. То есть модель получает относительные позиции бесплатно,
-не тратя ни одного параметра, и это переносится на длины, которых не было в обучении.
+Why RoPE won: after the rotation the dot product q_i . k_j depends ONLY
+on the difference of the positions i - j. That is, the model gets relative positions for free,
+without spending a single parameter, and it carries over to lengths that were never in training.
 
-Конвенция RoPE в этом файле (она же в CS336): вектор головы длины Dh (Dh чётное)
-разбивается на СОСЕДНИЕ пары (x0, x1), (x2, x3), ... Пара номер i поворачивается
-на угол pos * theta^(-2i/Dh).
+The RoPE convention in this file (the same one as in CS336): a head vector of length Dh (Dh even)
+is split into ADJACENT pairs (x0, x1), (x2, x3), ... Pair number i is rotated
+by the angle pos * theta^(-2i/Dh).
 """
 
 import math
@@ -22,28 +22,28 @@ import torch.nn as nn
 from torch import Tensor
 
 # ==========================================================================
-# 13.1 Эмбеддинги
+# 13.1 Embeddings
 # ==========================================================================
 
 
 def scaled_token_embedding(table: Tensor, ids: Tensor) -> Tensor:
-    """Lookup, умноженный на sqrt(d_model) - так делает оригинальный трансформер,
-    чтобы эмбеддинги и позиционные синусоиды были сравнимы по масштабу.
+    """A lookup multiplied by sqrt(d_model) - this is what the original transformer does,
+    so that the embeddings and the positional sinusoids are comparable in scale.
     """
     raise NotImplementedError
 
 
 def learned_positional(embed: Tensor, pos_table: Tensor, offset: int = 0) -> Tensor:
-    """embed: (B, T, D), pos_table: (max_len, D) -> (B, T, D): прибавить позиционные векторы
-    для позиций offset, offset+1, ..., offset+T-1.
+    """embed: (B, T, D), pos_table: (max_len, D) -> (B, T, D): add the positional vectors
+    for the positions offset, offset+1, ..., offset+T-1.
 
-    offset нужен при генерации: на шаге декодирования у нас один токен, но его позиция не нулевая.
+    The offset is needed during generation: at a decoding step we have one token, but its position is not zero.
     """
     raise NotImplementedError
 
 
 def sinusoidal_pe(seq_len: int, d_model: int) -> Tensor:
-    """Синусоидальные позиционные кодировки (T, D) из статьи 2017 года:
+    """The sinusoidal positional encodings (T, D) from the 2017 paper:
     PE[pos, 2i]   = sin(pos / 10000^(2i/d))
     PE[pos, 2i+1] = cos(pos / 10000^(2i/d))
     """
@@ -51,75 +51,75 @@ def sinusoidal_pe(seq_len: int, d_model: int) -> Tensor:
 
 
 # ==========================================================================
-# 13.2 RoPE: частоты и кеш
+# 13.2 RoPE: frequencies and the cache
 # ==========================================================================
 
 
 def rope_inv_freq(d_head: int, theta: float = 10000.0) -> Tensor:
-    """(d_head // 2,): обратные частоты theta^(-2i/d_head) для i = 0, 1, ..., d_head/2 - 1.
+    """(d_head // 2,): the inverse frequencies theta^(-2i/d_head) for i = 0, 1, ..., d_head/2 - 1.
 
-    Первая пара крутится быстро (частота 1), последняя - очень медленно.
+    The first pair spins fast (frequency 1), the last one very slowly.
     """
     raise NotImplementedError
 
 
 def rope_cos_sin(seq_len: int, d_head: int, theta: float = 10000.0, offset: int = 0) -> tuple[Tensor, Tensor]:
-    """Кеш поворотов: два тензора (seq_len, d_head // 2) с косинусами и синусами углов
+    """The cache of rotations: two tensors (seq_len, d_head // 2) with the cosines and sines of the angles
     (offset + pos) * inv_freq[i].
 
-    В реальной модели это считают один раз и держат как буфер.
+    In a real model this is computed once and kept as a buffer.
     """
     raise NotImplementedError
 
 
 def apply_rope(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
-    """x: (..., T, Dh), cos/sin: (T, Dh // 2) -> тензор той же формы.
+    """x: (..., T, Dh), cos/sin: (T, Dh // 2) -> a tensor of the same shape.
 
-    Каждая соседняя пара (x[..., 2i], x[..., 2i+1]) поворачивается на свой угол:
+    Every adjacent pair (x[..., 2i], x[..., 2i+1]) is rotated by its own angle:
       out_even = x_even * cos - x_odd * sin
       out_odd  = x_even * sin + x_odd * cos
 
-    Функция должна работать и для (T, Dh), и для (B, H, T, Dh) - за счёт broadcasting.
+    The function must work both for (T, Dh) and for (B, H, T, Dh) - thanks to broadcasting.
     """
     raise NotImplementedError
 
 
 def apply_rope_to_qk(q: Tensor, k: Tensor, theta: float = 10000.0, offset: int = 0) -> tuple[Tensor, Tensor]:
-    """Удобная обёртка: q, k формы (B, H, T, Dh) -> повёрнутые q, k.
+    """A convenience wrapper: q, k of shape (B, H, T, Dh) -> the rotated q, k.
 
-    Обрати внимание: RoPE применяют к q и k, но НЕ к v.
+    Note: RoPE is applied to q and k, but NOT to v.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 13.3 Свойства RoPE, которые и делают его полезным
+# 13.3 The properties of RoPE that make it useful
 # ==========================================================================
 
 
 def rope_dot_product(q: Tensor, k: Tensor, pos_q: int, pos_k: int, theta: float = 10000.0) -> Tensor:
-    """q, k: (Dh,). Повернуть q на позицию pos_q, k на позицию pos_k, вернуть их скалярное произведение.
+    """q, k: (Dh,). Rotate q to the position pos_q, k to the position pos_k, and return their dot product.
 
-    Понадобится, чтобы проверить относительность.
+    This will be needed to check the relativity.
     """
     raise NotImplementedError
 
 
 def rope_norm_change(x: Tensor, pos: int, theta: float = 10000.0) -> Tensor:
-    """Насколько поворот меняет норму вектора. Ожидаемо - никак: это чистый поворот."""
+    """By how much the rotation changes the norm of the vector. As expected - not at all: it is a pure rotation."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# 13.4 Модуль
+# 13.4 The module
 # ==========================================================================
 
 
 class RotaryEmbedding(nn.Module):
-    """Модуль, который держит кеши cos и sin как БУФЕРЫ (не параметры!) до max_len
-    и применяет их к тензору (B, H, T, Dh) с учётом смещения позиций.
+    """A module that keeps the cos and sin caches as BUFFERS (not parameters!) up to max_len
+    and applies them to a tensor (B, H, T, Dh), taking the position offset into account.
 
-    Буферы должны называться `cos_cached` и `sin_cached`, обучаемых параметров быть не должно.
+    The buffers must be named `cos_cached` and `sin_cached`, and there must be no trainable parameters.
     """
 
     def __init__(self, d_head: int, max_len: int, theta: float = 10000.0):
@@ -131,7 +131,7 @@ class RotaryEmbedding(nn.Module):
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -155,10 +155,10 @@ def test_sinusoidal_pe():
     pe = sinusoidal_pe(6, 8)
     assert pe.shape == (6, 8)
     torch.testing.assert_close(pe[0], torch.tensor([0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0]))
-    # первая пара каналов крутится с частотой 1
+    # the first pair of channels spins with frequency 1
     torch.testing.assert_close(pe[1, 0], torch.sin(torch.tensor(1.0)))
     torch.testing.assert_close(pe[1, 1], torch.cos(torch.tensor(1.0)))
-    # последняя пара - очень медленно
+    # the last pair very slowly
     assert pe[1, -1].item() > 0.999
 
 
@@ -167,7 +167,7 @@ def test_rope_inv_freq():
     assert f.shape == (4,)
     torch.testing.assert_close(f[0], torch.tensor(1.0))
     torch.testing.assert_close(f[3], torch.tensor(10000.0 ** (-6 / 8)))
-    assert (f[1:] < f[:-1]).all(), "частоты должны убывать"
+    assert (f[1:] < f[:-1]).all(), "the frequencies must decrease"
 
 
 def test_rope_cos_sin():
@@ -191,7 +191,7 @@ def test_apply_rope_position_zero_is_identity():
 
 
 def test_apply_rope_explicit_small_case():
-    """Dh = 2, одна пара, inv_freq = [1]. Значит поворот на угол, равный самой позиции."""
+    """Dh = 2, one pair, inv_freq = [1]. So the rotation is by an angle equal to the position itself."""
     x = torch.tensor([[1.0, 0.0], [1.0, 0.0], [0.0, 1.0]])  # (T=3, Dh=2)
     cos, sin = rope_cos_sin(3, 2)
     out = apply_rope(x, cos, sin)
@@ -208,12 +208,12 @@ def test_apply_rope_preserves_norm():
 
 
 def test_rope_is_relative():
-    """Ключевое свойство: скалярное произведение зависит только от разности позиций."""
+    """The key property: the dot product depends only on the difference of the positions."""
     q, k = torch.randn(16), torch.randn(16)
     base = rope_dot_product(q, k, 5, 3)
     for pq, pk in [(2, 0), (10, 8), (101, 99)]:
         torch.testing.assert_close(rope_dot_product(q, k, pq, pk), base, atol=1e-4, rtol=1e-4)
-    # а при другой разности значение обязано отличаться
+    # and at a different difference the value is obliged to differ
     assert not torch.allclose(rope_dot_product(q, k, 5, 0), base, atol=1e-3)
 
 
@@ -230,7 +230,7 @@ def test_apply_rope_to_qk():
     cos, sin = rope_cos_sin(T, Dh)
     torch.testing.assert_close(qr, apply_rope(q, cos, sin))
 
-    # смещение позиций - режим генерации по одному токену
+    # a position offset - the generation mode, one token at a time
     q1 = q[:, :, 3:4]
     q1_shifted, _ = apply_rope_to_qk(q1, q1, offset=3)
     torch.testing.assert_close(q1_shifted, qr[:, :, 3:4], atol=1e-5, rtol=1e-5)
@@ -238,7 +238,7 @@ def test_apply_rope_to_qk():
 
 def test_rotary_embedding_module():
     rope = RotaryEmbedding(8, max_len=16)
-    assert sum(p.numel() for p in rope.parameters()) == 0, "у RoPE нет обучаемых параметров"
+    assert sum(p.numel() for p in rope.parameters()) == 0, "RoPE has no trainable parameters"
     assert set(rope.state_dict().keys()) == {"cos_cached", "sin_cached"}
 
     x = torch.randn(2, 3, 5, 8)

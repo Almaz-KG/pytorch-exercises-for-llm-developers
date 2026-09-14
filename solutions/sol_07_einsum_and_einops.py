@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 07."""
+"""Reference solutions for topic 07."""
 
 import torch
 from einops import rearrange, reduce, repeat

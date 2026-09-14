@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 06."""
+"""Reference solutions for topic 06."""
 
 import torch
 from torch import Tensor
@@ -10,14 +10,14 @@ def matvec(A: Tensor, x: Tensor) -> Tensor:
 
 def matmul_shape(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
     if a[-1] != b[-2]:
-        raise ValueError(f"внутренние размерности не совпадают: {a[-1]} vs {b[-2]}")
+        raise ValueError(f"the inner dimensions do not match: {a[-1]} vs {b[-2]}")
     lead_a, lead_b = a[:-2], b[:-2]
     lead: list[int] = []
     for i in range(1, max(len(lead_a), len(lead_b)) + 1):
         da = lead_a[-i] if i <= len(lead_a) else 1
         db = lead_b[-i] if i <= len(lead_b) else 1
         if da != db and da != 1 and db != 1:
-            raise ValueError(f"ведущие оси не broadcast-ятся: {a} vs {b}")
+            raise ValueError(f"the leading axes do not broadcast: {a} vs {b}")
         lead.append(max(da, db))
     return tuple(reversed(lead)) + (a[-2], b[-1])
 
@@ -43,7 +43,7 @@ def linear_backward(grad_out: Tensor, x: Tensor, weight: Tensor) -> tuple[Tensor
 
 
 def lora_delta(x: Tensor, A: Tensor, B: Tensor, alpha: float, rank: int) -> Tensor:
-    # (x @ A) @ B: промежуточный тензор (N, r) вместо матрицы (in, out)
+    # (x @ A) @ B: an intermediate tensor (N, r) instead of an (in, out) matrix
     return (x @ A) @ B * (alpha / rank)
 
 

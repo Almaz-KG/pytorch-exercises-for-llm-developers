@@ -1,11 +1,11 @@
-"""Топик 02 - формы, view, перестановки осей.
+"""Topic 02 - shapes, views, axis permutations.
 
-Что тренируем: reshape/view, permute/transpose, contiguous, squeeze/unsqueeze,
-cat/stack/split/chunk, expand vs repeat, unfold (скользящее окно), pad.
+What we drill: reshape/view, permute/transpose, contiguous, squeeze/unsqueeze,
+cat/stack/split/chunk, expand vs repeat, unfold (sliding window), pad.
 
-Это самый частый источник багов в LLM-коде: "почему у меня (B, H, T, D), а надо (B, T, H, D)".
-Соглашение по именам осей во всём курсе:
-  B - batch, T - длина последовательности (time), D - d_model, H - число голов, Dh - размер головы.
+This is the most frequent source of bugs in LLM code: "why do I have (B, H, T, D) when I need (B, T, H, D)".
+The axis naming convention used throughout the course:
+  B - batch, T - sequence length (time), D - d_model, H - number of heads, Dh - head size.
 """
 
 import pytest
@@ -19,159 +19,159 @@ from torch import Tensor
 
 
 def flatten_tokens(x: Tensor) -> Tensor:
-    """(B, T, D) -> (B*T, D). Именно так схлопывают батч перед lm_head или лоссом."""
+    """(B, T, D) -> (B*T, D). This is exactly how the batch is collapsed before lm_head or the loss."""
     raise NotImplementedError
 
 
 def unflatten_tokens(x: Tensor, batch_size: int) -> Tensor:
-    """(B*T, D) -> (B, T, D). Обратная операция."""
+    """(B*T, D) -> (B, T, D). The inverse operation."""
     raise NotImplementedError
 
 
 def flatten_all_but_last(x: Tensor) -> Tensor:
-    """(..., D) -> (N, D), где N - произведение всех ведущих осей.
+    """(..., D) -> (N, D), where N is the product of all the leading axes.
 
-    Подсказка: -1 в reshape вычисляется автоматически.
+    Hint: -1 in reshape is computed automatically.
     """
     raise NotImplementedError
 
 
 def add_batch_dim(x: Tensor) -> Tensor:
-    """(T, D) -> (1, T, D) без копирования данных."""
+    """(T, D) -> (1, T, D) without copying the data."""
     raise NotImplementedError
 
 
 def drop_singleton_dims(x: Tensor) -> Tensor:
-    """Убрать ВСЕ оси размера 1."""
+    """Remove ALL axes of size 1."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# 2.2 Перестановка осей
+# 2.2 Permuting axes
 # ==========================================================================
 
 
 def split_heads(x: Tensor, num_heads: int) -> Tensor:
-    """(B, T, D) -> (B, H, T, Dh), где D = H * Dh.
+    """(B, T, D) -> (B, H, T, Dh), where D = H * Dh.
 
-    Порядок важен: сначала разложить последнюю ось на (H, Dh), потом переставить оси.
-    Если сделать наоборот - головы перемешаются, и тест это поймает.
+    The order matters: first split the last axis into (H, Dh), then permute the axes.
+    Do it the other way round and the heads get mixed up, which the test will catch.
     """
     raise NotImplementedError
 
 
 def merge_heads(x: Tensor) -> Tensor:
-    """(B, H, T, Dh) -> (B, T, D). Ровно обратна split_heads.
+    """(B, H, T, Dh) -> (B, T, D). Exactly the inverse of split_heads.
 
-    Осторожно: после permute тензор не contiguous, и .view() упадёт. Подумай, чем чинить.
+    Careful: after permute the tensor is not contiguous and .view() will fail. Think about the fix.
     """
     raise NotImplementedError
 
 
 def transpose_last_two(x: Tensor) -> Tensor:
-    """Поменять местами две последние оси у тензора любой размерности.
+    """Swap the last two axes of a tensor of any rank.
 
-    Так делают K^T в attention: (B, H, T, Dh) -> (B, H, Dh, T).
+    This is how K^T is done in attention: (B, H, T, Dh) -> (B, H, Dh, T).
     """
     raise NotImplementedError
 
 
 def is_contiguous_after_transpose(x: Tensor) -> tuple[bool, bool]:
-    """Вернуть (contiguous до транспонирования, contiguous после .transpose(0, 1)).
+    """Return (contiguous before transposing, contiguous after .transpose(0, 1)).
 
-    Задача на понимание: транспонирование - это только смена strides, данные не двигаются.
+    A question of understanding: transposing is only a change of strides, the data does not move.
     """
     raise NotImplementedError
 
 
 def strides_of(x: Tensor) -> tuple[int, ...]:
-    """Шаги (в элементах) по каждой оси. Для (2,3,4) float32 contiguous это (12, 4, 1)."""
+    """The steps (in elements) along each axis. For a contiguous (2,3,4) float32 that is (12, 4, 1)."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# 2.3 Склейка и разрезание
+# 2.3 Joining and cutting
 # ==========================================================================
 
 
 def concat_sequences(a: Tensor, b: Tensor) -> Tensor:
-    """Два тензора (B, T1, D) и (B, T2, D) склеить по времени -> (B, T1+T2, D).
+    """Glue two tensors (B, T1, D) and (B, T2, D) along time -> (B, T1+T2, D).
 
-    Это буквально то, что делает KV-кеш при добавлении нового токена.
+    This is literally what the KV cache does when a new token is appended.
     """
     raise NotImplementedError
 
 
 def stack_batch(items: list[Tensor]) -> Tensor:
-    """Список из N тензоров (T, D) собрать в батч (N, T, D)."""
+    """Collect a list of N tensors (T, D) into a batch (N, T, D)."""
     raise NotImplementedError
 
 
 def split_qkv(qkv: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-    """(B, T, 3*D) -> три тензора (B, T, D): q, k, v.
+    """(B, T, 3*D) -> three tensors (B, T, D): q, k, v.
 
-    Так устроен fused qkv-проектор: одна матрица вместо трёх, потом разрез.
+    This is how a fused qkv projector works: one matrix instead of three, then a cut.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 2.4 expand vs repeat - разница в памяти
+# 2.4 expand vs repeat - the difference in memory
 # ==========================================================================
 
 
 def broadcast_kv_heads(kv: Tensor, num_groups: int) -> Tensor:
-    """GQA: (B, H_kv, T, Dh) -> (B, H_kv * num_groups, T, Dh), БЕЗ копирования данных
-    там, где это возможно, и с правильным порядком голов:
-    голова kv-номер i должна повториться num_groups раз подряд.
+    """GQA: (B, H_kv, T, Dh) -> (B, H_kv * num_groups, T, Dh), WITHOUT copying the data
+    wherever that is possible, and with the right head order:
+    kv head number i must repeat num_groups times in a row.
 
-    Подсказка: unsqueeze -> expand -> reshape. reshape в конце скопирует,
-    но expand по пути не должен аллоцировать новый буфер.
+    Hint: unsqueeze -> expand -> reshape. The reshape at the end will copy,
+    but the expand along the way must not allocate a new buffer.
     """
     raise NotImplementedError
 
 
 def expand_row(x: Tensor, n: int) -> Tensor:
-    """(1, D) -> (n, D) БЕЗ копирования (view с нулевым stride)."""
+    """(1, D) -> (n, D) WITHOUT copying (a view with zero stride)."""
     raise NotImplementedError
 
 
 def repeat_row(x: Tensor, n: int) -> Tensor:
-    """(1, D) -> (n, D) С реальным копированием данных."""
+    """(1, D) -> (n, D) WITH an actual copy of the data."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# 2.5 Скользящее окно и паддинг
+# 2.5 Sliding window and padding
 # ==========================================================================
 
 
 def sliding_windows(x: Tensor, window: int) -> Tensor:
-    """Одномерный тензор длины T -> все окна длины `window` с шагом 1: (T-window+1, window).
+    """A one-dimensional tensor of length T -> every window of length `window` with step 1: (T-window+1, window).
 
-    Так нарезают обучающие примеры из непрерывного потока токенов.
-    Подсказка: Tensor.unfold(dim, size, step).
+    This is how training examples are cut out of a continuous stream of tokens.
+    Hint: Tensor.unfold(dim, size, step).
     """
     raise NotImplementedError
 
 
 def pad_to_length(x: Tensor, target_len: int, pad_value: int) -> Tensor:
-    """(B, T) -> (B, target_len), добивая справа значением pad_value. Считаем T <= target_len.
+    """(B, T) -> (B, target_len), filling up on the right with pad_value. Assume T <= target_len.
 
-    Подсказка: F.pad и порядок пар в его аргументе - от последней оси к первой.
+    Hint: F.pad and the order of the pairs in its argument - from the last axis to the first.
     """
     raise NotImplementedError
 
 
 def shift_right(x: Tensor, pad_value: int) -> Tensor:
-    """(B, T) -> (B, T): сдвиг вправо на одну позицию, слева вставляется pad_value,
-    последний токен выпадает. Классический teacher forcing: из input делаем decoder input.
+    """(B, T) -> (B, T): a shift right by one position, pad_value is inserted on the left,
+    the last token falls off. Classic teacher forcing: turning the input into the decoder input.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -195,7 +195,7 @@ def test_add_batch_dim():
     x = torch.randn(3, 4)
     y = add_batch_dim(x)
     assert y.shape == (1, 3, 4)
-    assert y.data_ptr() == x.data_ptr(), "unsqueeze не должен копировать"
+    assert y.data_ptr() == x.data_ptr(), "unsqueeze must not copy"
 
 
 def test_drop_singleton_dims():
@@ -208,7 +208,7 @@ def test_split_heads():
     x = torch.randn(B, T, H * Dh)
     out = split_heads(x, H)
     assert out.shape == (B, H, T, Dh)
-    # голова h, позиция t - это срез [h*Dh : (h+1)*Dh] исходного вектора
+    # head h, position t is the slice [h*Dh : (h+1)*Dh] of the original vector
     for h in range(H):
         torch.testing.assert_close(out[:, h, :, :], x[..., h * Dh : (h + 1) * Dh])
 
@@ -268,7 +268,7 @@ def test_broadcast_kv_heads():
     kv = torch.randn(B, H_kv, T, Dh)
     out = broadcast_kv_heads(kv, 3)
     assert out.shape == (B, 6, T, Dh)
-    # головы 0,1,2 - копии kv-головы 0; головы 3,4,5 - копии kv-головы 1
+    # heads 0,1,2 are copies of kv head 0; heads 3,4,5 are copies of kv head 1
     for h in range(6):
         torch.testing.assert_close(out[:, h], kv[:, h // 3])
 
@@ -279,9 +279,9 @@ def test_expand_vs_repeat():
     r = repeat_row(x, 4)
     assert e.shape == r.shape == (4, 5)
     torch.testing.assert_close(e, r)
-    assert e.untyped_storage().data_ptr() == x.untyped_storage().data_ptr(), "expand не копирует"
-    assert r.untyped_storage().data_ptr() != x.untyped_storage().data_ptr(), "repeat копирует"
-    assert e.stride(0) == 0, "у expand шаг по размноженной оси равен нулю"
+    assert e.untyped_storage().data_ptr() == x.untyped_storage().data_ptr(), "expand does not copy"
+    assert r.untyped_storage().data_ptr() != x.untyped_storage().data_ptr(), "repeat does copy"
+    assert e.stride(0) == 0, "for expand the stride along the broadcast axis is zero"
 
 
 def test_sliding_windows():

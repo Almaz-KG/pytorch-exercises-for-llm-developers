@@ -1,15 +1,15 @@
-"""Топик 16 - цикл обучения: AdamW, расписание lr, клиппинг, накопление градиента.
+"""Topic 16 - the training loop: AdamW, the lr schedule, clipping, gradient accumulation.
 
-Здесь заканчиваются "тензорные упражнения" и начинается инженерия обучения.
-Всё, что ниже, ты будешь писать руками в ассайнменте 1 CS336.
+This is where the "tensor exercises" end and the engineering of training begins.
+Everything below is what you will be writing by hand in assignment 1 of CS336.
 
-AdamW пошагово (это стоит уметь воспроизвести по памяти):
+AdamW step by step (worth being able to reproduce from memory):
     m = b1*m + (1-b1)*g
     v = b2*v + (1-b2)*g^2
     m_hat = m / (1 - b1^t)
     v_hat = v / (1 - b2^t)
     p = p - lr * m_hat / (sqrt(v_hat) + eps)
-    p = p - lr * wd * p      <- decoupled weight decay, не через градиент
+    p = p - lr * wd * p      <- decoupled weight decay, not through the gradient
 """
 
 import itertools
@@ -22,14 +22,14 @@ import torch.nn.functional as F
 from torch import Tensor
 
 # ==========================================================================
-# 16.1 Шаги оптимизации руками
+# 16.1 Optimization steps by hand
 # ==========================================================================
 
 
 def sgd_step(params: list[Tensor], lr: float) -> None:
-    """Обновить параметры на месте: p -= lr * p.grad.
+    """Update the parameters in place: p -= lr * p.grad.
 
-    Обязательно под torch.no_grad(), иначе обновление попадёт в граф.
+    Necessarily under torch.no_grad(), otherwise the update lands in the graph.
     """
     raise NotImplementedError
 
@@ -45,22 +45,22 @@ def adamw_step(
     eps: float = 1e-8,
     weight_decay: float = 0.01,
 ) -> tuple[Tensor, Tensor, Tensor]:
-    """Один шаг AdamW для одного тензора. Вернуть (новый p, новый m, новый v).
+    """One AdamW step for a single tensor. Return (the new p, the new m, the new v).
 
-    t - номер шага, начиная с 1 (нужен для bias correction).
-    Ничего не менять на месте: возвращай новые тензоры, так проще проверять.
+    t is the step number, starting from 1 (needed for the bias correction).
+    Change nothing in place: return new tensors, that way it is easier to check.
     """
     raise NotImplementedError
 
 
 class AdamW(torch.optim.Optimizer):
-    """Полноценный оптимизатор в интерфейсе PyTorch.
+    """A full optimizer in the PyTorch interface.
 
-    Требования:
+    The requirements:
       - __init__(params, lr, betas=(0.9, 0.999), eps=1e-8, weight_decay=0.01);
-      - состояние (m, v, число шагов) хранится в self.state[p];
-      - step() обновляет параметры и возвращает loss, если передан closure;
-      - результат обязан численно совпадать с torch.optim.AdamW.
+      - the state (m, v, the number of steps) is kept in self.state[p];
+      - step() updates the parameters and returns the loss if a closure is passed;
+      - the result is obliged to match torch.optim.AdamW numerically.
     """
 
     def __init__(self, params, lr: float = 1e-3, betas=(0.9, 0.999), eps: float = 1e-8, weight_decay: float = 0.01):
@@ -71,84 +71,84 @@ class AdamW(torch.optim.Optimizer):
 
 
 # ==========================================================================
-# 16.2 Расписание learning rate
+# 16.2 The learning rate schedule
 # ==========================================================================
 
 
 def cosine_lr(step: int, lr_max: float, lr_min: float, warmup_steps: int, cosine_steps: int) -> float:
-    """Расписание из задания CS336:
+    """The schedule from the CS336 assignment:
 
-      step < warmup_steps:                    линейный разогрев от 0 до lr_max
-      warmup_steps <= step <= cosine_steps:   косинусное затухание от lr_max до lr_min
-      step > cosine_steps:                    константа lr_min
+      step < warmup_steps:                    a linear warmup from 0 to lr_max
+      warmup_steps <= step <= cosine_steps:   a cosine decay from lr_max to lr_min
+      step > cosine_steps:                    the constant lr_min
 
-    Косинус: lr_min + 0.5 * (1 + cos(pi * (step - warmup) / (cosine_steps - warmup))) * (lr_max - lr_min)
+    The cosine: lr_min + 0.5 * (1 + cos(pi * (step - warmup) / (cosine_steps - warmup))) * (lr_max - lr_min)
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 16.3 Клиппинг градиента
+# 16.3 Gradient clipping
 # ==========================================================================
 
 
 def clip_grad_norm(params: list[Tensor], max_norm: float, eps: float = 1e-6) -> float:
-    """Обрезать градиенты по глобальной L2-норме и вернуть норму ДО обрезки (python float).
+    """Clip the gradients by their global L2 norm and return the norm BEFORE the clipping (a python float).
 
-    Если норма больше max_norm, все градиенты домножаются на max_norm / (norm + eps).
-    Реализовать самому, без torch.nn.utils.clip_grad_norm_.
+    If the norm is greater than max_norm, all the gradients are multiplied by max_norm / (norm + eps).
+    Implement it yourself, without torch.nn.utils.clip_grad_norm_.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 16.4 Накопление градиента
+# 16.4 Gradient accumulation
 # ==========================================================================
 
 
 def accumulate_gradients(model: nn.Module, batches: list[tuple[Tensor, Tensor]]) -> float:
-    """Прогнать несколько микробатчей, накапливая градиент так, чтобы итог совпал
-    с одним большим батчем той же суммарной длины. Вернуть суммарный (усреднённый) лосс.
+    """Run several microbatches, accumulating the gradient so that the result matches
+    one big batch of the same total length. Return the total (averaged) loss.
 
-    Ключевая деталь: лосс каждого микробатча надо поделить на число микробатчей,
-    иначе градиент окажется в N раз больше. На этом спотыкаются все.
+    The key detail: the loss of every microbatch has to be divided by the number of microbatches,
+    otherwise the gradient comes out N times too large. Everyone stumbles on this.
 
-    Лосс - MSE между model(x) и y. Градиенты обнулить в начале.
+    The loss is the MSE between model(x) and y. Zero the gradients at the start.
     """
     raise NotImplementedError
 
 
 def train_steps(model: nn.Module, x: Tensor, y: Tensor, steps: int, lr: float) -> list[float]:
-    """Простейший цикл обучения на своём AdamW: вернуть список лоссов по шагам.
+    """The simplest training loop on your own AdamW: return the list of losses per step.
 
-    Порядок операций внутри шага - тоже часть мышечной памяти:
+    The order of the operations inside a step is part of the muscle memory too:
     forward -> loss -> zero_grad -> backward -> clip -> step.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 16.5 Арифметика обучения
+# 16.5 The arithmetic of training
 # ==========================================================================
 
 
 def training_flops(num_params: int, num_tokens: int) -> int:
-    """Правило 6ND: forward примерно 2ND, backward примерно 4ND."""
+    """The 6ND rule: the forward pass is roughly 2ND, the backward pass roughly 4ND."""
     raise NotImplementedError
 
 
 def chinchilla_tokens(num_params: int) -> int:
-    """Compute-оптимальное число токенов по Chinchilla: примерно 20 токенов на параметр."""
+    """The compute-optimal number of tokens by Chinchilla: roughly 20 tokens per parameter."""
     raise NotImplementedError
 
 
 def tokens_per_step(batch_size: int, seq_len: int, grad_accum: int) -> int:
-    """Сколько токенов реально видит модель за один шаг оптимизатора."""
+    """How many tokens the model actually sees per optimizer step."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -157,7 +157,7 @@ def test_sgd_step():
     p.grad = torch.tensor([0.5, -0.5])
     sgd_step([p], lr=0.1)
     torch.testing.assert_close(p.detach(), torch.tensor([0.95, 2.05]))
-    assert p.requires_grad and p.is_leaf, "параметр должен остаться листом графа"
+    assert p.requires_grad and p.is_leaf, "the parameter must stay a leaf of the graph"
 
 
 def test_adamw_step_matches_torch():
@@ -177,7 +177,7 @@ def test_adamw_step_matches_torch():
 
 
 def test_adamw_weight_decay_is_decoupled():
-    """Даже при нулевом градиенте вес обязан уменьшиться - это и значит decoupled."""
+    """Even with a zero gradient the weight is obliged to shrink - that is what decoupled means."""
     p = torch.ones(3)
     out, _, _ = adamw_step(p, torch.zeros(3), torch.zeros(3), torch.zeros(3), t=1, lr=0.1, weight_decay=0.1)
     torch.testing.assert_close(out, torch.full((3,), 1.0 - 0.1 * 0.1), atol=1e-6, rtol=0)
@@ -209,11 +209,11 @@ def test_cosine_lr_schedule():
     assert cosine_lr(0, lr_max, lr_min, warmup, cosine) == 0.0
     assert abs(cosine_lr(5, lr_max, lr_min, warmup, cosine) - 0.5) < 1e-9
     assert abs(cosine_lr(10, lr_max, lr_min, warmup, cosine) - lr_max) < 1e-9
-    # середина косинуса
+    # the middle of the cosine
     assert abs(cosine_lr(60, lr_max, lr_min, warmup, cosine) - (lr_min + 0.5 * (lr_max - lr_min))) < 1e-9
     assert abs(cosine_lr(110, lr_max, lr_min, warmup, cosine) - lr_min) < 1e-9
     assert cosine_lr(500, lr_max, lr_min, warmup, cosine) == lr_min
-    # монотонное убывание на косинусном участке
+    # a monotone decrease on the cosine stretch
     values = [cosine_lr(s, lr_max, lr_min, warmup, cosine) for s in range(10, 111)]
     assert all(a >= b - 1e-12 for a, b in itertools.pairwise(values))
 
@@ -271,11 +271,11 @@ def test_train_steps_reduces_loss():
     y = x @ torch.randn(4, 1) + 0.1
     losses = train_steps(model, x, y, steps=50, lr=0.05)
     assert len(losses) == 50
-    assert losses[-1] < 0.2 * losses[0], f"лосс почти не упал: {losses[0]:.4f} -> {losses[-1]:.4f}"
+    assert losses[-1] < 0.2 * losses[0], f"the loss barely fell: {losses[0]:.4f} -> {losses[-1]:.4f}"
 
 
 def test_training_arithmetic():
-    # 7B параметров, 1.4T токенов - примерно LLaMA-7B
+    # 7B parameters, 1.4T tokens - roughly LLaMA-7B
     assert training_flops(7e9, 1.4e12) == 6 * 7e9 * 1.4e12
     assert chinchilla_tokens(7_000_000_000) == 140_000_000_000
     assert tokens_per_step(8, 1024, 4) == 32768

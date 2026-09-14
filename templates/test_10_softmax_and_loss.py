@@ -1,12 +1,12 @@
-"""Топик 10 - softmax, log_softmax, кросс-энтропия.
+"""Topic 10 - softmax, log_softmax, cross-entropy.
 
-Три вещи, которые надо знать про softmax:
-  1. Он инвариантен к сдвигу: softmax(x) == softmax(x - c). Отсюда вычитание максимума.
-  2. log_softmax считают НЕ как log(softmax(x)) - это теряет точность. Правильно: x - logsumexp(x).
-  3. Кросс-энтропия принимает ЛОГИТЫ, а не вероятности. Если подать softmax, получишь тихо неверный лосс.
+Three things to know about softmax:
+  1. It is invariant to a shift: softmax(x) == softmax(x - c). Hence the subtraction of the maximum.
+  2. log_softmax is NOT computed as log(softmax(x)) - that loses precision. The right way: x - logsumexp(x).
+  3. Cross-entropy takes LOGITS, not probabilities. Feed it a softmax and you get a quietly wrong loss.
 
-И главный практический факт: градиент кросс-энтропии по логитам равен (p - onehot) / N.
-Красивее формулы в глубоком обучении, пожалуй, нет.
+And the main practical fact: the gradient of cross-entropy with respect to the logits is (p - onehot) / N.
+There is probably no prettier formula in deep learning.
 """
 
 import math
@@ -17,107 +17,108 @@ import torch.nn.functional as F
 from torch import Tensor
 
 # ==========================================================================
-# 10.1 softmax руками
+# 10.1 softmax by hand
 # ==========================================================================
 
 
 def softmax_manual(x: Tensor, dim: int) -> Tensor:
-    """Численно устойчивый softmax по оси dim, без torch.softmax."""
+    """A numerically stable softmax along the axis dim, without torch.softmax."""
     raise NotImplementedError
 
 
 def log_softmax_manual(x: Tensor, dim: int) -> Tensor:
-    """Численно устойчивый log_softmax: x - logsumexp(x, dim, keepdim=True). Без torch.log_softmax."""
+    """A numerically stable log_softmax: x - logsumexp(x, dim, keepdim=True). Without torch.log_softmax."""
     raise NotImplementedError
 
 
 def temperature_softmax(logits: Tensor, temperature: float) -> Tensor:
-    """softmax(logits / T). При T -> 0 распределение стремится к argmax, при больших T - к равномерному."""
+    """softmax(logits / T). As T -> 0 the distribution tends to the argmax, at large T to the uniform one."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# 10.2 Кросс-энтропия
+# 10.2 Cross-entropy
 # ==========================================================================
 
 
 def cross_entropy_from_logits(logits: Tensor, targets: Tensor) -> Tensor:
-    """logits: (N, V), targets: (N,) int64 -> скаляр: средний по батчу -log p(target).
+    """logits: (N, V), targets: (N,) int64 -> a scalar: the batch average of -log p(target).
 
-    Без F.cross_entropy и без F.log_softmax: только logsumexp и gather.
-    Формула: loss_i = logsumexp(logits_i) - logits_i[target_i].
+    Without F.cross_entropy and without F.log_softmax: only logsumexp and gather.
+    The formula: loss_i = logsumexp(logits_i) - logits_i[target_i].
     """
     raise NotImplementedError
 
 
 def sequence_cross_entropy(logits: Tensor, targets: Tensor, ignore_index: int = -100) -> Tensor:
-    """logits: (B, T, V), targets: (B, T) -> скаляр.
+    """logits: (B, T, V), targets: (B, T) -> a scalar.
 
-    Позиции с targets == ignore_index не входят ни в сумму, ни в знаменатель.
-    Это и есть настоящий лосс языковой модели с padding-ом.
+    The positions where targets == ignore_index enter neither the sum nor the denominator.
+    This is the real loss of a language model with padding.
     """
     raise NotImplementedError
 
 
 def label_smoothing_loss(logits: Tensor, targets: Tensor, smoothing: float) -> Tensor:
-    """Кросс-энтропия со сглаживанием меток: целевое распределение это
-    (1 - smoothing) на правильном классе плюс smoothing / V равномерно по всем классам.
+    """Cross-entropy with label smoothing: the target distribution is
+    (1 - smoothing) on the correct class plus smoothing / V spread uniformly over all the classes.
 
-    Вернуть средний по батчу лосс.
+    Return the batch-averaged loss.
     """
     raise NotImplementedError
 
 
 def perplexity(loss: Tensor) -> Tensor:
-    """Перплексия из среднего лосса в натах. Проверка на понимание: это просто exp(loss)."""
+    """The perplexity from the mean loss in nats. An understanding check: it is simply exp(loss)."""
     raise NotImplementedError
 
 
 def kl_divergence(student_logits: Tensor, teacher_logits: Tensor) -> Tensor:
-    """KL(teacher || student), усреднённая по батчу. Входы - логиты (N, V).
+    """KL(teacher || student), averaged over the batch. The inputs are logits (N, V).
 
-    Это лосс дистилляции. Считать надо через log_softmax обоих, без явного деления вероятностей.
+    This is the distillation loss. It has to be computed through the log_softmax of both,
+    without dividing probabilities explicitly.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 10.3 Градиенты
+# 10.3 Gradients
 # ==========================================================================
 
 
 def cross_entropy_grad(logits: Tensor, targets: Tensor) -> Tensor:
-    """Градиент среднего CE-лосса по логитам, выведенный руками (без autograd).
+    """The gradient of the mean CE loss with respect to the logits, derived by hand (without autograd).
 
-    Ответ: (softmax(logits) - onehot(targets)) / N.
+    The answer: (softmax(logits) - onehot(targets)) / N.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 10.4 Свойства, которые надо прочувствовать
+# 10.4 Properties worth feeling
 # ==========================================================================
 
 
 def shift_invariance_gap(x: Tensor, shift: float) -> Tensor:
-    """Максимальная абсолютная разница между softmax(x) и softmax(x + shift).
+    """The maximum absolute difference between softmax(x) and softmax(x + shift).
 
-    Ожидается ~0: это и есть инвариантность к сдвигу.
+    ~0 is expected: that is the shift invariance.
     """
     raise NotImplementedError
 
 
 def uniform_loss(vocab_size: int) -> float:
-    """Какой лосс у необученной модели, которая выдаёт равномерное распределение?
+    """What is the loss of an untrained model that outputs a uniform distribution?
 
-    Ответ надо знать наизусть: это log(V). Для V=50257 это ~10.8 -
-    первое, что проверяют на первом шаге обучения.
+    The answer has to be known by heart: it is log(V). For V=50257 that is ~10.8 -
+    the first thing checked on the first step of training.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -130,7 +131,7 @@ def test_softmax_manual():
 def test_softmax_manual_stability():
     x = torch.tensor([[1000.0, 1000.0, 1000.0]])
     out = softmax_manual(x, dim=-1)
-    assert torch.isfinite(out).all(), "переполнение exp - не вычел максимум"
+    assert torch.isfinite(out).all(), "an exp overflow - the maximum was not subtracted"
     torch.testing.assert_close(out, torch.full((1, 3), 1 / 3))
 
     y = torch.tensor([[0.0, float("-inf")]])
@@ -148,8 +149,8 @@ def test_temperature_softmax():
     cold = temperature_softmax(logits, 0.1)
     hot = temperature_softmax(logits, 100.0)
     assert cold.argmax(-1).item() == 2
-    assert cold.max().item() > 0.99, "низкая температура должна почти схлопнуть в argmax"
-    assert (hot - 1 / 3).abs().max().item() < 0.01, "высокая температура должна сгладить"
+    assert cold.max().item() > 0.99, "a low temperature must almost collapse into the argmax"
+    assert (hot - 1 / 3).abs().max().item() < 0.01, "a high temperature must flatten it out"
 
 
 def test_cross_entropy_from_logits():
@@ -162,7 +163,7 @@ def test_cross_entropy_is_stable():
     logits = torch.tensor([[0.0, 1e4], [1e4, 0.0]])
     targets = torch.tensor([1, 0])
     out = cross_entropy_from_logits(logits, targets)
-    assert torch.isfinite(out), "большие логиты не должны давать inf/nan"
+    assert torch.isfinite(out), "large logits must not produce inf/nan"
     torch.testing.assert_close(out, torch.tensor(0.0), atol=1e-5, rtol=0)
 
 
@@ -216,7 +217,7 @@ def test_uniform_loss():
 
 @pytest.mark.parametrize("vocab", [4, 100, 50257])
 def test_untrained_model_loss_matches_log_vocab(vocab):
-    """Настоящая проверка: у модели с нулевыми логитами лосс должен быть ровно log(V)."""
+    """The real check: a model with zero logits must have a loss of exactly log(V)."""
     logits = torch.zeros(16, vocab)
     targets = torch.randint(0, vocab, (16,))
     torch.testing.assert_close(

@@ -1,11 +1,11 @@
-"""Топик 20 - данные, батчи и чекпоинты.
+"""Topic 20 - data, batches and checkpoints.
 
-Практический хвост, без которого обучение не запустится. Ровно эти функции
-просят написать в ассайнменте 1 CS336 (get_batch, save_checkpoint, load_checkpoint).
+The practical tail, without which training will not start. These exact functions
+are the ones asked for in CS336 assignment 1 (get_batch, save_checkpoint, load_checkpoint).
 
-Главная идея хранения данных для LM: один длинный массив токенов uint16/int32 на диске,
-из которого случайно вырезают окна длины context_length. Никаких "примеров" и "датасета" -
-только поток токенов и memmap, чтобы не читать всё в память.
+The main idea of storing data for an LM: one long array of uint16/int32 tokens on disk,
+out of which windows of length context_length are cut at random. No "examples" and no "dataset" -
+only a stream of tokens and a memmap, so that the whole thing is never read into memory.
 """
 
 import io
@@ -17,84 +17,84 @@ import torch.nn as nn
 from torch import Tensor
 
 # ==========================================================================
-# 20.1 Нарезка батчей из потока токенов
+# 20.1 Cutting batches out of a stream of tokens
 # ==========================================================================
 
 
 def get_batch(
     data: np.ndarray, batch_size: int, context_length: int, generator: np.random.Generator | None = None
 ) -> tuple[Tensor, Tensor]:
-    """Вырезать batch_size случайных окон длины context_length из одномерного массива токенов.
+    """Cut batch_size random windows of length context_length out of a one-dimensional array of tokens.
 
-    Вернуть (inputs, targets), оба (batch_size, context_length) int64:
-    targets - это inputs, сдвинутые на один токен вперёд.
+    Return (inputs, targets), both (batch_size, context_length) int64:
+    targets are inputs shifted one token forward.
 
-    Стартовая позиция i должна допускать чтение data[i : i + context_length + 1],
-    то есть i выбирается из [0, len(data) - context_length - 1].
+    The start position i must allow reading data[i : i + context_length + 1],
+    that is, i is chosen from [0, len(data) - context_length - 1].
     """
     raise NotImplementedError
 
 
 def max_start_index(num_tokens: int, context_length: int) -> int:
-    """Наибольший допустимый стартовый индекс окна (включительно). Классический источник off-by-one."""
+    """The largest admissible start index of a window (inclusive). The classic source of an off-by-one."""
     raise NotImplementedError
 
 
 def steps_per_epoch(num_tokens: int, batch_size: int, context_length: int) -> int:
-    """Сколько шагов оптимизатора нужно, чтобы модель увидела все токены ровно один раз
-    (округляем вниз - неполный последний батч не берём).
+    """How many optimizer steps it takes for the model to see all the tokens exactly once
+    (rounding down - an incomplete last batch is not taken).
     """
     raise NotImplementedError
 
 
 def sequential_windows(data: np.ndarray, context_length: int) -> Tensor:
-    """Разрезать поток на НЕПЕРЕСЕКАЮЩИЕСЯ окна длины context_length, хвост отбросить.
-    Вернуть (num_windows, context_length) int64. Так делают валидацию: детерминированно и без повторов.
+    """Cut the stream into NON-OVERLAPPING windows of length context_length, discarding the tail.
+    Return (num_windows, context_length) int64. This is how validation is done: deterministically and without repeats.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 20.2 Паддинг и маски
+# 20.2 Padding and masks
 # ==========================================================================
 
 
 def collate_with_padding(sequences: list[list[int]], pad_id: int) -> tuple[Tensor, Tensor]:
-    """Список последовательностей разной длины -> (ids (B, T_max) int64, mask (B, T_max) bool),
-    где T_max - длина самой длинной, mask=True на настоящих токенах.
+    """A list of sequences of different lengths -> (ids (B, T_max) int64, mask (B, T_max) bool),
+    where T_max is the length of the longest one and mask=True on the real tokens.
     """
     raise NotImplementedError
 
 
 def make_labels(ids: Tensor, mask: Tensor, ignore_index: int = -100) -> Tensor:
-    """Из (B, T) ids и (B, T) mask сделать метки для лосса: сдвиг на один токен влево,
-    padding-позиции заменены на ignore_index, последняя позиция каждой строки - тоже ignore_index
-    (для неё нет следующего токена).
+    """Out of (B, T) ids and (B, T) mask make the labels for the loss: a shift one token to the left,
+    the padding positions replaced by ignore_index, and the last position of every row also ignore_index
+    (there is no next token for it).
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 20.3 Чекпоинты
+# 20.3 Checkpoints
 # ==========================================================================
 
 
 def save_checkpoint(model: nn.Module, optimizer: torch.optim.Optimizer, iteration: int, out: io.BytesIO) -> None:
-    """Сохранить в буфер словарь с состоянием модели, оптимизатора и номером итерации.
+    """Save into the buffer a dict with the state of the model, of the optimizer, and the iteration number.
 
-    Состояние оптимизатора сохранять обязательно: без моментов Adam обучение
-    после рестарта проседает.
+    Saving the optimizer state is mandatory: without the Adam moments the training
+    sags after a restart.
     """
     raise NotImplementedError
 
 
 def load_checkpoint(src: io.BytesIO, model: nn.Module, optimizer: torch.optim.Optimizer) -> int:
-    """Загрузить состояние в модель и оптимизатор на месте, вернуть номер итерации."""
+    """Load the state into the model and the optimizer in place, and return the iteration number."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -104,7 +104,7 @@ def test_get_batch_shapes_and_shift():
     assert x.shape == (8, 10) and y.shape == (8, 10)
     assert x.dtype == torch.int64 and y.dtype == torch.int64
     torch.testing.assert_close(y[:, :-1], x[:, 1:])
-    torch.testing.assert_close(y, x + 1)  # данные - это arange, значит сдвиг виден напрямую
+    torch.testing.assert_close(y, x + 1)  # the data is an arange, so the shift is visible directly
 
 
 def test_get_batch_stays_in_bounds():
@@ -125,13 +125,13 @@ def test_get_batch_is_reproducible_with_generator():
 
 
 def test_get_batch_works_with_memmap(tmp_path):
-    """Настоящий сценарий: токены лежат на диске, в память не читаются."""
+    """The real scenario: the tokens lie on disk and are never read into memory."""
     path = tmp_path / "tokens.bin"
     np.arange(1000, dtype=np.uint16).tofile(path)
     data = np.memmap(path, dtype=np.uint16, mode="r")
     x, y = get_batch(data, batch_size=4, context_length=32)
     assert x.shape == (4, 32)
-    assert x.dtype == torch.int64, "uint16 надо привести к int64, иначе embedding не примет"
+    assert x.dtype == torch.int64, "uint16 has to be cast to int64, otherwise embedding will not take it"
     torch.testing.assert_close(y[:, :-1], x[:, 1:])
 
 
@@ -172,7 +172,7 @@ def test_checkpoint_roundtrip():
     model = nn.Linear(4, 3)
     opt = torch.optim.AdamW(model.parameters(), lr=0.01)
 
-    # сделаем шаг, чтобы у оптимизатора появилось состояние
+    # take a step, so that the optimizer acquires some state
     model(torch.randn(2, 4)).sum().backward()
     opt.step()
 
@@ -186,7 +186,7 @@ def test_checkpoint_roundtrip():
 
     assert it == 42
     torch.testing.assert_close(fresh_model.weight, model.weight)
-    assert fresh_opt.state_dict()["state"], "состояние оптимизатора потерялось"
+    assert fresh_opt.state_dict()["state"], "the optimizer state was lost"
     torch.testing.assert_close(fresh_opt.state_dict()["state"][0]["exp_avg"], opt.state_dict()["state"][0]["exp_avg"])
 
 

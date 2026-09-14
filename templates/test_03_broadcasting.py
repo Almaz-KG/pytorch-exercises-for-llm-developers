@@ -1,11 +1,11 @@
-"""Топик 03 - broadcasting.
+"""Topic 03 - broadcasting.
 
-Правило одно, и его надо знать наизусть:
-формы выравниваются СПРАВА, ось совместима если размеры равны либо один из них 1,
-недостающие ведущие оси считаются равными 1.
+There is one rule, and it has to be known by heart:
+shapes are aligned FROM THE RIGHT, an axis is compatible if the sizes are equal or one of them is 1,
+and missing leading axes count as 1.
 
-90% "магии" в коде трансформера - это broadcasting: добавление bias, маски,
-RoPE, ALiBi, per-head масштабирование. Если он в пальцах, код читается сам.
+90% of the "magic" in transformer code is broadcasting: adding a bias, masks,
+RoPE, ALiBi, per-head scaling. Once it is in the fingers, the code reads itself.
 """
 
 import pytest
@@ -13,28 +13,28 @@ import torch
 from torch import Tensor
 
 # ==========================================================================
-# 3.1 Правило broadcasting руками
+# 3.1 The broadcasting rule by hand
 # ==========================================================================
 
 
 def broadcast_shape(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
-    """Вернуть форму результата a op b по правилам broadcasting.
-    Если формы несовместимы - бросить ValueError.
+    """Return the shape of the result of a op b under the broadcasting rules.
+    If the shapes are incompatible - raise ValueError.
 
-    Реализуй правило вручную (без torch.broadcast_shapes) - это упражнение на понимание.
+    Implement the rule manually (without torch.broadcast_shapes) - this is an exercise in understanding.
     """
     raise NotImplementedError
 
 
 def explain_trap() -> tuple[int, ...]:
-    """Классическая ловушка: тензор (3, 1) плюс тензор (3,).
-    Верни форму результата. Многие ожидают (3,) или (3, 1) и ловят баг в лоссе.
+    """The classic trap: a (3, 1) tensor plus a (3,) tensor.
+    Return the shape of the result. Many expect (3,) or (3, 1) and end up with a bug in the loss.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 3.2 Типовые применения в трансформере
+# 3.2 Typical uses in a transformer
 # ==========================================================================
 
 
@@ -44,43 +44,43 @@ def add_bias(x: Tensor, bias: Tensor) -> Tensor:
 
 
 def scale_per_head(x: Tensor, scales: Tensor) -> Tensor:
-    """x: (B, H, T, Dh), scales: (H,). Каждую голову умножить на свой скаляр.
+    """x: (B, H, T, Dh), scales: (H,). Multiply each head by its own scalar.
 
-    Подсказка: подгони форму scales так, чтобы она выровнялась справа: (1, H, 1, 1).
+    Hint: fit the shape of scales so that it aligns from the right: (1, H, 1, 1).
     """
     raise NotImplementedError
 
 
 def normalize_last_dim(x: Tensor) -> Tensor:
-    """Из каждого вектора по последней оси вычесть его среднее. Форма не меняется.
+    """Subtract its own mean from every vector along the last axis. The shape does not change.
 
-    Здесь и живёт keepdim=True: без него формы не выровняются.
+    This is where keepdim=True lives: without it the shapes will not align.
     """
     raise NotImplementedError
 
 
 def weighted_sum(weights: Tensor, values: Tensor) -> Tensor:
-    """weights: (B, T), values: (B, T, D) -> (B, D): сумма значений с весами по времени.
+    """weights: (B, T), values: (B, T, D) -> (B, D): the sum of the values weighted over time.
 
-    Это attention в миниатюре: веса на токенах, взвешенная сумма их представлений.
+    This is attention in miniature: weights on the tokens, a weighted sum of their representations.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 3.3 Матрицы из векторов
+# 3.3 Matrices out of vectors
 # ==========================================================================
 
 
 def outer_product(a: Tensor, b: Tensor) -> Tensor:
-    """a: (N,), b: (M,) -> (N, M), out[i, j] = a[i] * b[j]. Только broadcasting, без torch.outer."""
+    """a: (N,), b: (M,) -> (N, M), out[i, j] = a[i] * b[j]. Broadcasting only, no torch.outer."""
     raise NotImplementedError
 
 
 def pairwise_sq_dist(a: Tensor, b: Tensor) -> Tensor:
-    """a: (N, D), b: (M, D) -> (N, M) квадратов евклидовых расстояний.
+    """a: (N, D), b: (M, D) -> (N, M) of squared euclidean distances.
 
-    Через broadcasting: (N, 1, D) - (1, M, D) -> (N, M, D), затем сумма по D.
+    Through broadcasting: (N, 1, D) - (1, M, D) -> (N, M, D), then a sum over D.
     """
     raise NotImplementedError
 
@@ -88,58 +88,58 @@ def pairwise_sq_dist(a: Tensor, b: Tensor) -> Tensor:
 def one_hot_by_comparison(ids: Tensor, vocab_size: int) -> Tensor:
     """ids: (...,) int64 -> (..., vocab_size) float32 one-hot.
 
-    Через сравнение с arange по broadcasting, без F.one_hot.
+    Through a comparison against arange by broadcasting, without F.one_hot.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 3.4 Маски и относительные позиции
+# 3.4 Masks and relative positions
 # ==========================================================================
 
 
 def causal_mask(seq_len: int) -> Tensor:
-    """(T, T) bool: True там, где позиция-запрос i МОЖЕТ смотреть на позицию-ключ j (j <= i).
+    """(T, T) bool: True where query position i MAY look at key position j (j <= i).
 
-    Собери через сравнение двух arange разной формы, без torch.tril.
+    Build it by comparing two arange tensors of different shape, without torch.tril.
     """
     raise NotImplementedError
 
 
 def relative_positions(q_len: int, k_len: int) -> Tensor:
-    """(q_len, k_len) int64, out[i, j] = i - j. Основа relative position bias и ALiBi."""
+    """(q_len, k_len) int64, out[i, j] = i - j. The basis of relative position bias and ALiBi."""
     raise NotImplementedError
 
 
 def alibi_bias(slopes: Tensor, seq_len: int) -> Tensor:
-    """slopes: (H,) -> (H, T, T) аддитивный ALiBi-биас.
+    """slopes: (H,) -> (H, T, T) additive ALiBi bias.
 
-    bias[h, i, j] = -slopes[h] * (i - j) для j <= i, и 0 (не важно) выше диагонали;
-    здесь для простоты считаем формулу для всех j, без обнуления.
+    bias[h, i, j] = -slopes[h] * (i - j) for j <= i, and 0 (does not matter) above the diagonal;
+    here, for simplicity, compute the formula for all j, without zeroing anything out.
     """
     raise NotImplementedError
 
 
 def apply_additive_mask(scores: Tensor, mask: Tensor) -> Tensor:
-    """scores: (B, H, T, T), mask: (T, T) bool (True = можно смотреть).
-    Вернуть scores, где запрещённые позиции равны -inf.
+    """scores: (B, H, T, T), mask: (T, T) bool (True = allowed to look).
+    Return scores where the forbidden positions are -inf.
 
-    Никаких циклов: mask должна разъехаться по батчу и головам сама.
+    No loops: the mask has to spread across the batch and the heads on its own.
     """
     raise NotImplementedError
 
 
 def key_padding_mask_apply(scores: Tensor, pad_mask: Tensor) -> Tensor:
-    """scores: (B, H, T, T), pad_mask: (B, T) bool (True = настоящий токен, False = padding).
-    Запретить ВСЕМ запросам смотреть на padding-ключи: соответствующие столбцы -> -inf.
+    """scores: (B, H, T, T), pad_mask: (B, T) bool (True = a real token, False = padding).
+    Forbid EVERY query from looking at padding keys: the corresponding columns -> -inf.
 
-    Внимательно с осями: pad_mask относится к ключам, то есть к ПОСЛЕДНЕЙ оси scores.
+    Careful with the axes: pad_mask refers to the keys, that is to the LAST axis of scores.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -156,7 +156,7 @@ def key_padding_mask_apply(scores: Tensor, pad_mask: Tensor) -> Tensor:
 )
 def test_broadcast_shape_ok(a, b, expected):
     assert broadcast_shape(a, b) == expected
-    # сверяемся с самим torch
+    # cross-check against torch itself
     assert tuple(torch.broadcast_shapes(a, b)) == expected
 
 
@@ -248,7 +248,7 @@ def test_alibi_bias():
     slopes = torch.tensor([0.5, 0.25])
     bias = alibi_bias(slopes, 3)
     assert bias.shape == (2, 3, 3)
-    # чем дальше назад смотрит запрос, тем сильнее штраф
+    # the further back a query looks, the stronger the penalty
     torch.testing.assert_close(bias[0, 2, 0], torch.tensor(-1.0))
     torch.testing.assert_close(bias[0, 2, 1], torch.tensor(-0.5))
     torch.testing.assert_close(bias[1, 2, 0], torch.tensor(-0.5))

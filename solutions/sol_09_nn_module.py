@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 09."""
+"""Reference solutions for topic 09."""
 
 import io
 

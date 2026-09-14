@@ -1,15 +1,15 @@
-"""Топик 01 - основы тензоров.
+"""Topic 01 - tensor basics.
 
-Что тренируем: создание тензоров, dtype, форма, элементарная арифметика,
-разница между копией и view, in-place операции, продвижение типов.
+What we drill: creating tensors, dtype, shape, elementary arithmetic,
+the difference between a copy and a view, in-place operations, type promotion.
 
-Как работать:
-  1. Идёшь сверху вниз, заменяешь `raise NotImplementedError` на реализацию.
-  2. `uv run pytest test_01_tensor_basics.py -x` до зелёного.
-  3. Застрял - подсказка в докстринге, ответ в `solutions/sol_01_tensor_basics.py`.
+How to work:
+  1. Go top to bottom, replacing `raise NotImplementedError` with an implementation.
+  2. `uv run pytest test_01_tensor_basics.py -x` until green.
+  3. Stuck - the hint is in the docstring, the answer in `solutions/sol_01_tensor_basics.py`.
 
-Правило игры: никаких циклов `for` по элементам, если в задаче не сказано иначе.
-Всё делается векторно - это и есть мышечная память, которую мы качаем.
+Rule of the game: no `for` loops over elements unless the task says otherwise.
+Everything is done vectorized - that is exactly the muscle memory we are building.
 """
 
 import pytest
@@ -17,136 +17,136 @@ import torch
 from torch import Tensor
 
 # ==========================================================================
-# 1.1 Создание тензоров
+# 1.1 Creating tensors
 # ==========================================================================
 
 
 def make_arange_matrix(n: int, m: int) -> Tensor:
-    """Матрица (n, m), заполненная числами 0, 1, ..., n*m-1 по строкам, dtype=int64.
+    """An (n, m) matrix filled row by row with 0, 1, ..., n*m-1, dtype=int64.
 
-    Подсказка: torch.arange + .reshape / .view
+    Hint: torch.arange + .reshape / .view
     """
     raise NotImplementedError
 
 
 def make_constant(shape: tuple[int, ...], value: float, dtype: torch.dtype) -> Tensor:
-    """Тензор заданной формы, целиком заполненный `value`, с заданным dtype.
+    """A tensor of the given shape, filled entirely with `value`, with the given dtype.
 
-    Подсказка: torch.full принимает fill_value и dtype.
+    Hint: torch.full takes fill_value and dtype.
     """
     raise NotImplementedError
 
 
 def make_identity_like(x: Tensor) -> Tensor:
-    """Единичная матрица того же размера и dtype, что квадратная матрица `x`.
+    """An identity matrix of the same size and dtype as the square matrix `x`.
 
-    Подсказка: torch.eye(n, dtype=..., device=...) либо torch.eye_like не существует - собери руками.
+    Hint: torch.eye(n, dtype=..., device=...); torch.eye_like does not exist, assemble it by hand.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 1.2 Метаданные тензора
+# 1.2 Tensor metadata
 # ==========================================================================
 
 
 def describe(x: Tensor) -> dict:
-    """Вернуть словарь с ключами: shape (tuple[int, ...]), ndim (int),
-    numel (int), dtype (torch.dtype), bytes (int - сколько памяти занимают данные).
+    """Return a dict with the keys: shape (tuple[int, ...]), ndim (int),
+    numel (int), dtype (torch.dtype), bytes (int - how much memory the data takes).
 
-    Подсказка: x.element_size() даёт размер одного элемента в байтах.
+    Hint: x.element_size() gives the size of one element in bytes.
     """
     raise NotImplementedError
 
 
 def promoted_dtype(a: Tensor, b: Tensor) -> torch.dtype:
-    """Какой dtype получится у `a + b` (правила type promotion), без вычисления суммы.
+    """Which dtype `a + b` ends up with (the type promotion rules), without computing the sum.
 
-    Подсказка: torch.promote_types / torch.result_type.
+    Hint: torch.promote_types / torch.result_type.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 1.3 Арифметика и приведение типов
+# 1.3 Arithmetic and type casting
 # ==========================================================================
 
 
 def linear_combination(a: Tensor, b: Tensor, alpha: float, beta: float) -> Tensor:
-    """alpha * a + beta * b, новый тензор, входы не трогаем."""
+    """alpha * a + beta * b, a new tensor, leaving the inputs alone."""
     raise NotImplementedError
 
 
 def to_float32(x: Tensor) -> Tensor:
-    """Привести тензор к float32. Если он уже float32 - вернуть его же (тот же объект)."""
+    """Cast the tensor to float32. If it already is float32 - return it as is (the same object)."""
     raise NotImplementedError
 
 
 def mean_of_ints(x: Tensor) -> Tensor:
-    """Среднее по целочисленному тензору. torch.mean на int64 падает - подумай, где нужен cast.
+    """The mean over an integer tensor. torch.mean on int64 fails - think about where the cast belongs.
 
-    Результат: скалярный тензор float32.
+    Result: a scalar float32 tensor.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 1.4 Копии, view и in-place
+# 1.4 Copies, views and in-place
 # ==========================================================================
 
 
 def independent_copy(x: Tensor) -> Tensor:
-    """Копия, которая НЕ делит память с `x`."""
+    """A copy that does NOT share memory with `x`."""
     raise NotImplementedError
 
 
 def shares_memory(a: Tensor, b: Tensor) -> bool:
-    """True, если два тензора смотрят в одно и то же хранилище (storage).
+    """True if the two tensors look into one and the same storage.
 
-    Подсказка: a.untyped_storage().data_ptr()
+    Hint: a.untyped_storage().data_ptr()
     """
     raise NotImplementedError
 
 
 def add_inplace(x: Tensor, value: float) -> Tensor:
-    """Прибавить `value` к каждому элементу ПРЯМО В ПАМЯТИ `x` и вернуть сам `x`.
+    """Add `value` to every element DIRECTLY IN THE MEMORY of `x` and return `x` itself.
 
-    Проверка в тесте: id объекта и data_ptr не меняются.
+    What the test checks: the object id and the data_ptr do not change.
     """
     raise NotImplementedError
 
 
 def zero_row_(x: Tensor, i: int) -> Tensor:
-    """Занулить строку `i` матрицы `x` in-place, вернуть `x`."""
+    """Zero out row `i` of the matrix `x` in-place, return `x`."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# 1.5 Полезные мелочи, которые постоянно нужны в LLM-коде
+# 1.5 Small useful things that LLM code needs constantly
 # ==========================================================================
 
 
 def count_greater(x: Tensor, threshold: float) -> int:
-    """Сколько элементов строго больше threshold. Вернуть python int, не тензор."""
+    """How many elements are strictly greater than threshold. Return a python int, not a tensor."""
     raise NotImplementedError
 
 
 def clamp_and_scale(x: Tensor, lo: float, hi: float) -> Tensor:
-    """Обрезать значения в [lo, hi], затем линейно отобразить [lo, hi] -> [0, 1]."""
+    """Clip the values into [lo, hi], then map [lo, hi] linearly onto [0, 1]."""
     raise NotImplementedError
 
 
 def model_memory_bytes(num_params: int, dtype: torch.dtype) -> int:
-    """Сколько байт занимают `num_params` параметров в данном dtype.
+    """How many bytes `num_params` parameters take in the given dtype.
 
-    Это ровно та арифметика, которой считают "влезет ли модель в GPU".
-    Подсказка: torch.finfo/iinfo знают bits, либо создай пустой тензор и спроси element_size().
+    This is exactly the arithmetic behind "will the model fit into the GPU".
+    Hint: torch.finfo/iinfo know bits, or create an empty tensor and ask element_size().
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
@@ -210,7 +210,7 @@ def test_to_float32():
     torch.testing.assert_close(y, x.float())
 
     z = torch.randn(3)
-    assert to_float32(z) is z, "если уже float32 - лишнюю копию делать не надо"
+    assert to_float32(z) is z, "if it already is float32 - no need to make an extra copy"
 
 
 def test_mean_of_ints():
@@ -226,7 +226,7 @@ def test_independent_copy():
     y = independent_copy(x)
     torch.testing.assert_close(y, x)
     y[0] = 100.0
-    assert x[0].item() == 0.0, "копия оказалась view - данные поехали"
+    assert x[0].item() == 0.0, "the copy turned out to be a view - the data drifted"
 
 
 def test_shares_memory():
@@ -241,8 +241,8 @@ def test_add_inplace():
     x = torch.zeros(3, 3)
     ptr_before = x.data_ptr()
     out = add_inplace(x, 5.0)
-    assert out is x, "надо вернуть тот же объект"
-    assert x.data_ptr() == ptr_before, "операция должна быть in-place, без новой аллокации"
+    assert out is x, "you have to return the same object"
+    assert x.data_ptr() == ptr_before, "the operation must be in-place, without a new allocation"
     assert (x == 5.0).all()
 
 
@@ -258,7 +258,7 @@ def test_zero_row():
 def test_count_greater():
     x = torch.tensor([[-1.0, 0.5], [2.0, 3.0]])
     n = count_greater(x, 0.0)
-    assert isinstance(n, int), "нужен python int, а не тензор"
+    assert isinstance(n, int), "a python int is needed, not a tensor"
     assert n == 3
 
 
@@ -276,5 +276,5 @@ def test_clamp_and_scale():
     [(torch.float32, 4), (torch.float16, 2), (torch.bfloat16, 2), (torch.int8, 1), (torch.float64, 8)],
 )
 def test_model_memory_bytes(dtype, expected_per_param):
-    # 7B параметров - классический размер, который надо уметь считать в уме
+    # 7B parameters - the classic size you have to be able to compute in your head
     assert model_memory_bytes(7_000_000_000, dtype) == 7_000_000_000 * expected_per_param

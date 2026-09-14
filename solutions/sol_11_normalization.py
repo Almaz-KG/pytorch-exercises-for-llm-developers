@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 11."""
+"""Reference solutions for topic 11."""
 
 import torch
 import torch.nn as nn

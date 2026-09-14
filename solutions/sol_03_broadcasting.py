@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 03."""
+"""Reference solutions for topic 03."""
 
 import torch
 from torch import Tensor
@@ -11,7 +11,7 @@ def broadcast_shape(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
         da = a[-i] if i <= len(a) else 1
         db = b[-i] if i <= len(b) else 1
         if da != db and da != 1 and db != 1:
-            raise ValueError(f"несовместимые формы {a} и {b} по оси -{i}: {da} vs {db}")
+            raise ValueError(f"incompatible shapes {a} and {b} on axis -{i}: {da} vs {db}")
         out.append(max(da, db))
     return tuple(reversed(out))
 

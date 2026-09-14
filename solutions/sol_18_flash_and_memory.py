@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 18."""
+"""Reference solutions for topic 18."""
 
 import math
 
@@ -49,7 +49,7 @@ def flash_attention_forward(q: Tensor, k: Tensor, v: Tensor, block_size: int = 3
 
         for j in range(0, S, block_size):
             if causal and j > i + rows - 1:
-                break  # весь блок ключей лежит в будущем
+                break  # the whole key block lies in the future
             kb = k[..., j : j + block_size, :]
             vb = v[..., j : j + block_size, :]
             scores = qb @ kb.transpose(-2, -1) * scale

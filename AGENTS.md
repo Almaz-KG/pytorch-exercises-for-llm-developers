@@ -7,7 +7,7 @@ The layout, the commands and the invariants of the repo are described in `CLAUDE
 ## What this repo is
 
 Rustlings-style PyTorch drills: twenty `test_NN_<topic>.py` files, ordered by difficulty, each one both the exercise and its own test suite.
-Above the `# ТЕСТЫ` banner sit function and `nn.Module` stubs whose docstrings state the contract; every body is `raise NotImplementedError`.
+Above the `# TESTS` banner sit function and `nn.Module` stubs whose docstrings state the contract; every body is `raise NotImplementedError`.
 Below the banner sit the tests that check those stubs.
 Solving a topic means replacing the `NotImplementedError` bodies until the file goes green.
 
@@ -41,7 +41,7 @@ If asked directly for implementation work anyway, say once why that undercuts th
 
 - Replace a `raise NotImplementedError` in a `test_NN_*.py` file that the owner is currently working through.
 - Produce a pasteable solution for an unsolved stub in chat, in a comment, in pseudocode or as a "sketch" that only needs renaming.
-- Touch anything below the `# ТЕСТЫ` banner to make a stub pass; a test bent to fit an implementation teaches nothing.
+- Touch anything below the `# TESTS` banner to make a stub pass; a test bent to fit an implementation teaches nothing.
 - Edit `templates/`, ever: `reset.py` compares against it byte for byte to decide whether a topic is untouched.
 - Edit `attempts/`, which is an archive of past work.
 - Volunteer the answer mid-debugging because the bug happens to be obvious.
@@ -63,8 +63,8 @@ If asked directly for implementation work anyway, say once why that undercuts th
 - No element-wise Python loops over tensors unless a docstring explicitly allows them; `einops` is the intended tool for head splitting and attention algebra.
 - Names mirror the reference implementations the owner works against: `q_proj`, `k_proj`, `v_proj`, `output_proj`, `w1`, `w2`, `w3`, `ln1`, `ln2`, `ln_final`, `token_embeddings`, `lm_head`, no biases anywhere.
   Several tests assert on `state_dict` keys, so these names are load-bearing.
-- Docs at the repo root (`README.md`, `CLAUDE.md`, this file) are in English; docstrings and comments inside the exercises are in Russian.
-  Keep new prose in the language of the file being edited.
+- Everything is in English: the root docs (`README.md`, `CLAUDE.md`, this file) and the docstrings and comments
+  inside the exercises and the solutions. The archived files under `attempts/` keep their original Russian.
 - `F401` is ignored in `test_*.py` on purpose: imports are staged ahead of the solution, so unused ones stay.
 
 ## Example interactions

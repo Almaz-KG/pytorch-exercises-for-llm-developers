@@ -1,4 +1,4 @@
-"""Эталонные решения к топику 15."""
+"""Reference solutions for topic 15."""
 
 import math
 

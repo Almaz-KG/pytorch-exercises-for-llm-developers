@@ -1,14 +1,14 @@
-"""Топик 07 - einsum и einops.
+"""Topic 07 - einsum and einops.
 
-einsum читается так: "перечисли оси входов, перечисли оси выхода;
-всё, что не попало в выход, суммируется".
+einsum reads like this: "list the axes of the inputs, list the axes of the output;
+everything that did not make it into the output is summed over".
 
-einops - то же самое, но именами: rearrange (перестановка/склейка осей),
-reduce (редукция), repeat (размножение). В CS336 einops - основной инструмент,
-так что руки должны сами набирать "b t (h d) -> b h t d".
+einops is the same thing, but by names: rearrange (permuting/merging axes),
+reduce (a reduction), repeat (replication). In CS336 einops is the main tool,
+so the hands must type "b t (h d) -> b h t d" on their own.
 
-Задание: в этом файле НЕЛЬЗЯ пользоваться .transpose/.permute/.view/.reshape
-там, где просят einsum или einops. Смысл в том, чтобы натренировать именно их.
+The assignment: in this file you may NOT use .transpose/.permute/.view/.reshape
+where einsum or einops is asked for. The whole point is to train exactly those.
 """
 
 import pytest
@@ -17,49 +17,49 @@ from einops import rearrange, reduce, repeat
 from torch import Tensor
 
 # ==========================================================================
-# 7.1 einsum: разминка
+# 7.1 einsum: warm-up
 # ==========================================================================
 
 
 def es_trace(x: Tensor) -> Tensor:
-    """След квадратной матрицы через einsum."""
+    """The trace of a square matrix through einsum."""
     raise NotImplementedError
 
 
 def es_diagonal(x: Tensor) -> Tensor:
-    """Диагональ квадратной матрицы через einsum (без суммирования)."""
+    """The diagonal of a square matrix through einsum (without summing)."""
     raise NotImplementedError
 
 
 def es_transpose(x: Tensor) -> Tensor:
-    """Транспонирование матрицы через einsum."""
+    """Transposing a matrix through einsum."""
     raise NotImplementedError
 
 
 def es_matmul(a: Tensor, b: Tensor) -> Tensor:
-    """(M, K) @ (K, N) через einsum."""
+    """(M, K) @ (K, N) through einsum."""
     raise NotImplementedError
 
 
 def es_outer(a: Tensor, b: Tensor) -> Tensor:
-    """Внешнее произведение (N,) и (M,) -> (N, M) через einsum."""
+    """The outer product of (N,) and (M,) -> (N, M) through einsum."""
     raise NotImplementedError
 
 
 def es_row_sums(x: Tensor) -> Tensor:
-    """Суммы по строкам матрицы через einsum."""
+    """The row sums of a matrix through einsum."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# 7.2 einsum: то, ради чего он и нужен
+# 7.2 einsum: what it is actually there for
 # ==========================================================================
 
 
 def es_attention_scores(q: Tensor, k: Tensor) -> Tensor:
-    """q: (B, H, T, Dh), k: (B, H, S, Dh) -> (B, H, T, S) без деления на sqrt(Dh).
+    """q: (B, H, T, Dh), k: (B, H, S, Dh) -> (B, H, T, S) without dividing by sqrt(Dh).
 
-    Одна строка einsum вместо transpose + matmul.
+    One einsum line instead of transpose + matmul.
     """
     raise NotImplementedError
 
@@ -72,23 +72,23 @@ def es_attention_output(weights: Tensor, v: Tensor) -> Tensor:
 def es_per_head_projection(x: Tensor, w: Tensor) -> Tensor:
     """x: (B, T, D), w: (H, D, Dh) -> (B, H, T, Dh).
 
-    У каждой головы своя проекционная матрица - именно так удобно думать о MHA.
+    Every head has its own projection matrix - that is exactly the convenient way to think about MHA.
     """
     raise NotImplementedError
 
 
 def es_weight_grad(x: Tensor, grad_out: Tensor) -> Tensor:
-    """x: (N, in), grad_out: (N, out) -> (out, in): градиент веса линейного слоя через einsum.
+    """x: (N, in), grad_out: (N, out) -> (out, in): the weight gradient of a linear layer through einsum.
 
-    Батчевая ось суммируется, поэтому её нет в выходе.
+    The batch axis is summed over, which is why it is not in the output.
     """
     raise NotImplementedError
 
 
 def es_batched_bilinear(x: Tensor, W: Tensor, y: Tensor) -> Tensor:
-    """x: (B, D1), W: (D1, D2), y: (B, D2) -> (B,): x_i^T W y_i для каждого примера батча.
+    """x: (B, D1), W: (D1, D2), y: (B, D2) -> (B,): x_i^T W y_i for every example of the batch.
 
-    Внимание: батч НЕ суммируется, а всё остальное - да.
+    Careful: the batch is NOT summed over, everything else is.
     """
     raise NotImplementedError
 
@@ -99,65 +99,65 @@ def es_batched_bilinear(x: Tensor, W: Tensor, y: Tensor) -> Tensor:
 
 
 def eo_split_heads(x: Tensor, num_heads: int) -> Tensor:
-    """(B, T, (H Dh)) -> (B, H, T, Dh) одним rearrange."""
+    """(B, T, (H Dh)) -> (B, H, T, Dh) in a single rearrange."""
     raise NotImplementedError
 
 
 def eo_merge_heads(x: Tensor) -> Tensor:
-    """(B, H, T, Dh) -> (B, T, (H Dh)) одним rearrange."""
+    """(B, H, T, Dh) -> (B, T, (H Dh)) in a single rearrange."""
     raise NotImplementedError
 
 
 def eo_flatten_tokens(x: Tensor) -> Tensor:
-    """(B, T, D) -> ((B T), D) одним rearrange."""
+    """(B, T, D) -> ((B T), D) in a single rearrange."""
     raise NotImplementedError
 
 
 def eo_split_qkv(qkv: Tensor, num_heads: int) -> Tensor:
-    """(B, T, (3 H Dh)) -> (3, B, H, T, Dh) одним rearrange.
+    """(B, T, (3 H Dh)) -> (3, B, H, T, Dh) in a single rearrange.
 
-    Порядок в скобках важен: сначала q/k/v, внутри - головы, внутри - канал.
+    The order inside the parentheses matters: first q/k/v, inside that the heads, inside that the channel.
     """
     raise NotImplementedError
 
 
 def eo_group_tokens(x: Tensor, group: int) -> Tensor:
-    """(B, T, D) -> (B, T/group, group, D): разбить последовательность на непересекающиеся блоки.
+    """(B, T, D) -> (B, T/group, group, D): cut the sequence into non-overlapping blocks.
 
-    Так делают блочное (chunked) внимание и flash-attention-подобные схемы.
+    This is how chunked attention and flash-attention-like schemes are done.
     """
     raise NotImplementedError
 
 
 # ==========================================================================
-# 7.4 einops: reduce и repeat
+# 7.4 einops: reduce and repeat
 # ==========================================================================
 
 
 def eo_mean_pool(x: Tensor) -> Tensor:
-    """(B, T, D) -> (B, D): среднее по времени через reduce."""
+    """(B, T, D) -> (B, D): the mean over time through reduce."""
     raise NotImplementedError
 
 
 def eo_max_pool_heads(x: Tensor) -> Tensor:
-    """(B, H, T, Dh) -> (B, T, Dh): максимум по головам через reduce."""
+    """(B, H, T, Dh) -> (B, T, Dh): the maximum over the heads through reduce."""
     raise NotImplementedError
 
 
 def eo_repeat_kv(kv: Tensor, num_groups: int) -> Tensor:
-    """GQA через repeat: (B, H_kv, T, Dh) -> (B, (H_kv num_groups), T, Dh),
-    каждая kv-голова повторяется num_groups раз подряд.
+    """GQA through repeat: (B, H_kv, T, Dh) -> (B, (H_kv num_groups), T, Dh),
+    where every kv head is repeated num_groups times in a row.
     """
     raise NotImplementedError
 
 
 def eo_broadcast_mask(mask: Tensor, num_heads: int) -> Tensor:
-    """(B, T, S) -> (B, H, T, S) через repeat."""
+    """(B, T, S) -> (B, H, T, S) through repeat."""
     raise NotImplementedError
 
 
 # ==========================================================================
-# ТЕСТЫ
+# TESTS
 # ==========================================================================
 
 
