@@ -167,6 +167,43 @@ def test_make_labels():
     torch.testing.assert_close(labels, torch.tensor([[2, 3, -100], [5, -100, -100]]))
 
 
+def test_save_checkpoint():
+    model = nn.Linear(4, 3)
+    opt = torch.optim.AdamW(model.parameters(), lr=0.01)
+    model(torch.randn(2, 4)).sum().backward()
+    opt.step()
+
+    buf = io.BytesIO()
+    save_checkpoint(model, opt, iteration=7, out=buf)
+    buf.seek(0)
+    blob = torch.load(buf, weights_only=False)
+
+    assert isinstance(blob, dict)
+    values = list(blob.values())
+    assert 7 in values, "the iteration number has to be in there"
+    assert any(isinstance(v, dict) and "weight" in v for v in values), "the model state is missing"
+    assert any(isinstance(v, dict) and "param_groups" in v for v in values), "the optimizer state is missing"
+
+
+def test_load_checkpoint():
+    """Built with torch.save directly, so loading can be written before saving is."""
+    model = nn.Linear(4, 3)
+    opt = torch.optim.AdamW(model.parameters(), lr=0.01)
+    model(torch.randn(2, 4)).sum().backward()
+    opt.step()
+
+    buf = io.BytesIO()
+    torch.save({"model": model.state_dict(), "optimizer": opt.state_dict(), "iteration": 11}, buf)
+    buf.seek(0)
+
+    fresh_model = nn.Linear(4, 3)
+    fresh_opt = torch.optim.AdamW(fresh_model.parameters(), lr=0.01)
+    assert load_checkpoint(buf, fresh_model, fresh_opt) == 11
+    torch.testing.assert_close(fresh_model.weight, model.weight)
+    assert fresh_opt.state_dict()["state"], "the optimizer state was lost"
+
+
+@pytest.mark.depends_on("save_checkpoint", "load_checkpoint")
 def test_checkpoint_roundtrip():
     torch.manual_seed(0)
     model = nn.Linear(4, 3)

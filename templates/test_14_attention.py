@@ -137,6 +137,23 @@ def attention_flops(batch: int, heads: int, seq_len: int, d_head: int) -> int:
 # ==========================================================================
 
 
+def test_split_heads():
+    B, T, H, Dh = 2, 5, 3, 4
+    x = torch.randn(B, T, H * Dh)
+    out = split_heads(x, H)
+    assert out.shape == (B, H, T, Dh)
+    torch.testing.assert_close(out[:, 1], x[..., Dh : 2 * Dh])
+
+
+def test_merge_heads():
+    B, H, T, Dh = 2, 3, 5, 4
+    x = torch.randn(B, H, T, Dh)
+    out = merge_heads(x)
+    assert out.shape == (B, T, H * Dh)
+    torch.testing.assert_close(out[..., Dh : 2 * Dh], x[:, 1])
+
+
+@pytest.mark.depends_on("split_heads", "merge_heads")
 def test_heads_roundtrip():
     x = torch.randn(2, 5, 12)
     torch.testing.assert_close(merge_heads(split_heads(x, 3)), x)
@@ -219,7 +236,7 @@ def test_attention_with_padding():
     assert out.shape == (2, 2, 4, 8)
     # for the first sequence there are two real keys, so the output at position 1
     # is obliged to coincide with the attention computed over those two keys alone
-    ref = scaled_dot_product_attention(q[0:1, :, 1:2], k[0:1, :, :2], v[0:1, :, :2])
+    ref = F.scaled_dot_product_attention(q[0:1, :, 1:2], k[0:1, :, :2], v[0:1, :, :2])
     torch.testing.assert_close(out[0:1, :, 1:2], ref, atol=1e-5, rtol=1e-5)
 
 
@@ -232,6 +249,7 @@ def test_mha_module_shapes_and_names():
     assert sum(p.numel() for p in attn.parameters()) == 4 * 32 * 32
 
 
+@pytest.mark.depends_on("split_heads", "merge_heads", "causal_attention")
 def test_mha_matches_manual_composition():
     """We assemble the same thing out of the bricks already implemented - the result is obliged to match."""
     torch.manual_seed(0)
@@ -267,13 +285,17 @@ def test_gqa_is_causal():
     assert x.grad[0, 2:].abs().max().item() == 0.0
 
 
-def test_attention_costs():
+def test_attention_matrix_bytes():
     # bf16, batch 8, 32 heads, a context of 32768
     b = attention_matrix_bytes(8, 32, 32768, torch.bfloat16)
     assert b == 8 * 32 * 32768 * 32768 * 2
     assert b > 500e12 / 1e3  # this is hundreds of terabytes - it cannot be materialized, hence flash-attention
+    assert attention_matrix_bytes(1, 1, 128, torch.float32) == 128 * 128 * 4
 
+
+def test_attention_flops():
     assert attention_flops(1, 1, 128, 64) == 2 * (2 * 128 * 128 * 64)
+    assert attention_flops(4, 8, 128, 64) == 4 * 8 * 2 * (2 * 128 * 128 * 64)
 
 
 @pytest.mark.parametrize("num_heads", [1, 2, 8])

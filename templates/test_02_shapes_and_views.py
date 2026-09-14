@@ -175,13 +175,26 @@ def shift_right(x: Tensor, pad_value: int) -> Tensor:
 # ==========================================================================
 
 
-def test_flatten_and_unflatten_tokens():
+def test_flatten_tokens():
     x = torch.randn(2, 3, 4)
     flat = flatten_tokens(x)
     assert flat.shape == (6, 4)
     torch.testing.assert_close(flat[0], x[0, 0])
     torch.testing.assert_close(flat[3], x[1, 0])
-    torch.testing.assert_close(unflatten_tokens(flat, 2), x)
+
+
+def test_unflatten_tokens():
+    flat = torch.randn(6, 4)
+    out = unflatten_tokens(flat, 2)
+    assert out.shape == (2, 3, 4)
+    torch.testing.assert_close(out[0, 0], flat[0])
+    torch.testing.assert_close(out[1, 0], flat[3])
+
+
+@pytest.mark.depends_on("flatten_tokens", "unflatten_tokens")
+def test_flatten_unflatten_roundtrip():
+    x = torch.randn(2, 3, 4)
+    torch.testing.assert_close(unflatten_tokens(flatten_tokens(x), 2), x)
 
 
 def test_flatten_all_but_last():
@@ -213,6 +226,16 @@ def test_split_heads():
         torch.testing.assert_close(out[:, h, :, :], x[..., h * Dh : (h + 1) * Dh])
 
 
+def test_merge_heads():
+    B, H, T, Dh = 2, 4, 5, 8
+    x = torch.randn(B, H, T, Dh)
+    out = merge_heads(x)
+    assert out.shape == (B, T, H * Dh)
+    # position t of the merged vector is the heads laid end to end
+    torch.testing.assert_close(out[1, 2], x[1, :, 2, :].reshape(H * Dh))
+
+
+@pytest.mark.depends_on("split_heads", "merge_heads")
 def test_merge_heads_roundtrip():
     x = torch.randn(2, 5, 32)
     torch.testing.assert_close(merge_heads(split_heads(x, 4)), x)
@@ -273,15 +296,30 @@ def test_broadcast_kv_heads():
         torch.testing.assert_close(out[:, h], kv[:, h // 3])
 
 
-def test_expand_vs_repeat():
+def test_expand_row():
     x = torch.randn(1, 5)
     e = expand_row(x, 4)
-    r = repeat_row(x, 4)
-    assert e.shape == r.shape == (4, 5)
-    torch.testing.assert_close(e, r)
+    assert e.shape == (4, 5)
+    torch.testing.assert_close(e[3], x[0])
     assert e.untyped_storage().data_ptr() == x.untyped_storage().data_ptr(), "expand does not copy"
-    assert r.untyped_storage().data_ptr() != x.untyped_storage().data_ptr(), "repeat does copy"
     assert e.stride(0) == 0, "for expand the stride along the broadcast axis is zero"
+
+
+def test_repeat_row():
+    x = torch.randn(1, 5)
+    r = repeat_row(x, 4)
+    assert r.shape == (4, 5)
+    torch.testing.assert_close(r[3], x[0])
+    assert r.untyped_storage().data_ptr() != x.untyped_storage().data_ptr(), "repeat does copy"
+    r[0, 0] = 100.0
+    assert x[0, 0].item() != 100.0, "a real copy must not write back into the source"
+
+
+@pytest.mark.depends_on("expand_row", "repeat_row")
+def test_expand_and_repeat_hold_the_same_values():
+    """Same numbers, different memory: that is the whole distinction."""
+    x = torch.randn(1, 5)
+    torch.testing.assert_close(expand_row(x, 4), repeat_row(x, 4))
 
 
 def test_sliding_windows():
@@ -306,6 +344,7 @@ def test_shift_right():
     assert out.dtype == x.dtype
 
 
+@pytest.mark.depends_on("split_heads", "merge_heads")
 @pytest.mark.parametrize("shape", [(2, 3, 8), (1, 1, 8), (4, 7, 16)])
 def test_heads_roundtrip_property(shape):
     x = torch.randn(*shape)

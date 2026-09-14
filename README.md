@@ -1,7 +1,7 @@
 # PyTorch exercises
 
 Drills on PyTorch and tensor algebra, tied to how all of it actually works inside an LLM.
-The format is borrowed from `rustlings` and `100-exercises-to-learn-rust`: one file per topic, holding function stubs with docstrings and the tests that check those stubs.
+The format is borrowed from [rustlings](https://rustlings.rust-lang.org/) and [100-exercises-to-learn-rust](https://github.com/mainmatter/100-exercises-to-learn-rust): one file per topic, holding function stubs with docstrings and the tests that check those stubs.
 The job is to replace every `raise NotImplementedError` with an implementation and drive the file to green.
 
 The goal is not to "learn about PyTorch" but to build muscle memory.
@@ -19,6 +19,15 @@ uv run pytest -k rope                     # a single test by name
 
 The first run of an untouched file is nothing but `NotImplementedError`.
 That is the intended starting state, not a broken environment.
+
+Each test covers one stub, so a failure names the single function to go and write, and the stubs can be
+done in any order. The few tests that check that several finished pieces agree with each other - a
+split/merge roundtrip, a KV cache against a full forward pass - are skipped until every piece they need
+is implemented, and turn themselves on once the last one lands:
+
+```sh
+uv run pytest test_02_shapes_and_views.py -rs   # -rs spells out what each skip is still waiting for
+```
 
 If you are stuck, `solutions/` holds a reference implementation of every topic.
 You can peek at one spot, or run the whole suite against the reference:

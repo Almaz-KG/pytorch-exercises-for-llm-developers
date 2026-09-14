@@ -136,14 +136,18 @@ def test_rms_norm_matches_reference():
     torch.testing.assert_close(rms_norm(x, w), expected)
 
 
-def test_rms_norm_no_mean_subtraction():
-    """Shifting the whole vector by a constant DOES change the output of RMSNorm (unlike LayerNorm)."""
+def test_rms_norm_is_not_shift_invariant():
+    """RMSNorm does not subtract the mean, so shifting the whole vector DOES change its output."""
     x = torch.randn(4, 8)
     w = torch.ones(8)
     assert not torch.allclose(rms_norm(x, w), rms_norm(x + 5.0, w), atol=1e-3)
-    torch.testing.assert_close(
-        layer_norm(x, w, torch.zeros(8)), layer_norm(x + 5.0, w, torch.zeros(8)), atol=1e-4, rtol=1e-4
-    )
+
+
+def test_layer_norm_is_shift_invariant():
+    """LayerNorm does subtract the mean, so the same shift changes nothing. That is the contrast."""
+    x = torch.randn(4, 8)
+    w, b = torch.ones(8), torch.zeros(8)
+    torch.testing.assert_close(layer_norm(x, w, b), layer_norm(x + 5.0, w, b), atol=1e-4, rtol=1e-4)
 
 
 def test_rms_norm_upcast():
@@ -151,7 +155,8 @@ def test_rms_norm_upcast():
     w = torch.ones(64, dtype=torch.bfloat16)
     out = rms_norm_upcast(x, w)
     assert out.dtype == torch.bfloat16, "the original dtype is what has to be returned"
-    reference = rms_norm(x.float(), w.float()).to(torch.bfloat16)
+    xf, wf = x.float(), w.float()
+    reference = (xf * torch.rsqrt(xf.pow(2).mean(-1, keepdim=True) + 1e-5) * wf).to(torch.bfloat16)
     torch.testing.assert_close(out, reference, atol=1e-2, rtol=1e-2)
 
 
@@ -162,7 +167,9 @@ def test_rms_norm_module():
     assert set(norm.state_dict().keys()) == {"weight"}, "RMSNorm has no bias"
 
     x = torch.randn(2, 5, 16)
-    torch.testing.assert_close(norm(x), rms_norm(x, norm.weight.detach()))
+    w = norm.weight.detach()
+    expected = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5) * w
+    torch.testing.assert_close(norm(x), expected)
 
 
 def test_layer_norm_module():
@@ -172,18 +179,27 @@ def test_layer_norm_module():
     assert set(norm.state_dict().keys()) == {"weight", "bias"}
 
 
-def test_norm_placement():
+def test_post_norm_residual():
+    """The norm module is torch's own here, so this tests the placement and nothing else."""
     torch.manual_seed(0)
     d = 8
-    norm = RMSNorm(d)
+    norm = nn.LayerNorm(d)
     sublayer = nn.Linear(d, d)
     x = torch.randn(3, d)
 
-    post = post_norm_residual(x, sublayer(x), norm)
-    torch.testing.assert_close(post, norm(x + sublayer(x)))
+    out = post_norm_residual(x, sublayer(x), norm)
+    torch.testing.assert_close(out, norm(x + sublayer(x)))
 
-    pre = pre_norm_residual(x, sublayer, norm)
-    torch.testing.assert_close(pre, x + sublayer(norm(x)))
+
+def test_pre_norm_residual():
+    torch.manual_seed(0)
+    d = 8
+    norm = nn.LayerNorm(d)
+    sublayer = nn.Linear(d, d)
+    x = torch.randn(3, d)
+
+    out = pre_norm_residual(x, sublayer, norm)
+    torch.testing.assert_close(out, x + sublayer(norm(x)))
 
 
 def test_pre_norm_keeps_identity_path():
@@ -194,7 +210,7 @@ def test_pre_norm_keeps_identity_path():
             return torch.zeros_like(t)
 
     x = torch.randn(4, 8)
-    torch.testing.assert_close(pre_norm_residual(x, Zero(), RMSNorm(8)), x)
+    torch.testing.assert_close(pre_norm_residual(x, Zero(), nn.LayerNorm(8)), x)
 
 
 def test_scale_invariance():

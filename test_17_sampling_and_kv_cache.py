@@ -223,6 +223,26 @@ def test_kv_cache_append():
     torch.testing.assert_close(v[:, :, 3:], v2)
 
 
+def test_cached_self_attention_without_cache():
+    """With no cache passed in it is plain causal self-attention - that part stands on its own."""
+    torch.manual_seed(0)
+    attn = CachedSelfAttention(32, 4)
+    names = {n for n, _ in attn.named_parameters()}
+    assert names == {"q_proj.weight", "k_proj.weight", "v_proj.weight", "output_proj.weight"}
+
+    x = torch.randn(2, 6, 32)
+    out = attn(x)
+    assert out.shape == (2, 6, 32)
+
+    q = attn.q_proj(x).unflatten(-1, (4, 8)).transpose(1, 2)
+    k = attn.k_proj(x).unflatten(-1, (4, 8)).transpose(1, 2)
+    v = attn.v_proj(x).unflatten(-1, (4, 8)).transpose(1, 2)
+    ref = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+    expected = attn.output_proj(ref.transpose(1, 2).reshape(2, 6, 32))
+    torch.testing.assert_close(out, expected, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.depends_on("KVCache", "CachedSelfAttention")
 def test_incremental_decoding_matches_full_forward():
     """The main test of the topic: step-by-step generation with a cache is obliged to give the same numbers
     as a single pass over the whole sequence."""
@@ -240,6 +260,7 @@ def test_incremental_decoding_matches_full_forward():
     assert len(cache) == 6
 
 
+@pytest.mark.depends_on("KVCache", "CachedSelfAttention")
 def test_prefill_then_decode():
     """The real mode: first a prefill of the whole prompt, then one token at a time."""
     torch.manual_seed(0)

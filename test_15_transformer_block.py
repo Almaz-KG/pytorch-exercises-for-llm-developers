@@ -131,8 +131,53 @@ def activation_memory_bytes(batch: int, seq_len: int, d_model: int, num_layers: 
 # ==========================================================================
 # TESTS
 # ==========================================================================
+#
+# 15.1 first: the three bricks each get their own test. Everything below them is assembled out of
+# all three, so those tests declare the bricks as prerequisites and stay skipped until they exist.
 
 
+def test_rms_norm():
+    norm = RMSNorm(16)
+    assert isinstance(norm.weight, nn.Parameter)
+    torch.testing.assert_close(norm.weight, torch.ones(16))
+    assert set(norm.state_dict().keys()) == {"weight"}, "RMSNorm has no bias"
+
+    x = torch.randn(2, 5, 16)
+    expected = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5) * norm.weight.detach()
+    torch.testing.assert_close(norm(x), expected)
+
+
+def test_swiglu():
+    ffn = SwiGLU(8, 21)
+    assert {n for n, _ in ffn.named_parameters()} == {"w1.weight", "w2.weight", "w3.weight"}
+    assert sum(p.numel() for p in ffn.parameters()) == 3 * 8 * 21, "three matrices, no biases"
+
+    x = torch.randn(4, 8)
+    out = ffn(x)
+    assert out.shape == (4, 8)
+    expected = ffn.w2(nn.functional.silu(ffn.w1(x)) * ffn.w3(x))
+    torch.testing.assert_close(out, expected, atol=1e-6, rtol=1e-5)
+
+
+def test_causal_self_attention():
+    attn = CausalSelfAttention(32, 4)
+    names = {n for n, _ in attn.named_parameters()}
+    assert names == {"q_proj.weight", "k_proj.weight", "v_proj.weight", "output_proj.weight"}
+    assert sum(p.numel() for p in attn.parameters()) == 4 * 32 * 32
+
+    x = torch.randn(2, 7, 32)
+    assert attn(x).shape == (2, 7, 32)
+
+
+def test_causal_self_attention_masks_the_future():
+    x = torch.randn(1, 6, 16, requires_grad=True)
+    attn = CausalSelfAttention(16, 2)
+    attn(x)[0, 2].sum().backward()
+    assert x.grad[0, 3:].abs().max().item() == 0.0, "information leaked in from the future"
+    assert x.grad[0, :3].abs().max().item() > 0.0
+
+
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention")
 def test_block_structure():
     block = TransformerBlock(32, 4, 64)
     children = dict(block.named_children())
@@ -141,6 +186,7 @@ def test_block_structure():
     assert block(x).shape == x.shape
 
 
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention")
 def test_block_is_pre_norm_with_residuals():
     torch.manual_seed(0)
     block = TransformerBlock(16, 2, 32)
@@ -150,6 +196,7 @@ def test_block_is_pre_norm_with_residuals():
     torch.testing.assert_close(block(x), expected, atol=1e-5, rtol=1e-5)
 
 
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention")
 def test_block_identity_when_sublayers_are_zero():
     """Zero out the output projections - the residual stream is obliged to carry the input through unchanged."""
     block = TransformerBlock(16, 2, 32)
@@ -160,6 +207,7 @@ def test_block_identity_when_sublayers_are_zero():
     torch.testing.assert_close(block(x), x, atol=1e-6, rtol=0)
 
 
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
 def test_lm_shapes_and_names():
     model = TransformerLM(vocab_size=100, d_model=32, num_heads=4, d_ff=64, num_layers=2)
     ids = torch.randint(0, 100, (2, 7))
@@ -175,6 +223,7 @@ def test_lm_shapes_and_names():
     assert "layers.0.ln1.weight" in names
 
 
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
 def test_lm_is_causal():
     model = TransformerLM(vocab_size=50, d_model=32, num_heads=4, d_ff=64, num_layers=2)
     ids = torch.randint(0, 50, (1, 6))
@@ -190,6 +239,7 @@ def test_lm_is_causal():
     assert emb.grad[0, :3].abs().max().item() > 0.0
 
 
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
 def test_untrained_loss_is_log_vocab():
     """The first check of any training run: the loss at the start must be ~log(V)."""
     torch.manual_seed(0)
@@ -201,6 +251,7 @@ def test_untrained_loss_is_log_vocab():
     assert abs(loss.item() - math.log(V)) < 0.3, f"loss {loss.item():.3f}, expected ~{math.log(V):.3f}"
 
 
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
 def test_lm_can_overfit_one_batch():
     """The model must be able to memorize a single batch - otherwise the graph or the mask is broken somewhere."""
     torch.manual_seed(0)
@@ -232,6 +283,7 @@ def test_count_lm_params():
     assert untied - n == 50257 * 768
 
 
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock", "TransformerLM")
 def test_count_matches_real_model():
     model = TransformerLM(vocab_size=100, d_model=32, num_heads=4, d_ff=64, num_layers=2)
     formula = count_lm_params(100, 32, 64, 2, tied_embeddings=False)
@@ -245,6 +297,7 @@ def test_activation_memory_bytes():
     assert b == 8 * 2048 * 4096 * 32 * 2
 
 
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
 @pytest.mark.parametrize("num_layers", [1, 3])
 def test_lm_depth(num_layers):
     model = TransformerLM(vocab_size=40, d_model=16, num_heads=2, d_ff=32, num_layers=num_layers)

@@ -8,8 +8,10 @@ The layout, the commands and the invariants of the repo are described in `CLAUDE
 
 Rustlings-style PyTorch drills: twenty `test_NN_<topic>.py` files, ordered by difficulty, each one both the exercise and its own test suite.
 Above the `# TESTS` banner sit function and `nn.Module` stubs whose docstrings state the contract; every body is `raise NotImplementedError`.
-Below the banner sit the tests that check those stubs.
+Below the banner sit the tests that check those stubs, one test per stub.
 Solving a topic means replacing the `NotImplementedError` bodies until the file goes green.
+A few tests check that several finished pieces agree with each other; those carry
+`@pytest.mark.depends_on(...)` and skip until every stub they name is implemented.
 
 This is not a course assignment and there is no grader.
 It is deliberate practice, owned and written by the repo owner, and the point is muscle memory: after twenty files a transformer block, cross-entropy, AdamW and a KV cache should come out of the fingers without lookup.
@@ -36,6 +38,8 @@ If asked directly for implementation work anyway, say once why that undercuts th
 - Edit the non-exercise files when asked: `conftest.py`, `reset.py`, `pyproject.toml`, `README.md`, `CLAUDE.md`, this file.
 - Author new topics, new stubs and new tests when asked for them; that is writing the exercise, not solving it.
 - Fix a test that is genuinely wrong, which is what a failure under `SOLUTIONS=1` means.
+- Keep the one-test-per-stub shape when adding tests: a new test gets at most one subject, and anything
+  else it needs goes into `@pytest.mark.depends_on(...)` so it skips until those are written.
 
 ## What agents should not do
 

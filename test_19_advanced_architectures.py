@@ -184,6 +184,14 @@ def beam_search_step(beam_scores: Tensor, next_log_probs: Tensor, beam_size: int
 # ==========================================================================
 # TESTS
 # ==========================================================================
+#
+# The MoE tests route with the reference below rather than with top2_routing, so that the two can be
+# written in either order. That your own router agrees with it is checked in test_moe_routing_agrees.
+
+
+def _ref_top2(router_logits: Tensor) -> tuple[Tensor, Tensor]:
+    values, idx = router_logits.topk(2, dim=-1)
+    return idx, values.softmax(dim=-1)
 
 
 def test_rms_norm_function_forward():
@@ -235,10 +243,13 @@ def test_sliding_window_mask():
     torch.testing.assert_close(sliding_window_mask(6, 99), (idx[:, None] >= idx[None, :]))
 
 
-def test_document_mask():
-    doc_ids = block_diagonal_lengths_to_doc_ids([2, 3])
-    torch.testing.assert_close(doc_ids, torch.tensor([0, 0, 1, 1, 1]))
+def test_block_diagonal_lengths_to_doc_ids():
+    torch.testing.assert_close(block_diagonal_lengths_to_doc_ids([2, 3]), torch.tensor([0, 0, 1, 1, 1]))
+    torch.testing.assert_close(block_diagonal_lengths_to_doc_ids([3, 2, 4]), torch.tensor([0, 0, 0, 1, 1, 2, 2, 2, 2]))
 
+
+def test_document_mask():
+    doc_ids = torch.tensor([0, 0, 1, 1, 1])
     m = document_mask(doc_ids)
     expected = torch.tensor(
         [
@@ -306,7 +317,7 @@ def test_moe_forward_matches_dense_reference():
     w1 = torch.randn(E, D_ff, D) * 0.1
     w2 = torch.randn(E, D, D_ff) * 0.1
 
-    idx, weights = top2_routing(x @ router.T)
+    idx, weights = _ref_top2(x @ router.T)
     expected = torch.zeros(N, D)
     for n in range(N):
         for slot in range(2):
@@ -326,7 +337,7 @@ def test_moe_uses_only_two_experts_per_token():
     w1 = torch.randn(E, D_ff, D) * 0.1
     w2 = torch.randn(E, D, D_ff) * 0.1
 
-    idx, _ = top2_routing(x @ router.T)
+    idx, _ = _ref_top2(x @ router.T)
     out = moe_forward(x, router, w1, w2)
 
     unused = set(range(E)) - set(idx.flatten().tolist())
@@ -336,6 +347,25 @@ def test_moe_uses_only_two_experts_per_token():
             w1_mod[e].zero_()
             w2_mod[e].zero_()
         torch.testing.assert_close(moe_forward(x, router, w1_mod, w2_mod), out, atol=1e-5, rtol=1e-4)
+
+
+@pytest.mark.depends_on("top2_routing", "moe_forward")
+def test_moe_routing_agrees_with_top2_routing():
+    """The layer has to route by the same rule the routing function implements."""
+    torch.manual_seed(0)
+    N, D, E, D_ff = 6, 8, 4, 16
+    x = torch.randn(N, D)
+    router = torch.randn(E, D)
+    w1 = torch.randn(E, D_ff, D) * 0.1
+    w2 = torch.randn(E, D, D_ff) * 0.1
+
+    idx, weights = top2_routing(x @ router.T)
+    expected = torch.zeros(N, D)
+    for n in range(N):
+        for slot in range(2):
+            e = int(idx[n, slot])
+            expected[n] += weights[n, slot] * (w2[e] @ F.relu(w1[e] @ x[n]))
+    torch.testing.assert_close(moe_forward(x, router, w1, w2), expected, atol=1e-5, rtol=1e-4)
 
 
 def test_speculative_accept_all_accepted():

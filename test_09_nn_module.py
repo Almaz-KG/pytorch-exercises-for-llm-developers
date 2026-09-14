@@ -211,7 +211,7 @@ def test_my_embedding():
     out = emb(ids)
     assert out.shape == (2, 2, 4)
     torch.testing.assert_close(out, emb.weight[ids])
-    assert count_parameters(emb) == 40
+    assert sum(p.numel() for p in emb.parameters()) == 40
 
 
 def test_buffer_is_not_a_parameter():
@@ -219,7 +219,7 @@ def test_buffer_is_not_a_parameter():
     assert "mask" in dict(layer.named_buffers()), "the mask must be a buffer"
     assert "mask" not in dict(layer.named_parameters())
     assert "mask" in layer.state_dict()
-    assert count_parameters(layer) == 0
+    assert sum(p.numel() for p in layer.parameters()) == 0, "a buffer is not trained"
 
     m = layer(3)
     assert m.shape == (3, 3)
@@ -229,10 +229,11 @@ def test_buffer_is_not_a_parameter():
 
 def test_module_list_registers_parameters():
     stack = BlockStack(4, 3)
-    assert count_parameters(stack) == 3 * (4 * 4 + 4)
+    # a plain python list of layers would leave both of these at zero
+    assert sum(p.numel() for p in stack.parameters()) == 3 * (4 * 4 + 4)
+    assert len(list(stack.named_parameters())) == 6
     x = torch.randn(2, 4)
     assert stack(x).shape == (2, 4)
-    assert len(parameter_names(stack)) == 6
 
 
 def test_parameter_names():
@@ -241,8 +242,11 @@ def test_parameter_names():
 
 
 def test_total_bytes():
-    model = MyLinear(4, 6)  # 24 weights + 6 bias, float32
+    model = nn.Linear(4, 6)  # 24 weights + 6 bias, float32
     assert total_bytes(model) == (24 + 6) * 4
+
+    model.register_buffer("cache", torch.zeros(10, dtype=torch.float64))
+    assert total_bytes(model) == (24 + 6) * 4 + 10 * 8, "buffers take memory too"
 
 
 def test_count_parameters_trainable_flag():
@@ -275,6 +279,7 @@ def test_scaled_residual_std():
     assert abs(scaled_residual_std(0.02, 12) - 0.02 / (24**0.5)) < 1e-12
 
 
+@pytest.mark.depends_on("MyLinear")
 def test_save_load_roundtrip():
     model = MyLinear(3, 5)
     loaded = save_load_roundtrip(model)
@@ -292,6 +297,7 @@ def test_strip_prefix():
     assert set(out.keys()) == {"layers.0.weight", "ln_final.weight"}
 
 
+@pytest.mark.depends_on("MyEmbedding", "MyLinear")
 def test_tie_weights():
     emb = MyEmbedding(10, 4)
     head = MyLinear(4, 10, bias=False)

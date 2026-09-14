@@ -274,11 +274,20 @@ def test_train_steps_reduces_loss():
     assert losses[-1] < 0.2 * losses[0], f"the loss barely fell: {losses[0]:.4f} -> {losses[-1]:.4f}"
 
 
-def test_training_arithmetic():
+def test_training_flops():
     # 7B parameters, 1.4T tokens - roughly LLaMA-7B
     assert training_flops(7e9, 1.4e12) == 6 * 7e9 * 1.4e12
+    assert training_flops(1, 1) == 6
+
+
+def test_chinchilla_tokens():
     assert chinchilla_tokens(7_000_000_000) == 140_000_000_000
+    assert chinchilla_tokens(1_000_000) == 20_000_000
+
+
+def test_tokens_per_step():
     assert tokens_per_step(8, 1024, 4) == 32768
+    assert tokens_per_step(8, 1024, 1) == 8192
 
 
 @pytest.mark.parametrize("warmup,cosine", [(0, 100), (10, 100), (50, 50)])

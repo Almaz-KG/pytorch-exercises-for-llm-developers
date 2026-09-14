@@ -39,7 +39,8 @@ uv run python reset.py --restore attempts/<ts>/test_14_attention.py
 A topic is named to `reset.py` by number (`14`), by file stem (`test_14_attention`), by the stem without its prefix (`14_attention`), or by any unambiguous substring (`attention`).
 `--no-archive` skips the copy into `attempts/` and is the one flag that can lose work.
 
-A fresh topic file fails every test with `NotImplementedError`.
+A fresh topic file fails every per-stub test with `NotImplementedError`, and skips the handful of
+composition tests that are waiting on those stubs.
 That is the intended starting state, not a broken environment.
 
 ## Structure of a topic file
@@ -51,6 +52,23 @@ Each `test_NN_<topic>.py` is both the exercise and its test suite, split by a `#
 
 So the file is edited and the tests are not.
 Changing an assertion to make a stub pass defeats the whole point; fix the implementation instead.
+
+## One test per stub, and the `depends_on` marker
+
+Every stub is the subject of at least one test, and a test has at most one subject.
+A failure therefore names exactly one function to go and write, and the topic can be worked in any order.
+Where a test needed a second stub only for convenience it was rewritten to build that input from plain `torch` instead, and a few files carry `_ref_*` helpers below the banner for the same reason (`_ref_cos_sin` in topic 13, `_ref_top2` in topic 19).
+
+The exceptions are the tests that check that several finished pieces agree with each other: a split/merge roundtrip, a KV cache against a full forward pass, `apply_rope_to_qk` against `apply_rope` over `rope_cos_sin`.
+Those carry `@pytest.mark.depends_on("a", "b")` and are skipped until every stub they name is implemented, so they stay quiet while the parts are being written and turn themselves on once the last one lands.
+`conftest.py` implements the marker: `pytest_runtest_setup` skips when `inspect.getsource` of a named object still contains `raise NotImplementedError`.
+
+The marker names **prerequisites, not the subject**.
+`test_tie_weights` declares `MyEmbedding` and `MyLinear` because it cannot run without them, but not `tie_weights` itself: once the modules exist, that test must fail rather than skip, because it is the test for `tie_weights`.
+A name misspelled in a marker gates nothing and fails silently, so keep them in step with the stubs.
+
+A fresh topic file therefore no longer fails every test: the per-stub tests fail with `NotImplementedError` and the composition tests skip.
+Across the whole suite that is 320 test functions: 249 stubs each with a subject test of their own, and 27 composition tests behind the marker.
 
 No topic file imports another one, and none of them import `solutions/`.
 Every file stands alone, and a later topic that needs an earlier helper re-declares its stub rather than importing it: `split_heads` is drilled again at the top of topic 14, the transformer bricks again at the top of topic 15.

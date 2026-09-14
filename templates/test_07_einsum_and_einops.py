@@ -161,28 +161,48 @@ def eo_broadcast_mask(mask: Tensor, num_heads: int) -> Tensor:
 # ==========================================================================
 
 
-def test_es_basics():
+def test_es_trace():
     x = torch.randn(5, 5)
     torch.testing.assert_close(es_trace(x), x.trace())
+
+
+def test_es_diagonal():
+    x = torch.randn(5, 5)
     torch.testing.assert_close(es_diagonal(x), x.diagonal())
+
+
+def test_es_transpose():
+    x = torch.randn(5, 5)
     torch.testing.assert_close(es_transpose(x), x.T)
 
-    a, b = torch.randn(3, 4), torch.randn(4, 6)
-    torch.testing.assert_close(es_matmul(a, b), a @ b)
 
+def test_es_matmul():
+    a, b = torch.randn(3, 4), torch.randn(4, 6)
+    torch.testing.assert_close(es_matmul(a, b), a @ b, atol=1e-5, rtol=1e-5)
+
+
+def test_es_outer():
     u, v = torch.randn(3), torch.randn(5)
     torch.testing.assert_close(es_outer(u, v), torch.outer(u, v))
+
+
+def test_es_row_sums():
+    x = torch.randn(5, 5)
     torch.testing.assert_close(es_row_sums(x), x.sum(dim=1))
 
 
-def test_es_attention():
+def test_es_attention_scores():
     B, H, T, S, Dh = 2, 3, 4, 5, 6
-    q, k, v = torch.randn(B, H, T, Dh), torch.randn(B, H, S, Dh), torch.randn(B, H, S, Dh)
+    q, k = torch.randn(B, H, T, Dh), torch.randn(B, H, S, Dh)
     scores = es_attention_scores(q, k)
     assert scores.shape == (B, H, T, S)
     torch.testing.assert_close(scores, q @ k.transpose(-2, -1), atol=1e-5, rtol=1e-5)
 
-    w = scores.softmax(dim=-1)
+
+def test_es_attention_output():
+    B, H, T, S, Dh = 2, 3, 4, 5, 6
+    w = torch.randn(B, H, T, S).softmax(dim=-1)
+    v = torch.randn(B, H, S, Dh)
     torch.testing.assert_close(es_attention_output(w, v), w @ v, atol=1e-5, rtol=1e-5)
 
 
@@ -212,12 +232,24 @@ def test_es_batched_bilinear():
     torch.testing.assert_close(out, expected, atol=1e-5, rtol=1e-5)
 
 
-def test_eo_heads_roundtrip():
+def test_eo_split_heads():
     x = torch.randn(2, 5, 12)
     heads = eo_split_heads(x, 3)
     assert heads.shape == (2, 3, 5, 4)
     torch.testing.assert_close(heads[:, 1], x[..., 4:8])
-    torch.testing.assert_close(eo_merge_heads(heads), x)
+
+
+def test_eo_merge_heads():
+    x = torch.randn(2, 3, 5, 4)
+    out = eo_merge_heads(x)
+    assert out.shape == (2, 5, 12)
+    torch.testing.assert_close(out[..., 4:8], x[:, 1])
+
+
+@pytest.mark.depends_on("eo_split_heads", "eo_merge_heads")
+def test_eo_heads_roundtrip():
+    x = torch.randn(2, 5, 12)
+    torch.testing.assert_close(eo_merge_heads(eo_split_heads(x, 3)), x)
 
 
 def test_eo_flatten_tokens():
@@ -245,25 +277,32 @@ def test_eo_group_tokens():
     torch.testing.assert_close(out[:, 1], x[:, 4:])
 
 
-def test_eo_reduce_and_repeat():
+def test_eo_mean_pool():
     x = torch.randn(2, 3, 4)
     torch.testing.assert_close(eo_mean_pool(x), x.mean(dim=1))
 
+
+def test_eo_max_pool_heads():
     h = torch.randn(2, 3, 4, 5)
     torch.testing.assert_close(eo_max_pool_heads(h), h.max(dim=1).values)
 
+
+def test_eo_repeat_kv():
     kv = torch.randn(2, 2, 3, 4)
     out = eo_repeat_kv(kv, 3)
     assert out.shape == (2, 6, 3, 4)
     for h_i in range(6):
         torch.testing.assert_close(out[:, h_i], kv[:, h_i // 3])
 
+
+def test_eo_broadcast_mask():
     mask = torch.randn(2, 4, 4)
     m = eo_broadcast_mask(mask, 3)
     assert m.shape == (2, 3, 4, 4)
     torch.testing.assert_close(m[:, 2], mask)
 
 
+@pytest.mark.depends_on("eo_split_heads", "eo_merge_heads")
 @pytest.mark.parametrize("num_heads", [1, 2, 4])
 def test_eo_heads_property(num_heads):
     x = torch.randn(3, 6, 8)

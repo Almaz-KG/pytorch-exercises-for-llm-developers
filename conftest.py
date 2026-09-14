@@ -1,16 +1,25 @@
-"""Общая настройка для всех упражнений.
+"""Shared setup for every exercise.
 
-Два режима запуска:
+Two ways to run:
 
-1. Обычный: `uv run pytest` - тесты гоняют то, что ты реализовал в файлах `test_*.py`.
-2. Проверочный: `SOLUTIONS=1 uv run pytest` - тесты гоняют эталонные реализации из `solutions/`.
-   Второй режим нужен, чтобы убедиться, что сами тесты корректны, и чтобы подсмотреть ответ.
+1. The normal one: `uv run pytest` - the tests exercise what you implemented in the `test_*.py` files.
+2. The checking one: `SOLUTIONS=1 uv run pytest` - the tests exercise the reference implementations
+   from `solutions/`. The second mode is there to confirm that the tests themselves are correct,
+   and to peek at an answer.
 
-Механика второго режима: перед запуском в модуль теста подставляются одноимённые
-функции и классы из `solutions/sol_<то же имя>.py`.
+The mechanics of the second mode: before the run, the functions and classes of the same name from
+`solutions/sol_<the same name>.py` are substituted into the test module.
+
+This file also provides the `depends_on` marker. Almost every test exercises exactly one stub, so a
+failure names the single function to go and write. The exceptions are the tests that check that
+several finished pieces agree with each other - a split/merge roundtrip, a KV cache against a full
+forward pass - and those carry `@pytest.mark.depends_on("a", "b")`. Such a test is skipped until
+every stub it names is implemented, so it stays quiet while you work on the parts and turns itself
+on once the last one is done.
 """
 
 import importlib
+import inspect
 import os
 import random
 import sys
@@ -25,8 +34,44 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+STUB = "raise NotImplementedError"
+
+
 def _solutions_enabled() -> bool:
     return os.environ.get("SOLUTIONS", "").lower() in {"1", "true", "yes", "on"}
+
+
+def _is_stub(obj) -> bool:
+    """True while `obj` is still an untouched exercise stub.
+
+    Read off the source rather than by calling it: a call would need arguments, and for a class
+    the answer has to cover every method at once. A name that does not resolve, or has no source
+    (a builtin, or a solution swapped in by SOLUTIONS=1), counts as implemented.
+    """
+    try:
+        return STUB in inspect.getsource(obj)
+    except (OSError, TypeError):
+        return False
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "depends_on(*names): a test that checks several pieces against each other; "
+        "skipped until every named stub in the module is implemented",
+    )
+
+
+def pytest_runtest_setup(item):
+    marker = item.get_closest_marker("depends_on")
+    if marker is None:
+        return
+    module = getattr(item, "module", None)
+    if module is None:
+        return
+    pending = [name for name in marker.args if _is_stub(getattr(module, name, None))]
+    if pending:
+        pytest.skip("not implemented yet: " + ", ".join(pending))
 
 
 def pytest_collection_modifyitems(config, items):
@@ -53,7 +98,7 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(autouse=True)
 def _deterministic():
-    """Каждый тест стартует с одного и того же состояния генераторов."""
+    """Every test starts from the same state of the random generators."""
     torch.manual_seed(0)
     np.random.seed(0)
     random.seed(0)

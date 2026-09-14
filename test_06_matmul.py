@@ -216,14 +216,19 @@ def test_lora_delta():
     torch.testing.assert_close(out, (x @ A @ B) * 2.0, atol=1e-5, rtol=1e-5)
 
 
-def test_attention_scores_and_output():
+def test_attention_scores():
     B, H, T, S, Dh = 2, 3, 4, 5, 8
-    q, k, v = torch.randn(B, H, T, Dh), torch.randn(B, H, S, Dh), torch.randn(B, H, S, Dh)
+    q, k = torch.randn(B, H, T, Dh), torch.randn(B, H, S, Dh)
     scores = attention_scores(q, k)
     assert scores.shape == (B, H, T, S)
     torch.testing.assert_close(scores[0, 1, 2, 3], (q[0, 1, 2] * k[0, 1, 3]).sum() / (Dh**0.5))
+    torch.testing.assert_close(scores, q @ k.transpose(-2, -1) / (Dh**0.5), atol=1e-5, rtol=1e-5)
 
-    w = scores.softmax(dim=-1)
+
+def test_attention_output():
+    B, H, T, S, Dh = 2, 3, 4, 5, 8
+    w = torch.randn(B, H, T, S).softmax(dim=-1)
+    v = torch.randn(B, H, S, Dh)
     out = attention_output(w, v)
     assert out.shape == (B, H, T, Dh)
     torch.testing.assert_close(out[0, 1, 2], (w[0, 1, 2, :, None] * v[0, 1]).sum(dim=0), atol=1e-5, rtol=1e-5)

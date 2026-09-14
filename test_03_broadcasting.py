@@ -257,7 +257,8 @@ def test_alibi_bias():
 
 def test_apply_additive_mask():
     scores = torch.randn(2, 3, 4, 4)
-    mask = causal_mask(4)
+    idx = torch.arange(4)
+    mask = idx[:, None] >= idx[None, :]  # built here so this test needs causal_mask from nobody
     out = apply_additive_mask(scores, mask)
     assert out.shape == scores.shape
     assert torch.isinf(out[:, :, 0, 1]).all() and (out[:, :, 0, 1] < 0).all()

@@ -133,6 +133,25 @@ class RotaryEmbedding(nn.Module):
 # ==========================================================================
 # TESTS
 # ==========================================================================
+#
+# The rotations below are rebuilt from plain torch rather than taken from rope_cos_sin, so that
+# each test rests on exactly one stub and the pieces can be written in any order. That the pieces
+# then agree with each other is checked separately, in test_rope_pieces_agree.
+
+
+def _ref_cos_sin(seq_len: int, d_head: int, theta: float = 10000.0, offset: int = 0) -> tuple[Tensor, Tensor]:
+    inv_freq = theta ** (-torch.arange(0, d_head, 2, dtype=torch.float32) / d_head)
+    pos = torch.arange(offset, offset + seq_len, dtype=torch.float32)
+    angles = pos[:, None] * inv_freq[None, :]
+    return angles.cos(), angles.sin()
+
+
+def _ref_rope(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
+    even, odd = x[..., 0::2], x[..., 1::2]
+    out = torch.empty_like(x)
+    out[..., 0::2] = even * cos - odd * sin
+    out[..., 1::2] = even * sin + odd * cos
+    return out
 
 
 def test_scaled_token_embedding():
@@ -184,7 +203,7 @@ def test_rope_cos_sin():
 
 def test_apply_rope_position_zero_is_identity():
     x = torch.randn(2, 3, 5, 8)
-    cos, sin = rope_cos_sin(5, 8)
+    cos, sin = _ref_cos_sin(5, 8)
     out = apply_rope(x, cos, sin)
     assert out.shape == x.shape
     torch.testing.assert_close(out[..., 0, :], x[..., 0, :], atol=1e-6, rtol=0)
@@ -193,7 +212,7 @@ def test_apply_rope_position_zero_is_identity():
 def test_apply_rope_explicit_small_case():
     """Dh = 2, one pair, inv_freq = [1]. So the rotation is by an angle equal to the position itself."""
     x = torch.tensor([[1.0, 0.0], [1.0, 0.0], [0.0, 1.0]])  # (T=3, Dh=2)
-    cos, sin = rope_cos_sin(3, 2)
+    cos, sin = _ref_cos_sin(3, 2)
     out = apply_rope(x, cos, sin)
     torch.testing.assert_close(out[0], torch.tensor([1.0, 0.0]))
     torch.testing.assert_close(out[1], torch.tensor([math.cos(1.0), math.sin(1.0)]))
@@ -202,7 +221,7 @@ def test_apply_rope_explicit_small_case():
 
 def test_apply_rope_preserves_norm():
     x = torch.randn(2, 4, 6, 16)
-    cos, sin = rope_cos_sin(6, 16)
+    cos, sin = _ref_cos_sin(6, 16)
     out = apply_rope(x, cos, sin)
     torch.testing.assert_close(out.norm(dim=-1), x.norm(dim=-1), atol=1e-5, rtol=1e-5)
 
@@ -227,8 +246,9 @@ def test_apply_rope_to_qk():
     q, k = torch.randn(B, H, T, Dh), torch.randn(B, H, T, Dh)
     qr, kr = apply_rope_to_qk(q, k)
     assert qr.shape == q.shape and kr.shape == k.shape
-    cos, sin = rope_cos_sin(T, Dh)
-    torch.testing.assert_close(qr, apply_rope(q, cos, sin))
+    cos, sin = _ref_cos_sin(T, Dh)
+    torch.testing.assert_close(qr, _ref_rope(q, cos, sin), atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(kr, _ref_rope(k, cos, sin), atol=1e-5, rtol=1e-5)
 
     # a position offset - the generation mode, one token at a time
     q1 = q[:, :, 3:4]
@@ -242,12 +262,22 @@ def test_rotary_embedding_module():
     assert set(rope.state_dict().keys()) == {"cos_cached", "sin_cached"}
 
     x = torch.randn(2, 3, 5, 8)
-    cos, sin = rope_cos_sin(5, 8)
-    torch.testing.assert_close(rope(x), apply_rope(x, cos, sin))
+    torch.testing.assert_close(rope(x), _ref_rope(x, *_ref_cos_sin(5, 8)), atol=1e-5, rtol=1e-5)
 
     x1 = torch.randn(2, 3, 1, 8)
-    cos1, sin1 = rope_cos_sin(1, 8, offset=4)
-    torch.testing.assert_close(rope(x1, offset=4), apply_rope(x1, cos1, sin1))
+    expected = _ref_rope(x1, *_ref_cos_sin(1, 8, offset=4))
+    torch.testing.assert_close(rope(x1, offset=4), expected, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.depends_on("rope_cos_sin", "apply_rope", "apply_rope_to_qk")
+def test_rope_pieces_agree():
+    """The wrapper must be exactly apply_rope over rope_cos_sin - the same rotation, assembled."""
+    B, H, T, Dh = 2, 3, 4, 8
+    q, k = torch.randn(B, H, T, Dh), torch.randn(B, H, T, Dh)
+    cos, sin = rope_cos_sin(T, Dh)
+    qr, kr = apply_rope_to_qk(q, k)
+    torch.testing.assert_close(qr, apply_rope(q, cos, sin), atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(kr, apply_rope(k, cos, sin), atol=1e-5, rtol=1e-5)
 
 
 @pytest.mark.parametrize("d_head", [2, 8, 64])

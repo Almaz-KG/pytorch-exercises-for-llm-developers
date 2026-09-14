@@ -215,6 +215,7 @@ def test_uniform_loss():
     assert abs(uniform_loss(2) - math.log(2)) < 1e-9
 
 
+@pytest.mark.depends_on("cross_entropy_from_logits", "uniform_loss")
 @pytest.mark.parametrize("vocab", [4, 100, 50257])
 def test_untrained_model_loss_matches_log_vocab(vocab):
     """The real check: a model with zero logits must have a loss of exactly log(V)."""

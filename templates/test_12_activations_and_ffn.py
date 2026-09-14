@@ -111,26 +111,36 @@ def ffn_flops(batch_tokens: int, d_model: int, d_ff: int, gated: bool) -> int:
 # ==========================================================================
 
 
-def test_activations_match_torch():
+def test_relu():
     x = torch.randn(1000) * 3
     torch.testing.assert_close(relu(x), F.relu(x))
+    torch.testing.assert_close(relu(torch.tensor([-3.0, 0.0, 3.0])), torch.tensor([0.0, 0.0, 3.0]))
+
+
+def test_gelu_exact():
+    x = torch.randn(1000) * 3
     torch.testing.assert_close(gelu_exact(x), F.gelu(x, approximate="none"))
-    torch.testing.assert_close(gelu_tanh(x), F.gelu(x, approximate="tanh"), atol=1e-6, rtol=1e-5)
-    torch.testing.assert_close(silu(x), F.silu(x))
-
-
-def test_gelu_approximations_are_close():
-    x = torch.linspace(-5, 5, 200)
-    assert (gelu_exact(x) - gelu_tanh(x)).abs().max().item() < 1e-3
-
-
-def test_activation_shapes_and_signs():
-    x = torch.tensor([-3.0, 0.0, 3.0])
-    torch.testing.assert_close(relu(x), torch.tensor([0.0, 0.0, 3.0]))
-    # unlike ReLU, GELU and SiLU do not zero slightly negative values out completely
+    # unlike ReLU, GELU does not zero slightly negative values out completely
     assert gelu_exact(torch.tensor([-1.0])).item() < 0
+
+
+def test_gelu_tanh():
+    x = torch.randn(1000) * 3
+    torch.testing.assert_close(gelu_tanh(x), F.gelu(x, approximate="tanh"), atol=1e-6, rtol=1e-5)
+
+
+def test_silu():
+    x = torch.randn(1000) * 3
+    torch.testing.assert_close(silu(x), F.silu(x))
     assert silu(torch.tensor([-1.0])).item() < 0
     torch.testing.assert_close(silu(torch.tensor([0.0])), torch.tensor([0.0]))
+
+
+@pytest.mark.depends_on("gelu_exact", "gelu_tanh")
+def test_gelu_approximations_are_close():
+    """The two forms have to agree: that is what makes the cheap one a drop-in for the exact one."""
+    x = torch.linspace(-5, 5, 200)
+    assert (gelu_exact(x) - gelu_tanh(x)).abs().max().item() < 1e-3
 
 
 def test_silu_grad_matches_autograd():
@@ -173,6 +183,7 @@ def test_swiglu_d_ff():
     assert swiglu_d_ff(64, multiple_of=1) == 171
 
 
+@pytest.mark.depends_on("swiglu_d_ff")
 def test_ffn_params_are_comparable():
     d = 512
     plain = ffn_params(d, 4 * d, gated=False)
