@@ -1,0 +1,258 @@
+"""Топик 06 - матричное умножение.
+
+Что надо держать в голове:
+  - (M, K) @ (K, N) -> (M, N): совпадать должна внутренняя размерность;
+  - у torch.matmul ведущие оси broadcast-ятся, последние две перемножаются;
+  - nn.Linear хранит вес как (out_features, in_features) и считает x @ W.T;
+  - FLOPs одного matmul (M,K)x(K,N) = 2*M*N*K (умножение + сложение).
+
+Это тот самый слой, где рождается 99% времени обучения LLM.
+"""
+
+import pytest
+import torch
+from torch import Tensor
+
+# ==========================================================================
+# 6.1 Базовые формы
+# ==========================================================================
+
+
+def matvec(A: Tensor, x: Tensor) -> Tensor:
+    """A: (M, K), x: (K,) -> (M,)."""
+    raise NotImplementedError
+
+
+def matmul_shape(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
+    """Предсказать форму torch.matmul(a, b) по формам (обе >= 2 осей),
+    учитывая broadcasting ведущих осей. Несовместимость - ValueError.
+    """
+    raise NotImplementedError
+
+
+def batched_matmul(a: Tensor, b: Tensor) -> Tensor:
+    """a: (B, H, T, Dh), b: (B, H, Dh, S) -> (B, H, T, S). Одним вызовом, без циклов по головам."""
+    raise NotImplementedError
+
+
+def gram_matrix(x: Tensor) -> Tensor:
+    """x: (N, D) -> (N, N) матрица попарных скалярных произведений."""
+    raise NotImplementedError
+
+
+# ==========================================================================
+# 6.2 Линейный слой руками
+# ==========================================================================
+
+
+def linear_forward(x: Tensor, weight: Tensor, bias: Tensor | None = None) -> Tensor:
+    """Точная семантика nn.Linear: x: (..., in), weight: (out, in), bias: (out,) или None -> (..., out).
+
+    Никакого reshape батча не нужно - matmul сам разберётся с ведущими осями.
+    """
+    raise NotImplementedError
+
+
+def linear_backward(grad_out: Tensor, x: Tensor, weight: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    """Градиенты линейного слоя руками (без autograd).
+
+    Вход: grad_out (N, out), x (N, in), weight (out, in).
+    Вернуть (grad_x (N, in), grad_weight (out, in), grad_bias (out,)).
+
+    Формулы, которые стоит вывести на бумаге один раз и запомнить навсегда:
+      grad_x = grad_out @ W
+      grad_W = grad_out^T @ x
+      grad_b = сумма grad_out по батчу
+    """
+    raise NotImplementedError
+
+
+def lora_delta(x: Tensor, A: Tensor, B: Tensor, alpha: float, rank: int) -> Tensor:
+    """LoRA-поправка: x: (N, in), A: (in, r), B: (r, out) -> (N, out), умноженная на alpha / rank.
+
+    Заодно вопрос на понимание: почему выгодно считать (x @ A) @ B, а не x @ (A @ B).
+    """
+    raise NotImplementedError
+
+
+# ==========================================================================
+# 6.3 Attention без einsum
+# ==========================================================================
+
+
+def attention_scores(q: Tensor, k: Tensor) -> Tensor:
+    """q: (B, H, T, Dh), k: (B, H, S, Dh) -> (B, H, T, S), делённые на sqrt(Dh).
+
+    Только matmul и transpose - никаких einsum, это упражнение на формы.
+    """
+    raise NotImplementedError
+
+
+def attention_output(weights: Tensor, v: Tensor) -> Tensor:
+    """weights: (B, H, T, S), v: (B, H, S, Dh) -> (B, H, T, Dh)."""
+    raise NotImplementedError
+
+
+# ==========================================================================
+# 6.4 Арифметика стоимости
+# ==========================================================================
+
+
+def matmul_flops(m: int, k: int, n: int) -> int:
+    """FLOPs для (m, k) @ (k, n). Считаем умножение и сложение по одному флопу: 2*m*n*k."""
+    raise NotImplementedError
+
+
+def cheaper_order(m: int, k: int, n: int, p: int) -> str:
+    """Даны A: (m, k), B: (k, n), C: (n, p).
+    Вернуть "left", если (A@B)@C дешевле, "right", если A@(B@C), "equal" при равенстве.
+
+    Это не абстракция: ровно так решают, считать ли (x@A)@B или x@(A@B) в LoRA
+    и в каком порядке сворачивать attention при очень длинном контексте.
+    """
+    raise NotImplementedError
+
+
+def transformer_block_params(d_model: int, d_ff: int, num_heads: int) -> int:
+    """Число параметров одного блока трансформера БЕЗ bias и без нормализаций:
+    четыре матрицы attention (q, k, v, out) размера d_model x d_model
+    плюс FFN с двумя матрицами d_model x d_ff.
+
+    num_heads на число параметров не влияет - это тоже часть проверки понимания.
+    """
+    raise NotImplementedError
+
+
+# ==========================================================================
+# 6.5 Численность
+# ==========================================================================
+
+
+def matmul_accumulate_fp32(a: Tensor, b: Tensor) -> Tensor:
+    """a, b в bfloat16. Перемножить их с накоплением в float32 и вернуть float32.
+
+    Так делает реальный GPU-kernel: входы низкой точности, аккумулятор высокой.
+    """
+    raise NotImplementedError
+
+
+# ==========================================================================
+# ТЕСТЫ
+# ==========================================================================
+
+
+def test_matvec():
+    A = torch.randn(3, 4)
+    x = torch.randn(4)
+    out = matvec(A, x)
+    assert out.shape == (3,)
+    torch.testing.assert_close(out, A @ x)
+
+
+@pytest.mark.parametrize(
+    "a,b,expected",
+    [
+        ((3, 4), (4, 5), (3, 5)),
+        ((2, 3, 4), (4, 5), (2, 3, 5)),
+        ((2, 1, 3, 4), (5, 4, 6), (2, 5, 3, 6)),
+        ((8, 2, 3), (8, 3, 3), (8, 2, 3)),
+    ],
+)
+def test_matmul_shape(a, b, expected):
+    assert matmul_shape(a, b) == expected
+    assert tuple(torch.matmul(torch.zeros(a), torch.zeros(b)).shape) == expected
+
+
+def test_matmul_shape_error():
+    with pytest.raises(ValueError):
+        matmul_shape((3, 4), (5, 6))
+    with pytest.raises(ValueError):
+        matmul_shape((2, 3, 4), (5, 4, 6))
+
+
+def test_batched_matmul():
+    a = torch.randn(2, 3, 5, 4)
+    b = torch.randn(2, 3, 4, 6)
+    out = batched_matmul(a, b)
+    assert out.shape == (2, 3, 5, 6)
+    torch.testing.assert_close(out[1, 2], a[1, 2] @ b[1, 2])
+
+
+def test_gram_matrix():
+    x = torch.randn(5, 3)
+    out = gram_matrix(x)
+    assert out.shape == (5, 5)
+    torch.testing.assert_close(out, out.T, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(out[1, 2], (x[1] * x[2]).sum())
+
+
+def test_linear_forward_matches_nn():
+    layer = torch.nn.Linear(4, 7)
+    x = torch.randn(2, 3, 4)
+    torch.testing.assert_close(linear_forward(x, layer.weight, layer.bias), layer(x))
+    torch.testing.assert_close(linear_forward(x, layer.weight, None), x @ layer.weight.T)
+
+
+def test_linear_backward_matches_autograd():
+    x = torch.randn(6, 4, requires_grad=True)
+    w = torch.randn(7, 4, requires_grad=True)
+    b = torch.zeros(7, requires_grad=True)
+    out = torch.nn.functional.linear(x, w, b)
+    g = torch.randn_like(out)
+    out.backward(g)
+
+    gx, gw, gb = linear_backward(g, x.detach(), w.detach())
+    torch.testing.assert_close(gx, x.grad)
+    torch.testing.assert_close(gw, w.grad)
+    torch.testing.assert_close(gb, b.grad)
+
+
+def test_lora_delta():
+    x = torch.randn(5, 8)
+    A = torch.randn(8, 2)
+    B = torch.randn(2, 8)
+    out = lora_delta(x, A, B, alpha=4.0, rank=2)
+    assert out.shape == (5, 8)
+    torch.testing.assert_close(out, (x @ A @ B) * 2.0, atol=1e-5, rtol=1e-5)
+
+
+def test_attention_scores_and_output():
+    B, H, T, S, Dh = 2, 3, 4, 5, 8
+    q, k, v = torch.randn(B, H, T, Dh), torch.randn(B, H, S, Dh), torch.randn(B, H, S, Dh)
+    scores = attention_scores(q, k)
+    assert scores.shape == (B, H, T, S)
+    torch.testing.assert_close(scores[0, 1, 2, 3], (q[0, 1, 2] * k[0, 1, 3]).sum() / (Dh**0.5))
+
+    w = scores.softmax(dim=-1)
+    out = attention_output(w, v)
+    assert out.shape == (B, H, T, Dh)
+    torch.testing.assert_close(out[0, 1, 2], (w[0, 1, 2, :, None] * v[0, 1]).sum(dim=0), atol=1e-5, rtol=1e-5)
+
+
+def test_matmul_flops():
+    assert matmul_flops(2, 3, 4) == 48
+    # forward одного слоя (batch 1024, d_model 4096, d_ff 16384)
+    assert matmul_flops(1024, 4096, 16384) == 2 * 1024 * 4096 * 16384
+
+
+def test_cheaper_order():
+    # узкое место посередине (n=2): дешевле сначала A@B, промежуточная матрица крошечная
+    assert cheaper_order(1000, 1000, 2, 1000) == "left"
+    # узкий выход (p=2): дешевле сначала B@C - ровно логика LoRA и lm_head
+    assert cheaper_order(1000, 1000, 1000, 2) == "right"
+    assert cheaper_order(10, 10, 10, 10) == "equal"
+
+
+def test_transformer_block_params():
+    d, dff = 512, 2048
+    assert transformer_block_params(d, dff, num_heads=8) == 4 * d * d + 2 * d * dff
+    assert transformer_block_params(d, dff, num_heads=8) == transformer_block_params(d, dff, num_heads=16)
+
+
+def test_matmul_accumulate_fp32():
+    a = torch.randn(64, 128).to(torch.bfloat16)
+    b = torch.randn(128, 64).to(torch.bfloat16)
+    out = matmul_accumulate_fp32(a, b)
+    assert out.dtype == torch.float32
+    reference = a.float() @ b.float()
+    torch.testing.assert_close(out, reference, atol=1e-2, rtol=1e-2)

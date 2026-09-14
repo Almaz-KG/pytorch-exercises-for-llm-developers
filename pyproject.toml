@@ -1,0 +1,37 @@
+[project]
+name = "pytorch-exercises"
+version = "0.1.0"
+description = "Rustlings-style PyTorch / tensor-algebra exercises, LLM-flavoured"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "einops>=0.8",
+    "numpy>=2.0",
+    "pytest>=8.0",
+    "torch>=2.4",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+# templates/ - исходные заготовки, attempts/ - архив прошлых версий: это копии
+# тех же файлов, собирать их как тесты не надо.
+norecursedirs = ["templates", "attempts", "solutions", ".venv", "__pycache__"]
+addopts = "-q"
+filterwarnings = ["ignore::UserWarning"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+extend-select = ["UP"]
+ignore = ["F722", "E741", "PLR0402"]
+
+[tool.ruff.lint.extend-per-file-ignores]
+# В файлах с упражнениями импорты заготовлены заранее - они понадобятся при решении,
+# даже если в заготовках функций пока не используются.
+"test_*.py" = ["F401"]
