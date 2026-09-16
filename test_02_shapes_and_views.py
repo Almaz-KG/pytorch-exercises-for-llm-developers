@@ -38,7 +38,7 @@ def flatten_all_but_last(x: Tensor) -> Tensor:
 
 def add_batch_dim(x: Tensor) -> Tensor:
     """(T, D) -> (1, T, D) without copying the data."""
-    return x.unsqueeze(0)
+    return x.unsqueeze(dim=0)
 
 
 def drop_singleton_dims(x: Tensor) -> Tensor:
@@ -58,8 +58,7 @@ def split_heads(x: Tensor, num_heads: int) -> Tensor:
     Do it the other way round and the heads get mixed up, which the test will catch.
     """
     B, T, D = x.shape
-    x = x.view((B, T, num_heads, D // num_heads))
-    return x.transpose(1, 2)
+    return x.view((B, T, num_heads, D // num_heads)).transpose(1, 2)
 
 
 def merge_heads(x: Tensor) -> Tensor:
@@ -76,7 +75,7 @@ def transpose_last_two(x: Tensor) -> Tensor:
 
     This is how K^T is done in attention: (B, H, T, Dh) -> (B, H, Dh, T).
     """
-    return x.transpose(-2, -1)
+    return x.transpose(-1, -2)
 
 
 def is_contiguous_after_transpose(x: Tensor) -> tuple[bool, bool]:
@@ -115,7 +114,7 @@ def split_qkv(qkv: Tensor) -> tuple[Tensor, Tensor, Tensor]:
 
     This is how a fused qkv projector works: one matrix instead of three, then a cut.
     """
-    return torch.split(qkv, qkv.shape[-1] // 3, dim=-1)  # noqa
+    return qkv.split(qkv.shape[-1] // 3, dim=2)  # type: ignore
 
 
 # ==========================================================================
@@ -132,7 +131,7 @@ def broadcast_kv_heads(kv: Tensor, num_groups: int) -> Tensor:
     but the expand along the way must not allocate a new buffer.
     """
     B, H, T, D = kv.shape
-    return kv.unsqueeze(dim=2).expand([B, H, num_groups, T, D]).reshape((B, H * num_groups, T, D))
+    return kv.unsqueeze(dim=2).expand((B, H, num_groups, T, D)).reshape((B, H * num_groups, T, D))
 
 
 def expand_row(x: Tensor, n: int) -> Tensor:
@@ -142,7 +141,7 @@ def expand_row(x: Tensor, n: int) -> Tensor:
 
 def repeat_row(x: Tensor, n: int) -> Tensor:
     """(1, D) -> (n, D) WITH an actual copy of the data."""
-    return x.repeat(n, 1)
+    return x.repeat((n, 1))
 
 
 # ==========================================================================
@@ -164,14 +163,14 @@ def pad_to_length(x: Tensor, target_len: int, pad_value: int) -> Tensor:
 
     Hint: F.pad and the order of the pairs in its argument - from the last axis to the first.
     """
-    return F.pad(x, (0, target_len - x.shape[-1]), value=pad_value)
+    return F.pad(x, pad=(0, target_len - x.shape[-1]), value=pad_value)
 
 
 def shift_right(x: Tensor, pad_value: int) -> Tensor:
     """(B, T) -> (B, T): a shift right by one position, pad_value is inserted on the left,
     the last token falls off. Classic teacher forcing: turning the input into the decoder input.
     """
-    return F.pad(x[:, :-1], (1, 0), value=pad_value)
+    return F.pad(x[:, :-1], pad=(1, 0), value=pad_value)
 
 
 # ==========================================================================
@@ -350,6 +349,6 @@ def test_shift_right():
 
 @pytest.mark.depends_on("split_heads", "merge_heads")
 @pytest.mark.parametrize("shape", [(2, 3, 8), (1, 1, 8), (4, 7, 16)])
-def test_heads_roundtrip_property(shape):
-    x = torch.randn(*shape)
+def test_heads_roundtrip_property(shape):  # type: ignore
+    x = torch.randn(*shape)  # type: ignore
     torch.testing.assert_close(merge_heads(split_heads(x, 2)), x)

@@ -50,13 +50,13 @@ def make_identity_like(x: Tensor) -> Tensor:
 # ==========================================================================
 
 
-def describe(x: Tensor) -> dict:
+def describe(x: Tensor) -> dict:  # type: ignore
     """Return a dict with the keys: shape (tuple[int, ...]), ndim (int),
     numel (int), dtype (torch.dtype), bytes (int - how much memory the data takes).
 
     Hint: x.element_size() gives the size of one element in bytes.
     """
-    return {
+    return {  # type: ignore
         "shape": x.shape,
         "ndim": x.ndim,
         "numel": x.numel(),
@@ -173,7 +173,7 @@ def test_make_constant():
 
     y = make_constant((4,), -1, torch.int32)
     assert y.dtype == torch.int32
-    assert y.tolist() == [-1, -1, -1, -1]
+    assert y.tolist() == [-1, -1, -1, -1]  # type: ignore
 
 
 def test_make_identity_like():
@@ -186,7 +186,7 @@ def test_make_identity_like():
 
 def test_describe():
     x = torch.zeros(2, 3, 4, dtype=torch.float32)
-    d = describe(x)
+    d = describe(x)  # type: ignore
     assert d["shape"] == (2, 3, 4)
     assert d["ndim"] == 3
     assert d["numel"] == 24
@@ -283,6 +283,6 @@ def test_clamp_and_scale():
     "dtype,expected_per_param",
     [(torch.float32, 4), (torch.float16, 2), (torch.bfloat16, 2), (torch.int8, 1), (torch.float64, 8)],
 )
-def test_model_memory_bytes(dtype, expected_per_param):
+def test_model_memory_bytes(dtype, expected_per_param):  # type: ignore
     # 7B parameters - the classic size you have to be able to compute in your head
-    assert model_memory_bytes(7_000_000_000, dtype) == 7_000_000_000 * expected_per_param
+    assert model_memory_bytes(7_000_000_000, dtype) == 7_000_000_000 * expected_per_param  # type: ignore

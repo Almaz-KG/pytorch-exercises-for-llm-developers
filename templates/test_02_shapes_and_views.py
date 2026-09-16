@@ -346,6 +346,6 @@ def test_shift_right():
 
 @pytest.mark.depends_on("split_heads", "merge_heads")
 @pytest.mark.parametrize("shape", [(2, 3, 8), (1, 1, 8), (4, 7, 16)])
-def test_heads_roundtrip_property(shape):
-    x = torch.randn(*shape)
+def test_heads_roundtrip_property(shape):  # type: ignore
+    x = torch.randn(*shape)  # type: ignore
     torch.testing.assert_close(merge_heads(split_heads(x, 2)), x)

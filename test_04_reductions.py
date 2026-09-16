@@ -18,12 +18,12 @@ from torch import Tensor
 
 def sum_over_time(x: Tensor) -> Tensor:
     """(B, T, D) -> (B, D): the sum over the time axis."""
-    raise NotImplementedError
+    return x.sum(dim=1)
 
 
 def mean_over_batch_and_time(x: Tensor) -> Tensor:
     """(B, T, D) -> (D,): the mean over two axes at once."""
-    raise NotImplementedError
+    return x.mean(dim=[0, 1])
 
 
 def center_and_keepdim(x: Tensor) -> tuple[Tensor, Tensor]:
@@ -31,7 +31,8 @@ def center_and_keepdim(x: Tensor) -> tuple[Tensor, Tensor]:
 
     The first element must have shape (..., 1) - precisely because of keepdim.
     """
-    raise NotImplementedError
+    mean = x.mean(dim=-1, keepdim=True)
+    return mean, x - mean
 
 
 def biased_variance(x: Tensor) -> Tensor:
@@ -39,12 +40,12 @@ def biased_variance(x: Tensor) -> Tensor:
 
     LayerNorm uses exactly the biased estimate - it is easy to slip on the unbiased default.
     """
-    raise NotImplementedError
+    return x.var(dim=-1, correction=0, keepdim=True)
 
 
 def rms(x: Tensor) -> Tensor:
     """sqrt(mean(x^2)) over the last axis, keepdim=True. The heart of RMSNorm."""
-    raise NotImplementedError
+    return torch.sqrt(torch.mean(x.pow(2), dim=-1, keepdim=True))
 
 
 # ==========================================================================
@@ -57,12 +58,13 @@ def masked_mean(x: Tensor, mask: Tensor) -> Tensor:
 
     The average must be taken over the real tokens only. Divide by mask.sum(), not by T.
     """
-    raise NotImplementedError
+    x = x * mask.unsqueeze(dim=-1).to(torch.float32)
+    return x.sum(dim=1) / mask.sum(dim=1, keepdim=True)
 
 
 def count_tokens(mask: Tensor) -> tuple[Tensor, int]:
     """mask: (B, T) bool -> (the sequence lengths (B,) int64, the total number of tokens as a python int)."""
-    raise NotImplementedError
+    return mask.sum(dim=1), int(mask.sum().item())
 
 
 def masked_max(x: Tensor, mask: Tensor) -> Tensor:
@@ -70,7 +72,8 @@ def masked_max(x: Tensor, mask: Tensor) -> Tensor:
 
     Hint: fill the forbidden positions with -inf before the max.
     """
-    raise NotImplementedError
+    a, _ = x.masked_fill(mask=~mask, value=float("-inf")).max(dim=1)
+    return a
 
 
 # ==========================================================================
@@ -80,17 +83,17 @@ def masked_max(x: Tensor, mask: Tensor) -> Tensor:
 
 def greedy_tokens(logits: Tensor) -> Tensor:
     """logits: (B, T, V) -> (B, T) int64: the index of the most probable token at each position."""
-    raise NotImplementedError
+    return logits.argmax(dim=-1)
 
 
 def top_k_tokens(logits: Tensor, k: int) -> tuple[Tensor, Tensor]:
     """logits: (B, V) -> (values (B, k), indices (B, k)), sorted in descending order."""
-    raise NotImplementedError
+    return torch.topk(logits, k=k)
 
 
 def argmax_2d(x: Tensor) -> tuple[int, int]:
     """Find the (row, column) of the maximum of a matrix. Through a flat argmax and divmod, without loops."""
-    raise NotImplementedError
+    return divmod(x.argmax().item(), x.shape[-1])  # type: ignore
 
 
 def accuracy(logits: Tensor, targets: Tensor, ignore_index: int = -100) -> float:
@@ -99,7 +102,11 @@ def accuracy(logits: Tensor, targets: Tensor, ignore_index: int = -100) -> float
 
     Return a python float.
     """
-    raise NotImplementedError
+    preds = logits.argmax(dim=-1)
+    correct = targets == preds
+    mask = targets != ignore_index
+
+    return float(((correct & mask).sum() / mask.sum(dtype=torch.float32)).item())
 
 
 # ==========================================================================
@@ -113,7 +120,8 @@ def logsumexp_manual(x: Tensor, dim: int) -> Tensor:
     The scheme: m = max(x, dim, keepdim=True); m + log(sum(exp(x - m))).
     It must work on inputs like 1000.0, where a naive exp gives inf.
     """
-    raise NotImplementedError
+    m, _ = torch.max(x, dim=dim, keepdim=True)
+    return (m + torch.log(torch.sum(torch.exp(x - m), dim=dim, keepdim=True))).squeeze()
 
 
 def entropy(probs: Tensor) -> Tensor:
@@ -121,7 +129,8 @@ def entropy(probs: Tensor) -> Tensor:
 
     Careful with log(0): zero probabilities must contribute 0, not nan.
     """
-    raise NotImplementedError
+    log_probs = torch.where(probs > 0, torch.log(probs), 0)
+    return -(probs * log_probs).sum(dim=-1)
 
 
 # ==========================================================================
@@ -131,7 +140,7 @@ def entropy(probs: Tensor) -> Tensor:
 
 def l2_normalize(x: Tensor, eps: float = 1e-8) -> Tensor:
     """Divide every vector along the last axis by its L2 norm."""
-    raise NotImplementedError
+    return x / torch.sqrt((x**2).sum(dim=-1, keepdim=True) + eps)
 
 
 def global_grad_norm(tensors: list[Tensor]) -> Tensor:
@@ -139,7 +148,7 @@ def global_grad_norm(tensors: list[Tensor]) -> Tensor:
 
     This is exactly the quantity that stands in gradient clipping.
     """
-    raise NotImplementedError
+    return (torch.stack([t.pow(2).sum() for t in tensors])).sum().sqrt()  # type: ignore
 
 
 def token_frequencies(ids: Tensor, vocab_size: int) -> Tensor:
@@ -147,12 +156,12 @@ def token_frequencies(ids: Tensor, vocab_size: int) -> Tensor:
 
     Hint: torch.bincount, do not forget minlength and flatten.
     """
-    raise NotImplementedError
+    return torch.bincount(ids.flatten(), minlength=vocab_size)
 
 
 def cumulative_mean(x: Tensor) -> Tensor:
     """(T,) -> (T,): out[i] = the mean of x[0..i]. Through cumsum, without loops."""
-    raise NotImplementedError
+    return x.cumsum(dim=-1) / torch.arange(start=1, end=x.shape[-1] + 1)
 
 
 # ==========================================================================

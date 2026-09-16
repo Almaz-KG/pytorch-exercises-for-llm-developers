@@ -154,16 +154,16 @@ def key_padding_mask_apply(scores: Tensor, pad_mask: Tensor) -> Tensor:
         ((8, 1, 6, 1), (7, 1, 5), (8, 7, 6, 5)),
     ],
 )
-def test_broadcast_shape_ok(a, b, expected):
-    assert broadcast_shape(a, b) == expected
+def test_broadcast_shape_ok(a, b, expected):  # type: ignore
+    assert broadcast_shape(a, b) == expected  # type: ignore
     # cross-check against torch itself
-    assert tuple(torch.broadcast_shapes(a, b)) == expected
+    assert tuple(torch.broadcast_shapes(a, b)) == expected  # type: ignore
 
 
 @pytest.mark.parametrize("a,b", [((3,), (4,)), ((2, 3), (3, 2)), ((5, 2), (5, 3))])
-def test_broadcast_shape_error(a, b):
+def test_broadcast_shape_error(a, b):  # type: ignore
     with pytest.raises(ValueError):
-        broadcast_shape(a, b)
+        broadcast_shape(a, b)  # type: ignore
 
 
 def test_explain_trap():

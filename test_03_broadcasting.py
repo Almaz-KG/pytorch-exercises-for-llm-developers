@@ -26,7 +26,7 @@ def broadcast_shape(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
 
     result: list[int] = []
     n = max(len(a), len(b))
-    
+
     for i in range(1, n + 1):
         da = a[-i] if i <= len(a) else 1
         db = b[-i] if i <= len(b) else 1
@@ -76,7 +76,7 @@ def weighted_sum(weights: Tensor, values: Tensor) -> Tensor:
 
     This is attention in miniature: weights on the tokens, a weighted sum of their representations.
     """
-    return (values * weights.unsqueeze(dim=-1)).sum(dim=1)
+    return (weights.unsqueeze(dim=-1) * values).sum(dim=1)
 
 
 # ==========================================================================
@@ -86,7 +86,7 @@ def weighted_sum(weights: Tensor, values: Tensor) -> Tensor:
 
 def outer_product(a: Tensor, b: Tensor) -> Tensor:
     """a: (N,), b: (M,) -> (N, M), out[i, j] = a[i] * b[j]. Broadcasting only, no torch.outer."""
-    return a[:, None] * b[None, :]
+    return a.unsqueeze(dim=1) * b.unsqueeze(dim=0)
 
 
 def pairwise_sq_dist(a: Tensor, b: Tensor) -> Tensor:
@@ -102,7 +102,7 @@ def one_hot_by_comparison(ids: Tensor, vocab_size: int) -> Tensor:
 
     Through a comparison against arange by broadcasting, without F.one_hot.
     """
-    return (ids.unsqueeze(dim=-1) == torch.arange(vocab_size)).to(torch.float32)
+    return (ids.unsqueeze(dim=-1) == torch.arange(0, vocab_size)).to(torch.float32)
 
 
 # ==========================================================================
@@ -134,9 +134,9 @@ def alibi_bias(slopes: Tensor, seq_len: int) -> Tensor:
     here, for simplicity, compute the formula for all j, without zeroing anything out.
     """
     i = torch.arange(seq_len).unsqueeze(dim=-1)
-    j = torch.arange(seq_len).unsqueeze(dim=0)
+    q = torch.arange(seq_len).unsqueeze(dim=0)
 
-    return -slopes[:, None, None] * (i - j)
+    return -slopes[:, None, None] * (i - q)
 
 
 def apply_additive_mask(scores: Tensor, mask: Tensor) -> Tensor:
@@ -145,7 +145,7 @@ def apply_additive_mask(scores: Tensor, mask: Tensor) -> Tensor:
 
     No loops: the mask has to spread across the batch and the heads on its own.
     """
-    return scores.masked_fill(~mask, float("-inf"))
+    return scores.masked_fill(~mask, value=float("-inf"))  # type: ignore
 
 
 def key_padding_mask_apply(scores: Tensor, pad_mask: Tensor) -> Tensor:
@@ -173,16 +173,16 @@ def key_padding_mask_apply(scores: Tensor, pad_mask: Tensor) -> Tensor:
         ((8, 1, 6, 1), (7, 1, 5), (8, 7, 6, 5)),
     ],
 )
-def test_broadcast_shape_ok(a, b, expected):
-    assert broadcast_shape(a, b) == expected
+def test_broadcast_shape_ok(a, b, expected):  # type: ignore
+    assert broadcast_shape(a, b) == expected  # type: ignore
     # cross-check against torch itself
-    assert tuple(torch.broadcast_shapes(a, b)) == expected
+    assert tuple(torch.broadcast_shapes(a, b)) == expected  # type: ignore
 
 
 @pytest.mark.parametrize("a,b", [((3,), (4,)), ((2, 3), (3, 2)), ((5, 2), (5, 3))])
-def test_broadcast_shape_error(a, b):
+def test_broadcast_shape_error(a, b):  # type: ignore
     with pytest.raises(ValueError):
-        broadcast_shape(a, b)
+        broadcast_shape(a, b)  # type: ignore
 
 
 def test_explain_trap():
