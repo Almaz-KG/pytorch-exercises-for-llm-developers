@@ -20,12 +20,12 @@ from torch import Tensor
 
 def flatten_tokens(x: Tensor) -> Tensor:
     """(B, T, D) -> (B*T, D). This is exactly how the batch is collapsed before lm_head or the loss."""
-    return x.view((-1, x.shape[-1]))
+    raise NotImplementedError
 
 
 def unflatten_tokens(x: Tensor, batch_size: int) -> Tensor:
     """(B*T, D) -> (B, T, D). The inverse operation."""
-    return x.view((batch_size, -1, x.shape[-1]))
+    raise NotImplementedError
 
 
 def flatten_all_but_last(x: Tensor) -> Tensor:
@@ -33,17 +33,17 @@ def flatten_all_but_last(x: Tensor) -> Tensor:
 
     Hint: -1 in reshape is computed automatically.
     """
-    return x.view((-1, x.shape[-1]))
+    raise NotImplementedError
 
 
 def add_batch_dim(x: Tensor) -> Tensor:
     """(T, D) -> (1, T, D) without copying the data."""
-    return x.unsqueeze(dim=0)
+    raise NotImplementedError
 
 
 def drop_singleton_dims(x: Tensor) -> Tensor:
     """Remove ALL axes of size 1."""
-    return x.squeeze()
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -57,8 +57,7 @@ def split_heads(x: Tensor, num_heads: int) -> Tensor:
     The order matters: first split the last axis into (H, Dh), then permute the axes.
     Do it the other way round and the heads get mixed up, which the test will catch.
     """
-    B, T, D = x.shape
-    return x.view((B, T, num_heads, D // num_heads)).transpose(1, 2)
+    raise NotImplementedError
 
 
 def merge_heads(x: Tensor) -> Tensor:
@@ -66,8 +65,7 @@ def merge_heads(x: Tensor) -> Tensor:
 
     Careful: after permute the tensor is not contiguous and .view() will fail. Think about the fix.
     """
-    B, _, T, _ = x.shape
-    return x.transpose(1, 2).reshape((B, T, -1))
+    raise NotImplementedError
 
 
 def transpose_last_two(x: Tensor) -> Tensor:
@@ -75,7 +73,7 @@ def transpose_last_two(x: Tensor) -> Tensor:
 
     This is how K^T is done in attention: (B, H, T, Dh) -> (B, H, Dh, T).
     """
-    return x.transpose(-1, -2)
+    raise NotImplementedError
 
 
 def is_contiguous_after_transpose(x: Tensor) -> tuple[bool, bool]:
@@ -83,12 +81,12 @@ def is_contiguous_after_transpose(x: Tensor) -> tuple[bool, bool]:
 
     A question of understanding: transposing is only a change of strides, the data does not move.
     """
-    return x.is_contiguous(), x.transpose(0, 1).is_contiguous()
+    raise NotImplementedError
 
 
 def strides_of(x: Tensor) -> tuple[int, ...]:
     """The steps (in elements) along each axis. For a contiguous (2,3,4) float32 that is (12, 4, 1)."""
-    return x.stride()
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -101,12 +99,12 @@ def concat_sequences(a: Tensor, b: Tensor) -> Tensor:
 
     This is literally what the KV cache does when a new token is appended.
     """
-    return torch.concat((a, b), dim=1)
+    raise NotImplementedError
 
 
 def stack_batch(items: list[Tensor]) -> Tensor:
     """Collect a list of N tensors (T, D) into a batch (N, T, D)."""
-    return torch.stack(items)
+    raise NotImplementedError
 
 
 def split_qkv(qkv: Tensor) -> tuple[Tensor, Tensor, Tensor]:
@@ -114,7 +112,7 @@ def split_qkv(qkv: Tensor) -> tuple[Tensor, Tensor, Tensor]:
 
     This is how a fused qkv projector works: one matrix instead of three, then a cut.
     """
-    return qkv.split(qkv.shape[-1] // 3, dim=2)  # type: ignore
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -130,18 +128,17 @@ def broadcast_kv_heads(kv: Tensor, num_groups: int) -> Tensor:
     Hint: unsqueeze -> expand -> reshape. The reshape at the end will copy,
     but the expand along the way must not allocate a new buffer.
     """
-    B, H, T, D = kv.shape
-    return kv.unsqueeze(dim=2).expand((B, H, num_groups, T, D)).reshape((B, H * num_groups, T, D))
+    raise NotImplementedError
 
 
 def expand_row(x: Tensor, n: int) -> Tensor:
     """(1, D) -> (n, D) WITHOUT copying (a view with zero stride)."""
-    return x.expand((n, -1))
+    raise NotImplementedError
 
 
 def repeat_row(x: Tensor, n: int) -> Tensor:
     """(1, D) -> (n, D) WITH an actual copy of the data."""
-    return x.repeat((n, 1))
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -155,7 +152,7 @@ def sliding_windows(x: Tensor, window: int) -> Tensor:
     This is how training examples are cut out of a continuous stream of tokens.
     Hint: Tensor.unfold(dim, size, step).
     """
-    return x.unfold(dimension=0, size=window, step=1)
+    raise NotImplementedError
 
 
 def pad_to_length(x: Tensor, target_len: int, pad_value: int) -> Tensor:
@@ -163,14 +160,14 @@ def pad_to_length(x: Tensor, target_len: int, pad_value: int) -> Tensor:
 
     Hint: F.pad and the order of the pairs in its argument - from the last axis to the first.
     """
-    return F.pad(x, pad=(0, target_len - x.shape[-1]), value=pad_value)
+    raise NotImplementedError
 
 
 def shift_right(x: Tensor, pad_value: int) -> Tensor:
     """(B, T) -> (B, T): a shift right by one position, pad_value is inserted on the left,
     the last token falls off. Classic teacher forcing: turning the input into the decoder input.
     """
-    return F.pad(x[:, :-1], pad=(1, 0), value=pad_value)
+    raise NotImplementedError
 
 
 # ==========================================================================
