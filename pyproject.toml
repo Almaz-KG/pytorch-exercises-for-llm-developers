@@ -18,20 +18,17 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["."]
-# templates/ - исходные заготовки, attempts/ - архив прошлых версий: это копии
-# тех же файлов, собирать их как тесты не надо.
 norecursedirs = ["templates", "attempts", "solutions", ".venv", "__pycache__"]
 addopts = "-q"
 filterwarnings = ["ignore::UserWarning"]
 
 [tool.ruff]
 line-length = 120
+extend-exclude = ["attempts"]
 
 [tool.ruff.lint]
 extend-select = ["UP"]
 ignore = ["F722", "E741", "PLR0402"]
 
 [tool.ruff.lint.extend-per-file-ignores]
-# В файлах с упражнениями импорты заготовлены заранее - они понадобятся при решении,
-# даже если в заготовках функций пока не используются.
 "test_*.py" = ["F401"]

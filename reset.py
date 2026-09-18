@@ -14,6 +14,7 @@
 """
 
 import argparse
+import ast
 import difflib
 import shutil
 import sys
@@ -25,6 +26,14 @@ TEMPLATES = ROOT / "templates"
 ATTEMPTS = ROOT / "attempts"
 
 STUB = "raise NotImplementedError"
+
+
+def is_stub_raise(node: ast.AST) -> bool:
+    """`raise NotImplementedError` и `raise NotImplementedError(...)`, и ничего больше."""
+    if not isinstance(node, ast.Raise):
+        return False
+    exc = node.exc.func if isinstance(node.exc, ast.Call) else node.exc
+    return isinstance(exc, ast.Name) and exc.id == "NotImplementedError"
 
 
 def all_topics() -> list[Path]:
@@ -51,7 +60,21 @@ def resolve(spec: str) -> Path:
 
 
 def stub_count(path: Path) -> int:
-    return path.read_text().count(STUB) if path.exists() else 0
+    """Сколько заготовок осталось: считаем операторы, а не вхождения подстроки.
+
+    В шапке test_01 та же строка стоит внутри docstring как часть инструкции,
+    и подсчёт по тексту оставлял решённую тему вечно «в работе».
+    Файл с синтаксической ошибкой (обычное дело посреди решения) не должен
+    ронять статус, поэтому для него остаётся прежний подсчёт по тексту.
+    """
+    if not path.exists():
+        return 0
+    source = path.read_text()
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return source.count(STUB)
+    return sum(1 for node in ast.walk(tree) if is_stub_raise(node))
 
 
 def status() -> None:
