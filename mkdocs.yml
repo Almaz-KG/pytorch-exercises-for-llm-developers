@@ -1,0 +1,102 @@
+# The theory site. Build with `uv run mkdocs build`, read with `uv run mkdocs serve -o`.
+# docs_dir is `theory/`, so the same Markdown files render on GitHub and here.
+
+site_name: PyTorch exercises for LLM developers
+site_description: Theory for the rustlings-style PyTorch drills - read the topic, then solve its file.
+docs_dir: theory
+site_dir: site
+use_directory_urls: true
+strict: true
+
+repo_url: https://github.com/Almaz-KG/pytorch-exercises-for-llm-developers
+repo_name: pytorch-exercises-for-llm-developers
+edit_uri: edit/main/theory/
+
+theme:
+  name: material
+  language: en
+  icon:
+    logo: material/matrix
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tracking
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.action.edit
+    - content.tooltips
+
+extra_css:
+  - assets/extra.css
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      permalink_title: Link to this section
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+plugins:
+  - search
+
+nav:
+  - Start here: README.md
+  - Tensor mechanics:
+      - 01 - Tensor basics: 01_tensor_basics.md
+      - 02 - Shapes and views: 02_shapes_and_views.md
+      - 03 - Broadcasting: 03_broadcasting.md
+      - 04 - Reductions: 04_reductions.md
+      - 05 - Indexing and gather: 05_indexing_and_gather.md
+      - 06 - Matrix multiplication: 06_matmul.md
+      - 07 - einsum and einops: 07_einsum_and_einops.md
+  - Gradients and models:
+      - 08 - Autograd: 08_autograd.md
+      - 09 - nn.Module: 09_nn_module.md
+  - The transformer:
+      - 10 - Softmax and loss: 10_softmax_and_loss.md
+      - 11 - Normalization: 11_normalization.md
+      - 12 - Activations and FFN: 12_activations_and_ffn.md
+      - 13 - Embeddings and RoPE: 13_embeddings_and_rope.md
+      - 14 - Attention: 14_attention.md
+      - 15 - Transformer block: 15_transformer_block.md
+  - Training and inference:
+      - 16 - Training loop: 16_training_loop.md
+      - 17 - Generation: 17_sampling_and_kv_cache.md
+  - Memory and modern tricks:
+      - 18 - Flash and memory: 18_flash_and_memory.md
+      - 19 - Advanced mechanisms: 19_advanced_architectures.md
+  - Plumbing:
+      - 20 - Data and checkpoints: 20_data_and_batching.md

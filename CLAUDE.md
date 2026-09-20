@@ -36,6 +36,11 @@ uv run python reset.py --all                     # roll everything back
 uv run python reset.py --restore attempts/<ts>/test_14_attention.py
 ```
 
+```sh
+uv run mkdocs serve -o                           # the theory site on localhost:8000, live reload
+uv run mkdocs build                              # render theory/ into site/ (git-ignored)
+```
+
 A topic is named to `reset.py` by number (`14`), by file stem (`test_14_attention`), by the stem without its prefix (`14_attention`), or by any unambiguous substring (`attention`).
 `--no-archive` skips the copy into `attempts/` and is the one flag that can lose work.
 
@@ -85,6 +90,29 @@ The same 20 filenames exist in three places, and confusing them breaks the workf
 
 `attempts/<timestamp>/` holds working copies archived by `reset.py` before it overwrites them.
 `pyproject.toml` keeps `templates/`, `solutions/`, and `attempts/` out of pytest collection via `norecursedirs`; a new sibling copy of the exercises would need the same treatment.
+
+## `theory/`
+
+`theory/NN_<topic>.md` is the written material for each topic, one file per exercise, named after the same suffix as `test_NN_<topic>.py`.
+`theory/README.md` is the index and states the shared conventions, including the single-letter shape alphabet (`B`, `T`, `S`, `H`, `Dh`, `D`, `F`, `V`, `N`, `E`, `L`) that the files use throughout.
+
+The contract of that directory is that the repository is self-contained: reading `theory/NN_<topic>.md` must be enough to solve every stub in the matching exercise in one sitting, with no search engine and no other assistant involved.
+A topic that turns out to need something the theory never mentioned is a gap in the theory, and filling it is ordinary work.
+
+Each file follows a fixed shape: **Why this topic**, **The mental model** (subsections numbered to match the exercise's own `14.1`, `14.2`, ...), **API you need**, **Traps**, **Ready when**, **Going deeper**.
+Keeping the mental-model subsection numbers in step with the exercise's section banners is what makes the two files navigable side by side, so a new or renumbered exercise section needs the matching theory subsection.
+
+Each file opens with a one-line metadata blockquote, `> **Exercise** ... · **Reference** ... · **Assumes** ...`, which the site styles as a metadata strip; keep the shape when adding a topic.
+
+The same files are the source of a static site built with Material for MkDocs.
+`mkdocs.yml` sets `docs_dir: theory`, so nothing is duplicated and the Markdown renders both on GitHub and in the browser; `theory/README.md` is the site's landing page and `theory/assets/extra.css` is the only styling on top of the theme.
+`site/` is generated and git-ignored, and `strict: true` means a broken internal link fails the build rather than shipping.
+Adding a topic means adding its file, its row in `theory/README.md` and the root `README.md`, and its entry under `nav:` in `mkdocs.yml`.
+
+What the theory must never contain is a solution to a stub.
+It gives formulas, shapes, API signatures and semantics, and its worked examples run on neutral data rather than on the exercise's own task.
+The line to hold is the same one in `AGENTS.md`: a reader should finish the theory knowing every piece, and still have to assemble them.
+`solutions/` is where the answer lives.
 
 ## "Untouched" does not mean "never solved"
 

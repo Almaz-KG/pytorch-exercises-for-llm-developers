@@ -1,0 +1,93 @@
+/* Small refinements on top of mkdocs-material. Nothing here fights the theme;
+   it only tunes the three things this content does a lot of:
+   the metadata line under each title, wide API tables, and shape diagrams. */
+
+:root {
+  --md-code-font: "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+/* Wider content column: the API tables have four columns of code and need the room. */
+.md-grid {
+  max-width: 68rem;
+}
+
+/* The "Exercise / Reference / Assumes" blockquote that opens every topic,
+   rendered as a quiet metadata strip rather than a pull quote.
+   Scoped under .md-content on purpose: the theme's own rule is
+   `[dir=ltr] .md-typeset blockquote`, and an unscoped selector loses to it. */
+.md-content .md-typeset h1 + blockquote {
+  margin: 0 0 1.6em;
+  padding: 0.5em 0.9em;
+  border: none;
+  border-radius: 0.1rem;
+  background-color: var(--md-code-bg-color);
+  color: var(--md-default-fg-color--light);
+  font-size: 0.7rem;
+  line-height: 1.8;
+}
+
+.md-content .md-typeset h1 + blockquote p {
+  margin: 0;
+}
+
+.md-content .md-typeset h1 + blockquote code {
+  background-color: transparent;
+  padding: 0;
+  color: var(--md-default-fg-color);
+}
+
+.md-content .md-typeset h1 + blockquote strong {
+  font-weight: 700;
+  color: var(--md-default-fg-color--light);
+}
+
+/* API tables: full width, tighter, and code cells that do not wrap mid-signature.
+   The theme makes tables `inline-block` so they shrink to their content, which leaves
+   a four-column API reference squeezed into half the page. `min-width` rather than
+   `width` so a wide table can still overflow into the theme's own scroll wrapper. */
+.md-typeset__table {
+  width: 100%;
+}
+
+.md-content .md-typeset table:not([class]) {
+  display: table;
+  min-width: 100%;
+  font-size: 0.7rem;
+}
+
+.md-content .md-typeset table:not([class]) th,
+.md-content .md-typeset table:not([class]) td {
+  padding: 0.5em 0.9em;
+}
+
+.md-content .md-typeset table:not([class]) td:first-child code {
+  white-space: nowrap;
+}
+
+/* Shape diagrams live in unlabelled fenced blocks. Keep them monospaced and
+   let them scroll rather than wrap, because a wrapped shape line is unreadable. */
+.md-typeset pre > code {
+  white-space: pre;
+}
+
+/* "Ready when" checklists: the boxes are a self-check, not a to-do list,
+   so tone them down and give the items room to breathe. */
+.md-typeset .task-list-item {
+  margin-bottom: 0.35em;
+}
+
+.md-typeset .task-list-control .task-list-indicator::before {
+  background-color: var(--md-default-fg-color--lighter);
+}
+
+/* Section separators: the files are long and the h2s carry the structure. */
+.md-typeset h2 {
+  margin-top: 2.2em;
+  padding-top: 0.4em;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+.md-typeset h1 + blockquote + h2 {
+  border-top: none;
+  margin-top: 0;
+}

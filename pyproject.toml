@@ -15,16 +15,23 @@ dependencies = [
 dev = [
     "ruff>=0.6",
 ]
+docs = [
+    "mkdocs-material>=9.5",
+]
+
+[tool.uv]
+# `docs` is a default group so that `uv run mkdocs serve` works straight after `uv sync`.
+default-groups = ["dev", "docs"]
 
 [tool.pytest.ini_options]
 testpaths = ["."]
-norecursedirs = ["templates", "attempts", "solutions", ".venv", "__pycache__"]
+norecursedirs = ["templates", "attempts", "solutions", "site", ".venv", "__pycache__"]
 addopts = "-q"
 filterwarnings = ["ignore::UserWarning"]
 
 [tool.ruff]
 line-length = 120
-extend-exclude = ["attempts"]
+extend-exclude = ["attempts", "site"]
 
 [tool.ruff.lint]
 extend-select = ["UP"]

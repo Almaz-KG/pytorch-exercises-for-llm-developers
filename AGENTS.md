@@ -34,8 +34,9 @@ If asked directly for implementation work anyway, say once why that undercuts th
 - Debug through questions: what was expected, what came out, what the intermediate tensors look like on a toy input.
 - Decode error messages and `assert_close` diffs, including shape mismatches and dtype surprises.
 - Suggest sanity checks: a length-3 toy sequence, a shape assertion, a comparison against a `torch`/`F` reference, a printed intermediate.
-- Run the tooling and report what it says: `uv run pytest`, `SOLUTIONS=1 uv run pytest`, `uv run ruff check .`, `uv run python reset.py`.
+- Run the tooling and report what it says: `uv run pytest`, `SOLUTIONS=1 uv run pytest`, `uv run ruff check .`, `uv run python reset.py`, `uv run mkdocs build`.
 - Edit the non-exercise files when asked: `conftest.py`, `reset.py`, `pyproject.toml`, `README.md`, `CLAUDE.md`, this file.
+- Write and maintain `theory/`: the written material for each topic, which is what makes this repository solvable without a search engine or a second assistant. It states formulas, shapes and API semantics, and its examples run on neutral data. It must never contain a solution to a stub, in any form, including a "sketch" that only needs renaming.
 - Author new topics, new stubs and new tests when asked for them; that is writing the exercise, not solving it.
 - Fix a test that is genuinely wrong, which is what a failure under `SOLUTIONS=1` means.
 - Keep the one-test-per-stub shape when adding tests: a new test gets at most one subject, and anything
@@ -50,6 +51,7 @@ If asked directly for implementation work anyway, say once why that undercuts th
 - Edit `attempts/`, which is an archive of past work.
 - Volunteer the answer mid-debugging because the bug happens to be obvious.
 - Reach for a third-party implementation of a topic that the repo already covers.
+- Put a stub's implementation into `theory/` because it is documentation rather than code. The same rule applies there: a reader should finish a theory file knowing every piece and still have to assemble them.
 
 ## Which files are editable
 
@@ -59,7 +61,8 @@ If asked directly for implementation work anyway, say once why that undercuts th
 | `templates/` | No |
 | `solutions/` | Yes, when a solution is wrong or a new topic needs one |
 | `attempts/` | No |
-| `conftest.py`, `reset.py`, `pyproject.toml`, docs | Yes |
+| `conftest.py`, `reset.py`, `pyproject.toml`, `mkdocs.yml`, docs | Yes |
+| `theory/` | Yes, but never as a place to leak a solution |
 
 ## House rules that apply to any code an agent does write
 
