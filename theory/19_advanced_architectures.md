@@ -1,10 +1,6 @@
 # Topic 19 - Advanced mechanisms
 
-> **Exercise** `test_19_advanced_architectures.py` · **Reference** `solutions/sol_19_advanced_architectures.py` · **Assumes** topics 01-18
-
-## Where this fits
-
-Parts of the model swapped for the variants modern models actually use, plus two ways of running the finished model faster.
+> **Exercise** `test_19_advanced_architectures.py`
 
 Five storylines, each a paper that became a standard, and together they are most of what separates a 2019 transformer from a 2025 one.
 
@@ -14,50 +10,11 @@ Five storylines, each a paper that became a standard, and together they are most
 - Speculative decoding, because it is free speed with no quality cost.
 - Beam search, because it is still the right answer for translation and anything with a scoring objective.
 
-This is the hardest file in the repository, and the five sections are independent.
+```warn
+This is the hardest file in the repository, and the five sections are independent. 
+
 Take them one at a time.
-
-What you need from earlier topics: `autograd.Function` (08), RMSNorm (11), arange masks (03), `cumsum` and `index_add_` (05), `topk` (04), the KV cache reorder (17).
-
-## What you build here
-
-Eleven components: ten functions and one `autograd.Function`.
-
-### 19.1 A backward of your own
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `RMSNormFunction` | `forward(ctx, x, weight, eps)`, `backward(ctx, grad_out)` | RMSNorm with a hand-derived backward. `backward` returns **three** values, `None` for `eps` |
-
-### 19.2 Harder masks
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `sliding_window_mask(seq_len, window)` | ints -> `(T, T)` bool | `i - window < j <= i`. At `window >= T` it must equal the plain causal mask |
-| `document_mask(doc_ids)` | `(T,)` int64 -> `(T, T)` bool | Causal **and** same-document |
-| `block_diagonal_lengths_to_doc_ids(lengths)` | `list[int] -> (T,)` | `[3, 2, 4]` becomes `[0,0,0,1,1,2,2,2,2]` |
-
-### 19.3 Mixture of Experts
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `top2_routing(router_logits)` | `(N, E) -> ((N, 2)` int64, `(N, 2))` | Softmax over **the two chosen logits only**, so the weights sum to 1 per token. Indices descending by logit |
-| `capacity_mask(expert_idx, num_experts, capacity)` | `(N, K)`, ints -> `(N, K)` bool | True when the token fits the expert's capacity. Tokens queue by index, slot 0 before slot 1. No loop over tokens |
-| `load_balancing_loss(router_probs, top1_idx, num_experts)` | `(N, E)`, `(N,)`, int -> scalar | `E * sum_e f_e * P_e`. Exactly 1.0 under uniform routing, `E` under collapse |
-| `moe_forward(x, router, w1, w2)` | `(N, D)`, `(E, D)`, `(E, F, D)`, `(E, D, F) -> (N, D)` | Top-2, `w2_e @ relu(w1_e @ x)` per expert, summed with the routing weights. Gather the tokens for each expert, compute only those, scatter back |
-
-### 19.4 Speculative decoding
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `speculative_accept(draft_probs, target_probs, draft_tokens, u)` | `(K, V)`, `(K+1, V)`, `(K,)`, `(K,)` -> `(int, (V,))` | Accept while `u[i] <= p_target/p_draft`. On the first rejection return that index and `norm(relu(p_target - p_draft))`. On full acceptance return `(K, target_probs[K])` |
-| `expected_speedup(acceptance_rate, k)` | float, int -> float | `(1 - alpha^(k+1)) / (1 - alpha)`, and `k + 1` when `alpha == 1` |
-
-### 19.5 Beam search
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `beam_search_step(beam_scores, next_log_probs, beam_size)` | `(num_beams,)`, `(num_beams, V)`, int -> three tensors | New scores, parent beam indices, token indices. Pick the best `beam_size` across **all** `num_beams * V` candidates |
+```
 
 ## The mental model
 

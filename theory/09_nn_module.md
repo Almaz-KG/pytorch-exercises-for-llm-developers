@@ -1,10 +1,6 @@
 # Topic 09 - nn.Module
 
-> **Exercise** `test_09_nn_module.py` · **Reference** `solutions/sol_09_nn_module.py` · **Assumes** topics 01-08
-
-## Where this fits
-
-Every layer of the model is an `nn.Module`, and `lm_head` is one you build here.
+> **Exercise** `test_09_nn_module.py`
 
 `nn.Module` is the container that decides which tensors get trained, which get saved, and which move to the GPU when you call `.to("cuda")`.
 All three are opt-in, and the way you opt in is by assigning the tensor to the right kind of attribute.
@@ -13,52 +9,6 @@ Get it wrong and the failures are silent: a mask that stays on CPU and crashes o
 
 This file is also where the naming contract the rest of the repository depends on gets established.
 From topic 11 onward every module you write has parameter names that the tests assert on, because they match CS336's, and topic 15 loads a whole model by those names.
-
-What you need from topic 08: `requires_grad`, `parameters()`, and what freezing does.
-
-## What you build here
-
-Fifteen components: four modules and eleven functions.
-
-### 9.1 Layers of your own
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `MyLinear(in_features, out_features, bias=True)` | `(..., in) -> (..., out)` | Parameters named `weight` `(out, in)` and `bias`. With `bias=False` the attribute is `None` and the key is absent from the `state_dict`. Any number of leading axes |
-| `MyEmbedding(num_embeddings, embedding_dim)` | `(...)` int64 -> `(..., D)` | One parameter named `weight`, shaped `(V, D)` |
-| `CausalSelfAttentionSkeleton(max_len)` | `int -> (T, T)` bool | Stores a causal mask as a **buffer** named `mask`, built once for `max_len`. `forward` returns the slice for the current length |
-| `BlockStack(d_model, n_layers)` | `(..., D) -> (..., D)` | `n_layers` linear layers applied in order, living in an `nn.ModuleList` |
-
-### 9.2 Inspecting a model
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `count_parameters(model, trainable_only=True)` | module -> `int` | Elements, not tensors |
-| `parameter_names(model)` | module -> `list[str]` | Sorted full dotted names, as the `state_dict` has them |
-| `total_bytes(model)` | module -> `int` | Parameters **and** buffers |
-
-### 9.3 Initialization
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `init_linear_(layer, std)` | `nn.Linear`, float -> the same layer | Truncated normal `N(0, std)` clipped to `[-3*std, 3*std]`, bias zeroed, in place |
-| `init_all_linears_(model, std)` | module, float -> the same module | Every `nn.Linear` in the tree, via one traversal |
-| `scaled_residual_std(base_std, n_layers)` | float, int -> float | `std / sqrt(2 * n_layers)`, the GPT-2 residual scaling |
-
-### 9.4 state_dict
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `save_load_roundtrip(model)` | `MyLinear` -> a new `MyLinear` | Save to an `io.BytesIO` with `torch.save`, build a fresh model, load the weights in |
-| `strip_prefix(state_dict, prefix)` | dict, str -> dict | Remove the prefix where present, leave other keys alone |
-| `tie_weights(embedding, head)` | two modules -> `None` | Make them share one tensor. A write to either must be visible in the other, and the unique parameter count must drop |
-
-### 9.5 Modes and hooks
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `dropout_behaviour(p, x)` | float, tensor -> `(tensor, tensor)` | The output in train mode and in eval mode, from one `nn.Dropout(p)` |
-| `capture_activations(model, x)` | `nn.Sequential`, tensor -> `dict[str, Tensor]` | Forward hooks on every submodule, keyed by module name. Remove the handles afterwards |
 
 ## The mental model
 
@@ -320,4 +270,3 @@ The ability to replace an output from a forward hook is what makes activation pa
 
 - [`nn.Module` documentation](https://pytorch.org/docs/stable/generated/torch.nn.Module.html), which lists every registration method in one place.
 - [Serialization semantics](https://pytorch.org/docs/stable/notes/serialization.html) for the `state_dict` contract and the `weights_only` change.
-- The GPT-2 code release, where the `1/sqrt(2*n_layer)` residual scaling first appears as a two-line comment.

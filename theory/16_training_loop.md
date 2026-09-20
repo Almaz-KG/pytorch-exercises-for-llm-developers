@@ -1,8 +1,6 @@
 # Topic 16 - The training loop
 
-> **Exercise** `test_16_training_loop.py` · **Reference** `solutions/sol_16_training_loop.py` · **Assumes** topics 01-15
-
-## Where this fits
+> **Exercise** `test_16_training_loop.py`
 
 The last step of a training iteration: topic 15 produced a loss, topic 08 turned it into gradients, and this is what turns gradients into new weights.
 
@@ -10,53 +8,6 @@ This is also where tensor exercises turn into training engineering.
 AdamW, a warmup plus cosine schedule, gradient clipping and gradient accumulation are not four independent techniques; they are the four things that stand between a correct model and a run that actually converges.
 
 Every one of them has a detail that is easy to get wrong and hard to notice: the bias correction, the decoupling of weight decay, the order of clipping relative to the optimizer step, and the division by the number of micro-batches.
-
-What you need from earlier topics:
-
-| From | What exactly |
-| --- | --- |
-| 01 | In-place updates, and why the optimizer's reference to a parameter must stay valid |
-| 04 | The global L2 norm over a list of tensors |
-| 08 | Gradient accumulation, `zero_grad`, and keeping the update out of the graph |
-
-## What you build here
-
-Ten components: nine functions and one optimizer class.
-
-### 16.1 Optimization steps by hand
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `sgd_step(params, lr)` | list, float -> `None` | `p -= lr * p.grad` in place, necessarily under `torch.no_grad()` |
-| `adamw_step(p, grad, m, v, t, lr, betas, eps, weight_decay)` | tensors and scalars -> `(p, m, v)` | One step for one tensor, `t` counting from 1. Return new tensors, change nothing in place |
-| `AdamW(params, lr, betas, eps, weight_decay)` | `torch.optim.Optimizer` | State in `self.state[p]`, `step(closure=None)` returns the loss when a closure is passed, and the numbers must match `torch.optim.AdamW` |
-
-### 16.2 The schedule
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `cosine_lr(step, lr_max, lr_min, warmup_steps, cosine_steps)` | ints and floats -> `float` | Linear warmup, cosine decay, then constant `lr_min`. Both boundaries must match exactly |
-
-### 16.3 Clipping
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `clip_grad_norm(params, max_norm, eps=1e-6)` | list, floats -> `float` | Scale all gradients by `max_norm / (norm + eps)` when the **global** norm exceeds `max_norm`. Return the norm **before** clipping. No `torch.nn.utils` |
-
-### 16.4 Accumulation and the loop
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `accumulate_gradients(model, batches)` | module, list of `(x, y)` -> `float` | Run micro-batches so the result equals one big batch. Each loss divided by the number of micro-batches. MSE loss, gradients zeroed at the start |
-| `train_steps(model, x, y, steps, lr)` | module, tensors, ints -> `list[float]` | A loop on your own `AdamW`, returning the loss per step. Order: forward, loss, `zero_grad`, backward, clip, step |
-
-### 16.5 The arithmetic of training
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `training_flops(num_params, num_tokens)` | ints -> `int` | The `6ND` rule: about `2ND` forward, about `4ND` backward |
-| `chinchilla_tokens(num_params)` | int -> `int` | The compute-optimal token count, about 20 per parameter |
-| `tokens_per_step(batch_size, seq_len, grad_accum)` | ints -> `int` | The effective batch in tokens |
 
 ## The mental model
 

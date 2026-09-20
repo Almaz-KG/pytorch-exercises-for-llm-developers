@@ -1,11 +1,9 @@
 # Topic 18 - Flash attention and memory
 
-> **Exercise** `test_18_flash_and_memory.py` · **Reference** `solutions/sol_18_flash_and_memory.py` · **Assumes** topics 01-17
+> **Exercise** `test_18_flash_and_memory.py`
 
-## Where this fits
 
-No new parts of the model here.
-This topic makes the ones that already exist fit in memory.
+No new parts of the model here. This topic makes the ones that already exist fit in memory.
 
 Topic 14 computed the size of the attention matrix and found 550 GB.
 Topic 15 computed the activation memory of a whole model.
@@ -19,49 +17,7 @@ This file is the answer to all three, and every task in it asks the same questio
 
 The technique shared by the first two is the most reusable idea in the repository: a reduction whose running state is small enough to carry, updated block by block, giving an answer identical to the one-shot version.
 
-This is CS336 assignment 2 territory, and it is the hardest file here.
-
-What you need from earlier topics: `logsumexp` and its exactness argument (04, 10), attention (14), autograd's saved tensors (08).
-
-## What you build here
-
-Ten functions.
-Two of them are the core idea and the rest are that idea applied.
-
-### 18.1 Online softmax
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `online_softmax_update(m_prev, l_prev, scores_block)` | `(..., 1)`, `(..., 1)`, `(..., Sb)` -> `(m_new, l_new)` | `m_new = max(m_prev, max(block))`, `l_new = l_prev * exp(m_prev - m_new) + sum(exp(block - m_new))` |
-| `chunked_softmax(x, chunk)` | `(..., V)`, int -> same shape | Two passes over blocks: statistics first, probabilities second. Must match an ordinary softmax to float32 precision |
-
-### 18.2 Flash attention, forward only
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `flash_attention_forward(q, k, v, block_size=32, causal=False)` | `(B, H, T, Dh)`, two `(B, H, S, Dh)` -> `(B, H, T, Dh)` | Blockwise, never materializing `(T, S)`. Carry `m`, `l` and an output accumulator per query block. Skip fully masked blocks. Sizes need not divide by `block_size` |
-
-### 18.3 Cross-entropy without the logits
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `chunked_cross_entropy(hidden, weight, targets, chunk)` | `(N, D)`, `(V, D)`, `(N,)`, int -> scalar | The mean CE without ever building `(N, V)`. Gradients must reach both `hidden` and `weight` |
-| `chunked_logsumexp(x, chunk)` | `(N, V)`, int -> `(N,)` | Along the last axis, via the online update |
-
-### 18.4 Gradient checkpointing
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `checkpointed_sequential(blocks, x, use_checkpoint)` | `nn.ModuleList`, tensor, bool -> tensor | Run through the blocks, wrapping each in `checkpoint(..., use_reentrant=False)` when asked |
-| `count_saved_tensors(blocks, x, use_checkpoint)` | same inputs -> `int` | How many tensors autograd saved, measured with `saved_tensors_hooks` |
-
-### 18.5 Mixed precision
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `scale_and_check(grads, scale)` | list, float -> `(list, bool)` | Unscale by dividing, and report whether any `inf` or `nan` appeared |
-| `next_scale(scale, found_inf, growth_interval_reached)` | float, two bools -> float | Halve on `found_inf`, double when the growth interval is reached, otherwise unchanged |
-| `safe_softmax_fp16(logits)` | float16 -> float16 | No overflow, result back in float16 |
+This is [CS336](https://cs336.stanford.edu/) assignment 2 territory, and it is the hardest file here.
 
 ## The mental model
 

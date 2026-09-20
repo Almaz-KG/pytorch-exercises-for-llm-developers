@@ -1,52 +1,15 @@
 # Topic 15 - The transformer block
 
-> **Exercise** `test_15_transformer_block.py` · **Reference** `solutions/sol_15_transformer_block.py` · **Assumes** topics 01-14
+> **Exercise** `test_15_transformer_block.py`
 
-## Where this fits
-
-The whole model, assembled.
 
 Topics 10 to 14 built the pieces separately.
 This file puts them together into a working language model and then checks the one thing that only works when everything is simultaneously correct: an untrained model's loss must equal `log(V)`.
 
-The bricks are deliberately rewritten from scratch rather than imported.
-The goal of the repository is that a transformer block comes out of your hands without thinking, and rewriting is the only way that happens.
+The bricks are deliberately rewritten from scratch. The goal of the repository is that a transformer block comes out of your hands without thinking, and rewriting is the only way that happens.
 
 RoPE is omitted here for brevity, which is the only simplification against the real architecture.
 
-What you need from earlier topics: essentially all of 09 to 14, and the `log(V)` fact from 10.
-
-## What you build here
-
-Seven components: five modules and two functions.
-The first three modules are topics 11, 12 and 14 written again from memory.
-
-### 15.1 The bricks
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `RMSNorm(d_model, eps=1e-5)` | `(..., D) -> (..., D)` | One `weight` of ones. No bias, and `state_dict` must contain only `weight` |
-| `SwiGLU(d_model, d_ff)` | `(..., D) -> (..., D)` | Submodules `w1`, `w2`, `w3`, all `nn.Linear` without bias. `w2(silu(w1(x)) * w3(x))` |
-| `CausalSelfAttention(d_model, num_heads)` | `(B, T, D) -> (B, T, D)` | Submodules `q_proj`, `k_proj`, `v_proj`, `output_proj`, each `nn.Linear(D, D, bias=False)`. Causal |
-
-### 15.2 The block
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `TransformerBlock(d_model, num_heads, d_ff)` | `(B, T, D) -> (B, T, D)` | Submodules named `ln1`, `attn`, `ln2`, `ffn`. `x = x + attn(ln1(x))` then `x = x + ffn(ln2(x))` |
-
-### 15.3 The whole model
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `TransformerLM(vocab_size, d_model, num_heads, d_ff, num_layers)` | `(B, T)` int64 -> `(B, T, V)` | Submodules `token_embeddings`, `layers` (an `nn.ModuleList`), `ln_final`, `lm_head` (no bias). Embeddings and every linear weight initialized `N(0, 0.02)`, which the `log(V)` test depends on |
-
-### 15.4 The arithmetic
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `count_lm_params(vocab_size, d_model, d_ff, num_layers, tied_embeddings)` | ints, bool -> `int` | By formula, without building the model. Embeddings, `4*D^2` attention and `3*D*d_ff` SwiGLU per layer, plus `lm_head` unless tied. Norms and biases ignored |
-| `activation_memory_bytes(batch, seq_len, d_model, num_layers, dtype)` | ints, dtype -> `int` | One `(B, T, D)` residual tensor per layer. A deliberate underestimate of the order of magnitude |
 
 ## The mental model
 

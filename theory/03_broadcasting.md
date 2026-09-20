@@ -1,57 +1,10 @@
 # Topic 03 - Broadcasting
 
-> **Exercise** `test_03_broadcasting.py` · **Reference** `solutions/sol_03_broadcasting.py` · **Assumes** topics 01-02
-
-## Where this fits
-
-The last of the three workbench topics, and the one that pays off most often.
+> **Exercise** `test_03_broadcasting.py`
 
 Broadcasting is the reason transformer code has no loops in it.
 Adding a bias, applying a causal mask, scaling each head differently, building ALiBi, blocking attention to padding: every one of those is a shape alignment followed by an elementwise operation.
 The rule is short enough to memorize in a minute, and the bugs it causes are the expensive kind, because a wrong broadcast usually produces a tensor of the wrong shape that still flows through the rest of the model.
-
-Where it comes back: `keepdim` in every normalization in topic 11, the mask shapes in topic 14, the position grids in topic 13, the padded batches in topic 20.
-
-What you need from topic 02: size-1 axes, `unsqueeze`, and the fact that a zero stride costs nothing.
-
-## What you build here
-
-Fourteen functions.
-The first two are the rule itself; the rest are the rule applied to things a transformer actually does.
-
-### 3.1 The rule by hand
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `broadcast_shape(a, b)` | two shape tuples -> tuple | The resulting shape, or `ValueError` if incompatible. Implement the rule yourself, not via `torch.broadcast_shapes` |
-| `explain_trap()` | -> tuple | The shape of `(3, 1)` combined with `(3,)`. Answer before you run it |
-
-### 3.2 Everyday uses
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `add_bias(x, bias)` | `(B, T, D)`, `(D,) -> (B, T, D)` | No reshaping needed. Know why |
-| `scale_per_head(x, scales)` | `(B, H, T, Dh)`, `(H,) -> (B, H, T, Dh)` | Each head multiplied by its own scalar. The vector has to be told which axis it belongs to |
-| `normalize_last_dim(x)` | `(..., D) -> (..., D)` | Subtract each vector's own mean along the last axis. This is where `keepdim=True` lives |
-| `weighted_sum(weights, values)` | `(B, T)`, `(B, T, D) -> (B, D)` | Weighted sum over time. Attention with the softmax removed |
-
-### 3.3 Matrices out of vectors
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `outer_product(a, b)` | `(N,)`, `(M,) -> (N, M)` | `out[i, j] = a[i] * b[j]`, broadcasting only, no `torch.outer` |
-| `pairwise_sq_dist(a, b)` | `(N, D)`, `(M, D) -> (N, M)` | Squared euclidean distances, via an `(N, M, D)` intermediate |
-| `one_hot_by_comparison(ids, vocab_size)` | `(...,)` int64 -> `(..., V)` float32 | A comparison against `arange`, no `F.one_hot` |
-
-### 3.4 Masks and relative positions
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `causal_mask(seq_len)` | int -> `(T, T)` bool | `True` where query `i` may look at key `j`, that is `j <= i`. Built from two aranges, no `torch.tril` |
-| `relative_positions(q_len, k_len)` | ints -> `(T, S)` int64 | `out[i, j] = i - j` |
-| `alibi_bias(slopes, seq_len)` | `(H,)`, int -> `(H, T, T)` | `-slopes[h] * (i - j)`, computed for all `j` without zeroing anything |
-| `apply_additive_mask(scores, mask)` | `(B, H, T, T)`, `(T, T)` bool -> same | `-inf` at forbidden positions. The mask spreads over batch and heads on its own |
-| `key_padding_mask_apply(scores, pad_mask)` | `(B, H, T, T)`, `(B, T) -> same` | Forbid every query from looking at padding keys. `pad_mask` refers to the **last** axis of `scores` |
 
 ## The mental model
 
@@ -236,4 +189,3 @@ It was one of the first credible answers to the long-context problem and lost to
 ## Going deeper
 
 - [Broadcasting semantics](https://pytorch.org/docs/stable/notes/broadcasting.html) in the PyTorch docs, which is the normative statement of the rule.
-- The ALiBi paper, [Press et al. 2021](https://arxiv.org/abs/2108.12409), for where the slopes come from.

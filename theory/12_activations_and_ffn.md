@@ -1,8 +1,6 @@
 # Topic 12 - Activations and the FFN
 
-> **Exercise** `test_12_activations_and_ffn.py` · **Reference** `solutions/sol_12_activations_and_ffn.py` · **Assumes** topics 01-11
-
-## Where this fits
+> **Exercise** `test_12_activations_and_ffn.py`
 
 The feed-forward branch, the second of the two sublayers in every transformer block.
 
@@ -15,36 +13,6 @@ Each change came with an arithmetic adjustment to `d_ff` that keeps the paramete
 This file also drills deriving an activation's gradient by hand, which is the warm-up for topic 19.
 
 What you need from topic 06: the `(out, in)` weight convention, and `2mnk` per matmul.
-
-## What you build here
-
-Eleven components: ten functions and one module.
-
-### 12.1 Activations by hand
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `relu(x)` | tensor -> tensor | `max(x, 0)`, without `F.relu` |
-| `gelu_exact(x)` | tensor -> tensor | `x * 0.5 * (1 + erf(x / sqrt(2)))`, without `F.gelu` |
-| `gelu_tanh(x)` | tensor -> tensor | The GPT-2 approximation: `0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))` |
-| `silu(x)` | tensor -> tensor | `x * sigmoid(x)`, without `F.silu` |
-| `silu_grad(x)` | tensor -> tensor | The derivative, by hand: `sigmoid(x) * (1 + x * (1 - sigmoid(x)))` |
-
-### 12.2 FFN blocks
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `ffn_relu(x, w1, w2)` | `(..., D)`, `(F, D)`, `(D, F) -> (..., D)` | The 2017 block. Weights are in the `(out, in)` convention, so they multiply transposed |
-| `swiglu(x, w1, w2, w3)` | `(..., D)`, `(F, D)`, `(D, F)`, `(F, D) -> (..., D)` | `(SiLU(x @ w1.T) * (x @ w3.T)) @ w2.T`. The SiLU goes on the `w1` branch only |
-| `SwiGLUFFN(d_model, d_ff)` | `(..., D) -> (..., D)` | The module, with submodules named `w1`, `w2`, `w3`. No biases. The names are asserted by tests here and in topic 15 |
-
-### 12.3 The arithmetic of sizes
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `swiglu_d_ff(d_model, multiple_of=64)` | ints -> `int` | `8/3 * d_model` rounded **up** to a multiple of `multiple_of` |
-| `ffn_params(d_model, d_ff, gated)` | ints, bool -> `int` | Two matrices ungated, three gated, no biases |
-| `ffn_flops(batch_tokens, d_model, d_ff, gated)` | ints, bool -> `int` | The forward pass, summing `2mnk` over the matmuls |
 
 ## The mental model
 

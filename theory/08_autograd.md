@@ -1,11 +1,7 @@
 # Topic 08 - Autograd
 
-> **Exercise** `test_08_autograd.py` · **Reference** `solutions/sol_08_autograd.py` · **Assumes** topics 01-07
+> **Exercise** `test_08_autograd.py`
 
-## Where this fits
-
-The forward pass turns tokens into a loss.
-Autograd is what turns that one number into a gradient for every weight in the model, and topic 16 turns those gradients into an update.
 
 Autograd is the thing you stop thinking about until it costs you money.
 A graph you forgot to disable doubles the memory of an evaluation pass.
@@ -14,46 +10,6 @@ A `.detach()` in the wrong place stops half the model from learning.
 And a hand-written backward is how every serious optimization in topics 18 and 19 gets implemented.
 
 This file makes the graph visible: you build it, you cut it, you differentiate twice, and you write a backward yourself.
-
-What you need from topic 06: that a broadcast in the forward pass becomes a sum in the backward pass, and the habit of deriving a gradient's shape before its formula.
-
-## What you build here
-
-Fourteen components: twelve functions and two `autograd.Function` subclasses, each with a `forward` and a `backward`.
-
-### 8.1 The basic backward cycle
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `grad_of_sum_of_squares(x)` | tensor -> tensor | `d(sum(x^2))/dx`, obtained through autograd rather than the formula. `x` arrives without `requires_grad` |
-| `grad_functional(x)` | tensor -> tensor | The same, via `torch.autograd.grad`, touching no `.grad` |
-| `grads_accumulate(x)` | tensor -> `(tensor, tensor)` | Backward twice on the same graph, returning `.grad` after each. Shows yourself that the second adds to the first |
-| `stop_gradient(a, b)` | two leaves -> `(tensor, None)` | `y = sum(a * b)` with no gradient reaching `b` |
-| `forward_without_graph(x, w)` | tensors -> tensor | `x @ w` with no graph built and `requires_grad=False` on the result |
-
-### 8.2 Harder derivatives
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `second_derivative(x)` | tensor -> tensor | The second derivative of `sum(x^3)`, so `6*x`, through autograd |
-| `vjp(f, x, v)` | callable, tensor, tensor -> tensor | The vector-Jacobian product `v^T J` at `x`, shaped like `x` |
-| `numeric_grad(f, x, eps=1e-4)` | callable, tensor -> tensor | Central differences. A Python loop is allowed here; this is a debugging instrument |
-| `softmax_vjp(probs, grad_out)` | `(..., V)`, `(..., V) -> (..., V)` | The softmax gradient by hand, no autograd. Derive it from `J_ij = p_i (delta_ij - p_j)` |
-
-### 8.3 Custom autograd functions
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `SquareFunction` | `forward`, `backward` | `y = x^2` with its own backward. Save what the backward needs via `ctx.save_for_backward` |
-| `STEQuantize` | `forward`, `backward` | Round in the forward pass, pass the gradient through unchanged in the backward pass |
-
-### 8.4 Gradients in real model code
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `embedding_grad(table_size, ids)` | `(V, D)`, ids -> `(V, D)` | Build a table that requires grad, look up, sum, backward, return the table's gradient |
-| `freeze_all_but_last(model)` | `nn.Sequential -> int` | Freeze everything except the last module, return the number of trainable **elements** |
-| `grad_norm_after_backward(model, x, target)` | module, tensors -> `float` | Forward, MSE loss, backward, return the global L2 norm of all parameter gradients |
 
 ## The mental model
 

@@ -1,63 +1,12 @@
 # Topic 06 - Matrix multiplication
 
-> **Exercise** `test_06_matmul.py` · **Reference** `solutions/sol_06_matmul.py` · **Assumes** topics 01-05
+> **Exercise** `test_06_matmul.py`
 
-## Where this fits
-
-Every part of the model that has weights in it is a matmul.
-Attention is two more.
 
 Well over 99% of the floating point work in training an LLM happens inside `matmul`.
 Normalization, activations and softmax are a rounding error by comparison, which is why the whole field reasons about cost in matmul FLOPs and nothing else.
 
 Three things get drilled here: predicting the output shape of a batched matmul without running it, writing the forward and backward of a linear layer from memory, and doing the arithmetic that says how big a model is and what it costs to train.
-
-Where it comes back: topic 09 builds the linear layer as a module, topic 14 does the two attention matmuls, topic 15 counts a whole model's parameters, topic 16 counts training FLOPs.
-
-What you need from topic 03: broadcasting, because the leading axes of a batched matmul follow exactly that rule.
-
-## What you build here
-
-Thirteen functions.
-Four of them return integers rather than tensors, and those are the ones worth slowing down on.
-
-### 6.1 Basic shapes
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `matvec(A, x)` | `(M, K)`, `(K,) -> (M,)` | Matrix times vector |
-| `matmul_shape(a, b)` | two shape tuples -> tuple | Predict `torch.matmul`'s output shape, including the broadcast of leading axes. `ValueError` on incompatibility |
-| `batched_matmul(a, b)` | `(B, H, T, Dh)`, `(B, H, Dh, S) -> (B, H, T, S)` | One call, no loop over heads |
-| `gram_matrix(x)` | `(N, D) -> (N, N)` | Every pairwise dot product of the rows |
-
-### 6.2 A linear layer by hand
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `linear_forward(x, weight, bias=None)` | `(..., in)`, `(out, in)`, `(out,) -> (..., out)` | Exactly `nn.Linear`'s semantics. No reshaping of the batch needed |
-| `linear_backward(grad_out, x, weight)` | `(N, out)`, `(N, in)`, `(out, in)` -> three tensors | `grad_x`, `grad_weight`, `grad_bias`, by hand, no autograd |
-| `lora_delta(x, A, B, alpha, rank)` | `(N, in)`, `(in, r)`, `(r, out)` -> `(N, out)` | The LoRA correction scaled by `alpha / rank`. Associate in the cheap order and know why |
-
-### 6.3 Attention without einsum
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `attention_scores(q, k)` | `(B, H, T, Dh)`, `(B, H, S, Dh) -> (B, H, T, S)` | Divided by `sqrt(Dh)`. Matmul and transpose only |
-| `attention_output(weights, v)` | `(B, H, T, S)`, `(B, H, S, Dh) -> (B, H, T, Dh)` | The second of the two matmuls |
-
-### 6.4 The arithmetic of cost
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `matmul_flops(m, k, n)` | ints -> `int` | `2*m*n*k`, counting a multiply and an add as one flop each |
-| `cheaper_order(m, k, n, p)` | ints -> `"left" \| "right" \| "equal"` | Which association of `A@B@C` costs less |
-| `transformer_block_params(d_model, d_ff, num_heads)` | ints -> `int` | Four `d_model x d_model` attention matrices plus two `d_model x d_ff` FFN matrices, no biases, no norms. `num_heads` must not appear in the answer |
-
-### 6.5 Numerics
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `matmul_accumulate_fp32(a, b)` | two bfloat16 tensors -> float32 | Multiply with the accumulation happening in float32, as a real GPU kernel does |
 
 ## The mental model
 
@@ -263,5 +212,4 @@ Topic 12 does that arithmetic.
 ## Going deeper
 
 - [`torch.matmul`](https://pytorch.org/docs/stable/generated/torch.matmul.html), whose doc page enumerates all the rank cases.
-- The LoRA paper, [Hu et al. 2021](https://arxiv.org/abs/2106.09685), for where `alpha / r` comes from.
 - The [Transformer FLOPs](https://arxiv.org/abs/2001.08361) accounting in the Kaplan scaling-law paper, appendix B.

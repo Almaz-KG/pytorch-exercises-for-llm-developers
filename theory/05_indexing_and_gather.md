@@ -1,10 +1,6 @@
 # Topic 05 - Indexing and gather
 
-> **Exercise** `test_05_indexing_and_gather.py` · **Reference** `solutions/sol_05_indexing_and_gather.py` · **Assumes** topics 01-04
-
-## Where this fits
-
-The workbench again, but this time for the two ends of the model.
+> **Exercise** `test_05_indexing_and_gather.py`
 
 An embedding layer is an indexing operation, so the first thing the model does is this topic.
 Cross-entropy is a `gather`, so the last thing it does is too.
@@ -12,54 +8,6 @@ In between, top-k sampling is a `scatter`, beam search reorders a KV cache by in
 
 Indexing is the one part of tensor programming with no analogue in ordinary array code, because PyTorch has three separate systems for it that look alike and behave differently.
 Knowing which of the three you are in is most of the skill.
-
-Where it comes back: topic 10 gathers target logits, topic 13 does the embedding lookup for real, topic 17 does top-k and top-p filtering, topic 19 does beams and expert routing.
-
-What you need from topic 04: `topk`, `cumsum`, and reductions over a mask.
-
-## What you build here
-
-Fifteen functions, grouped by which of the three indexing systems they use.
-
-### 5.1 Indexing as an embedding lookup
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `embedding_lookup(table, ids)` | `(V, D)`, `(B, T)` int64 -> `(B, T, D)` | Plain indexing, no `nn.Embedding` |
-| `select_rows(x, rows)` | `(n, m)`, `list[int] -> (len(rows), m)` | In the given order, repeats allowed |
-| `fancy_index_pairs(x, batch_idx, pos_idx)` | `(B, T, D)`, `(N,)`, `(N,) -> (N, D)` | `out[n] = x[batch_idx[n], pos_idx[n]]`. The two index tensors pair up, they do not cross-product |
-
-### 5.2 gather
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `gather_target_logits(logits, targets)` | `(B, T, V)`, `(B, T) -> (B, T)` | The logit of the correct token. The single most common gather in LM training |
-| `last_valid_hidden(h, lengths)` | `(B, T, D)`, `(B,) -> (B, D)` | The hidden state of each row's last real token |
-| `gather_beams(x, beam_idx)` | `(B, D)`, `(B,) -> (B, D)` | Reorder rows by index, as beam search does to a cache every step |
-
-### 5.3 scatter
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `scatter_one_hot(ids, vocab_size)` | `(B, T) -> (B, T, V)` float | Via `scatter_`, not `F.one_hot` |
-| `bag_of_words(ids, vocab_size)` | `(B, T) -> (B, V)` float | How many times each token appears in the row. Duplicates must accumulate |
-| `keep_top_k(logits, k)` | `(B, V) -> (B, V)` | Everything outside the row's top `k` replaced by `-inf` |
-
-### 5.4 Boolean masks
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `select_valid(x, mask)` | `(B, T, D)`, `(B, T) -> (N, D)` | Only the real tokens, flattened into one list |
-| `replace_where(x, cond, value)` | tensor, bool tensor, float -> tensor | A copy with `value` where `cond` holds. `x` itself untouched |
-| `find_positions(ids, token_id)` | `(T,) -> (N,)` int64 | The positions where that id occurs |
-| `mask_after_eos(ids, eos_id)` | `(B, T) -> (B, T)` bool | True up to and including the first EOS, False after. No EOS means the whole row is True. No loops |
-
-### 5.5 Training pairs
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `make_lm_pairs(ids)` | `(B, T+1) -> ((B, T), (B, T))` | Inputs and targets offset by one. This is next-token prediction |
-| `expand_for_beams(x, num_beams)` | `(B, T) -> (B * num_beams, T)` | One example's beams **adjacent**. `repeat` gives the wrong order |
 
 ## The mental model
 
@@ -207,7 +155,7 @@ That single requirement is behind most of the errors this file produces.
 | `F.one_hot(ids, num_classes)` | the library one-hot, int64; the exercise wants it by hand |
 | `torch.repeat_interleave(x, n, dim)` | each slice repeated `n` times consecutively |
 
-### A worked example on neutral data
+### A worked example
 
 ```python
 >>> table = torch.arange(12.0).reshape(4, 3)     # (V=4, D=3)

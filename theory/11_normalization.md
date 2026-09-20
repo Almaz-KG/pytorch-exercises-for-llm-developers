@@ -1,59 +1,13 @@
 # Topic 11 - Normalization
 
-> **Exercise** `test_11_normalization.py` · **Reference** `solutions/sol_11_normalization.py` · **Assumes** topics 01-10
+> **Exercise** `test_11_normalization.py`
 
-## Where this fits
+Normalization is what makes deep transformers trainable at all.
+It is also three lines of code, which is why it is so easy to get subtly wrong: the unbiased variance instead of the biased one, the statistics computed in bfloat16, the norm on the wrong side of the residual connection. Each of those produces a model that trains, and trains worse.
 
 Two normalization layers in every block, one before attention and one before the feed-forward branch, plus one more at the very end of the model.
 
-Normalization is what makes deep transformers trainable at all.
-It is also three lines of code, which is why it is so easy to get subtly wrong: the unbiased variance instead of the biased one, the statistics computed in bfloat16, the norm on the wrong side of the residual connection.
-Each of those produces a model that trains, and trains worse.
-
 Knowing why RMSNorm replaced LayerNorm and why pre-norm replaced post-norm is also the shortest possible summary of what changed between the 2017 transformer and a modern LLM.
-
-Topic 15 assembles these norms into the block; this file is where the norm itself and the question of where to put it get settled.
-
-What you need from earlier topics:
-
-| From | What exactly |
-| --- | --- |
-| 03 | `keepdim`, and a `(D,)` vector broadcasting against `(B, T, D)` |
-| 04 | The biased variance and the RMS |
-| 09 | Writing a module, and why the parameter names matter |
-
-## What you build here
-
-Nine components: seven functions and two modules.
-
-### 11.1 The functional versions
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `layer_norm(x, weight, bias, eps=1e-5)` | `(..., D)`, `(D,)`, `(D,) -> (..., D)` | Over the last axis, biased variance, no `F.layer_norm` |
-| `rms_norm(x, weight, eps=1e-5)` | `(..., D)`, `(D,) -> (..., D)` | `x / sqrt(mean(x^2) + eps) * weight` |
-| `rms_norm_upcast(x, weight, eps=1e-5)` | same, input may be bfloat16 | Compute in float32, return **in the input's original dtype** |
-
-### 11.2 The modules
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `RMSNorm(d_model, eps=1e-5)` | `(..., D) -> (..., D)` | One trainable `weight` of `(D,)` initialized to ones. No bias, no buffers |
-| `LayerNormModule(d_model, eps=1e-5)` | `(..., D) -> (..., D)` | `weight` of ones and `bias` of zeros |
-
-### 11.3 Where to put the norm
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `post_norm_residual(x, sublayer_out, norm)` | tensors, module -> tensor | `norm(x + sublayer_out)`, the 2017 arrangement |
-| `pre_norm_residual(x, sublayer, norm)` | tensor, two modules -> tensor | `x + sublayer(norm(x))`, the modern one |
-
-### 11.4 Properties
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `scale_invariance_gap(x, c)` | tensor, float -> scalar | Max difference between `rms_norm(x)` and `rms_norm(c*x)` with `weight=1`. Small, not exactly zero |
-| `stats_after_layernorm(x)` | `(..., D) -> (mean, std)` | After normalizing with `weight=1`, `bias=0`: the mean and the biased standard deviation over the last axis |
 
 ## The mental model
 

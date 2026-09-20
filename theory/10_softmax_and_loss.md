@@ -1,8 +1,7 @@
 # Topic 10 - Softmax and loss
 
-> **Exercise** `test_10_softmax_and_loss.py` · **Reference** `solutions/sol_10_softmax_and_loss.py` · **Assumes** topics 01-09
+> **Exercise** `test_10_softmax_and_loss.py`
 
-## Where this fits
 
 This is the bottom of the forward pass: the step that turns `(B, T, V)` logits into one number, and the last thing that happens before topic 08's backward pass takes over.
 
@@ -12,50 +11,6 @@ Cross-entropy is the loss of every language model, and it is the one place where
 Feeding probabilities into a function that expects logits, computing `log(softmax(x))` instead of `log_softmax(x)`, or averaging over padded positions each cost real quality and none of them raise.
 
 Two payoffs at the end of this file: the prettiest formula in deep learning, `grad = (p - onehot) / N`, and the single most useful sanity check in LLM training, that the initial loss must be `log(V)`.
-
-What you need from earlier topics:
-
-| From | What exactly |
-| --- | --- |
-| 04 | `logsumexp`, and why subtracting the max is exact |
-| 05 | `gather`, to pull out the logit of the correct token |
-| 08 | The softmax Jacobian, which the gradient here is derived from |
-
-## What you build here
-
-Eleven functions.
-Every one of them is a formula you should be able to rebuild from the definition.
-
-### 10.1 softmax by hand
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `softmax_manual(x, dim)` | tensor, int -> tensor | Numerically stable, without `torch.softmax` |
-| `log_softmax_manual(x, dim)` | tensor, int -> tensor | `x - logsumexp(x, dim, keepdim=True)`, without `torch.log_softmax` |
-| `temperature_softmax(logits, temperature)` | tensor, float -> tensor | `softmax(logits / T)`. Applied to logits, never to probabilities |
-
-### 10.2 Cross-entropy
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `cross_entropy_from_logits(logits, targets)` | `(N, V)`, `(N,) -> scalar` | Mean of `logsumexp(logits_i) - logits_i[target_i]`. Only `logsumexp` and `gather`, no `F.cross_entropy` |
-| `sequence_cross_entropy(logits, targets, ignore_index=-100)` | `(B, T, V)`, `(B, T) -> scalar` | Ignored positions leave **both** the sum and the denominator |
-| `label_smoothing_loss(logits, targets, smoothing)` | `(N, V)`, `(N,)`, float -> scalar | Target is `(1-s)` on the correct class plus `s/V` spread over all classes |
-| `perplexity(loss)` | scalar -> scalar | From a mean loss in nats |
-| `kl_divergence(student_logits, teacher_logits)` | `(N, V)`, `(N,) -> scalar` | `KL(teacher \|\| student)`, batch-averaged, computed through both log-softmaxes. Never divide probabilities |
-
-### 10.3 The gradient
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `cross_entropy_grad(logits, targets)` | `(N, V)`, `(N,) -> (N, V)` | `(softmax(logits) - onehot(targets)) / N`, by hand, no autograd |
-
-### 10.4 Properties worth feeling
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `shift_invariance_gap(x, shift)` | tensor, float -> scalar | Max absolute difference between `softmax(x)` and `softmax(x + shift)`. Expect floating point noise, not exact zero |
-| `uniform_loss(vocab_size)` | int -> `float` | The loss of a model that predicts uniformly. Know this one by heart |
 
 ## The mental model
 

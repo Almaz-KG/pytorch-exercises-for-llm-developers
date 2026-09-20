@@ -1,8 +1,6 @@
 # Topic 13 - Embeddings and RoPE
 
-> **Exercise** `test_13_embeddings_and_rope.py` · **Reference** `solutions/sol_13_embeddings_and_rope.py` · **Assumes** topics 01-12
-
-## Where this fits
+> **Exercise** `test_13_embeddings_and_rope.py`
 
 The first thing the model does: turn token ids into the vectors everything else operates on, plus the positional information attention needs in order to know what order the tokens came in.
 
@@ -11,50 +9,6 @@ Shuffle the tokens and, with no positional information, the output is shuffled i
 Positional encoding is the entire fix, and how it is done has changed three times, with RoPE winning decisively.
 
 RoPE is also the piece of a modern transformer that people most often implement almost right, because the convention for which channels get paired differs between codebases and a wrong pairing still trains.
-
-Topic 14 consumes the rotated `q` and `k`; topic 17 needs the position offset this file introduces.
-
-What you need from earlier topics:
-
-| From | What exactly |
-| --- | --- |
-| 03 | An outer product of two aranges, and broadcasting a `(T, Dh/2)` cache against `(B, H, T, Dh)` |
-| 05 | The embedding lookup |
-| 09 | Buffers, and why a cache must not be a parameter |
-
-## What you build here
-
-Ten components: nine functions and one module.
-
-### 13.1 Embeddings
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `scaled_token_embedding(table, ids)` | `(V, D)`, ids -> `(..., D)` | A lookup multiplied by `sqrt(d_model)`, as the 2017 transformer does |
-| `learned_positional(embed, pos_table, offset=0)` | `(B, T, D)`, `(max_len, D) -> (B, T, D)` | Add the vectors for positions `offset .. offset+T-1`. The offset is what generation needs |
-| `sinusoidal_pe(seq_len, d_model)` | ints -> `(T, D)` | `PE[pos, 2i] = sin(pos / 10000^(2i/d))`, `PE[pos, 2i+1] = cos(...)` |
-
-### 13.2 RoPE frequencies and cache
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `rope_inv_freq(d_head, theta=10000.0)` | ints -> `(Dh/2,)` | `theta^(-2i/Dh)`. It must **decrease**: the first pair spins fastest |
-| `rope_cos_sin(seq_len, d_head, theta, offset=0)` | ints -> two `(T, Dh/2)` | Cosines and sines of `(offset + pos) * inv_freq[i]` |
-| `apply_rope(x, cos, sin)` | `(..., T, Dh)`, two `(T, Dh/2) -> (..., T, Dh)` | Rotate each adjacent pair by its own angle. Must work for `(T, Dh)` and `(B, H, T, Dh)` alike |
-| `apply_rope_to_qk(q, k, theta, offset=0)` | two `(B, H, T, Dh)` -> two of the same | The wrapper. RoPE goes on `q` and `k`, never on `v` |
-
-### 13.3 The properties that make RoPE work
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `rope_dot_product(q, k, pos_q, pos_k, theta)` | two `(Dh,)`, two ints -> scalar | Rotate each to its position and dot them. The test uses this to check relativity |
-| `rope_norm_change(x, pos, theta)` | tensor, int -> scalar | How much the rotation changes the norm. The answer is the point |
-
-### 13.4 The module
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `RotaryEmbedding(d_head, max_len, theta=10000.0)` | `(B, H, T, Dh)`, `offset` -> same shape | Caches held as **buffers** named `cos_cached` and `sin_cached`, built up to `max_len`. No trainable parameters |
 
 ## The mental model
 

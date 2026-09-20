@@ -1,60 +1,11 @@
 # Topic 14 - Attention
 
-> **Exercise** `test_14_attention.py` · **Reference** `solutions/sol_14_attention.py` · **Assumes** topics 01-13
-
-## Where this fits
+> **Exercise** `test_14_attention.py`
 
 This is attention itself, and it is the only place in the whole model where one token reads another.
 Topic 13 gave every token a vector.
 Everything those vectors have been through so far happened to each token in isolation.
 Here they finally interact, and in topic 15 the result gets wrapped in a norm, a residual add and a feed-forward branch to become one transformer block.
-
-What you need from earlier topics:
-
-| From | What exactly |
-| --- | --- |
-| 02 | Splitting the last axis into heads and putting the head axis in front |
-| 03 | Broadcasting a `(B, S)` mask against `(B, H, T, S)` scores |
-| 06 | Batched matmul, and why a dot product over `Dh` terms has variance `Dh` |
-| 10 | Softmax along one chosen axis |
-
-The exercise re-declares `split_heads` and `merge_heads` at the top.
-That is deliberate: you write them again from memory rather than importing them.
-
-## What you build here
-
-Ten components, twelve stubs: the two modules each have an `__init__` and a `forward`.
-Read the table first, then read the mental model for whatever you cannot already picture.
-
-### 14.0 Helpers
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `split_heads(x, num_heads)` | `(B, T, D) -> (B, H, T, Dh)` | Cut the last axis into `H` parts, then move the head axis in front of `T`. `Dh = D // H` |
-| `merge_heads(x)` | `(B, H, T, Dh) -> (B, T, D)` | The exact inverse, so that `merge_heads(split_heads(x, H))` returns `x` |
-
-### 14.1 The core
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `scaled_dot_product_attention(q, k, v, mask=None)` | `q (..., T, Dh)`, `k, v (..., S, Dh)` -> `(..., T, Dh)` | Score, mask, softmax, weighted sum. `mask` is a bool broadcastable to `(..., T, S)` where `True` means allowed |
-| `attention_weights(q, k, mask=None)` | `q (..., T, Dh)`, `k (..., S, Dh)` -> `(..., T, S)` | The same computation, stopped at the softmax and returned as is. Every row sums to 1 |
-| `causal_attention(q, k, v)` | `(B, H, T, Dh) -> (B, H, T, Dh)` | Build the mask inside from the lengths of `q` and `k`, which here are equal. Position `i` may use keys `j <= i` |
-| `attention_with_padding(q, k, v, pad_mask)` | `q, k, v (B, H, T, Dh)`, `pad_mask (B, S)` bool -> `(B, H, T, Dh)` | Causal and padding at once. `True` in `pad_mask` means a real token. The mask has to broadcast over heads and over all queries |
-
-### 14.2 The modules
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `MultiHeadSelfAttention(d_model, num_heads)` | `(B, T, D) -> (B, T, D)` | Four submodules named `q_proj`, `k_proj`, `v_proj`, `output_proj`, each `nn.Linear(D, D, bias=False)`. Causal. The names are asserted by the tests here and in topic 15 |
-| `GroupedQueryAttention(d_model, num_heads, num_kv_heads)` | `(B, T, D) -> (B, T, D)` | Same, except `k_proj` and `v_proj` produce only `num_kv_heads` heads. Each KV head serves `G = H / H_kv` consecutive query heads. Causal, no biases |
-
-### 14.3 Cost
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `attention_matrix_bytes(batch, heads, seq_len, dtype)` | ints -> `int` | The bytes one materialized `(B, H, T, T)` score tensor occupies in that dtype |
-| `attention_flops(batch, heads, seq_len, d_head)` | ints -> `int` | The FLOPs of the two matmuls, projections excluded, at `2mnk` per matmul |
 
 ## The mental model
 

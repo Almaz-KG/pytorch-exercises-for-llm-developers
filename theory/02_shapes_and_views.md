@@ -1,10 +1,6 @@
 # Topic 02 - Shapes and views
 
-> **Exercise** `test_02_shapes_and_views.py` · **Reference** `solutions/sol_02_shapes_and_views.py` · **Assumes** topic 01
-
-## Where this fits
-
-Still the workbench, not yet a part of the model.
+> **Exercise** `test_02_shapes_and_views.py`
 
 A transformer is mostly reshaping.
 The residual stream is `(B, T, D)`, attention wants `(B, H, T, Dh)`, the loss wants `(B*T, V)`, a KV cache grows along `T`, and grouped-query attention has to fan `H_kv` key heads out to `H` query heads.
@@ -15,55 +11,6 @@ The most common real bug in hand-written attention lives here: splitting heads i
 Topic 14 does the head split again from memory, topic 17 does the `cat` that grows a cache, topic 20 does the windowing that cuts training examples out of a token stream.
 
 What you need from topic 01: storage, strides, and the difference between a copy and a view.
-
-## What you build here
-
-Nineteen functions.
-Every one of them is a shape manipulation and none of them changes a single number.
-
-### 2.1 reshape, view, flatten
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `flatten_tokens(x)` | `(B, T, D) -> (B*T, D)` | Collapse batch and time. This is what happens before `lm_head` or the loss |
-| `unflatten_tokens(x, batch_size)` | `(B*T, D) -> (B, T, D)` | The inverse |
-| `flatten_all_but_last(x)` | `(..., D) -> (N, D)` | `N` is the product of every leading axis, whatever the rank |
-| `add_batch_dim(x)` | `(T, D) -> (1, T, D)` | Without copying |
-| `drop_singleton_dims(x)` | any -> any | Remove every axis of size 1 |
-
-### 2.2 Permuting axes
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `split_heads(x, num_heads)` | `(B, T, D) -> (B, H, T, Dh)` | Split the last axis first, permute second. The other order mixes heads and the test catches it |
-| `merge_heads(x)` | `(B, H, T, Dh) -> (B, T, D)` | The exact inverse. After the permute the tensor is not contiguous, so `view` will refuse |
-| `transpose_last_two(x)` | `(..., a, b) -> (..., b, a)` | Any rank. This is the `K^T` of attention |
-| `is_contiguous_after_transpose(x)` | tensor -> `(bool, bool)` | Contiguous before, and after `.transpose(0, 1)` |
-| `strides_of(x)` | tensor -> `tuple[int, ...]` | Steps in elements along each axis |
-
-### 2.3 Joining and cutting
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `concat_sequences(a, b)` | `(B, T1, D)`, `(B, T2, D) -> (B, T1+T2, D)` | Join along time. Literally what a KV cache does per token |
-| `stack_batch(items)` | `list[(T, D)] -> (N, T, D)` | A new axis, not an existing one |
-| `split_qkv(qkv)` | `(B, T, 3*D) -> 3 x (B, T, D)` | Cut a fused projection into `q`, `k`, `v` |
-
-### 2.4 expand versus repeat
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `broadcast_kv_heads(kv, num_groups)` | `(B, H_kv, T, Dh) -> (B, H_kv*G, T, Dh)` | KV head `i` repeated `G` times **consecutively**, with no allocation during the expand step |
-| `expand_row(x, n)` | `(1, D) -> (n, D)` | A zero-stride view, no copy |
-| `repeat_row(x, n)` | `(1, D) -> (n, D)` | A real copy |
-
-### 2.5 Windows and padding
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `sliding_windows(x, window)` | `(T,) -> (T-window+1, window)` | Every window of that length at step 1 |
-| `pad_to_length(x, target_len, pad_value)` | `(B, T) -> (B, target_len)` | Fill on the right. Assume `T <= target_len` |
-| `shift_right(x, pad_value)` | `(B, T) -> (B, T)` | Insert `pad_value` on the left, drop the last token. This is teacher forcing |
 
 ## The mental model
 

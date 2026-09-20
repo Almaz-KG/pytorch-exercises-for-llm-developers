@@ -1,45 +1,11 @@
 # Topic 20 - Data and checkpoints
 
-> **Exercise** `test_20_data_and_batching.py` · **Reference** `solutions/sol_20_data_and_batching.py` · **Assumes** topics 01-19
-
-## Where this fits
+> **Exercise** `test_20_data_and_batching.py`
 
 The two ends of the pipeline that are not part of the model itself: what feeds token ids in at one end, and what writes the trained weights to disk at the other.
 
 This is the plumbing without which training never starts, and it is where two of the least glamorous and most expensive bugs live: an off-by-one in the window bounds, and a checkpoint that cannot be resumed from.
 
-None of it is conceptually hard.
-All of it is the kind of thing that costs a day when it is wrong, and these functions are exactly the ones CS336 asks for.
-
-What you need from earlier topics: the input/target shift (05), masked reductions and `ignore_index` (04, 10), `state_dict` and `BytesIO` (09), the optimizer state and the step-indexed schedule (16).
-
-## What you build here
-
-Eight functions.
-Every one of them is short, and at least three have an off-by-one waiting in them.
-
-### 20.1 Cutting batches out of a token stream
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `get_batch(data, batch_size, context_length, generator=None)` | 1-D array, ints -> two `(B, T)` int64 | Random windows, `targets` shifted one token forward. Start index drawn from `[0, len(data) - context_length - 1]` |
-| `max_start_index(num_tokens, context_length)` | ints -> `int` | The largest admissible start, **inclusive** |
-| `steps_per_epoch(num_tokens, batch_size, context_length)` | ints -> `int` | Steps to see every token once, rounding down |
-| `sequential_windows(data, context_length)` | array, int -> `(num_windows, T)` int64 | Non-overlapping, deterministic, tail discarded. This is how validation is cut |
-
-### 20.2 Padding and labels
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `collate_with_padding(sequences, pad_id)` | `list[list[int]]`, int -> `((B, T_max)` int64, `(B, T_max)` bool) | Pad to the longest, mask True on real tokens |
-| `make_labels(ids, mask, ignore_index=-100)` | `(B, T)`, `(B, T)` -> `(B, T)` | Shift one token left; padding positions and **the last position of every row** become `ignore_index` |
-
-### 20.3 Checkpoints
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `save_checkpoint(model, optimizer, iteration, out)` | module, optimizer, int, buffer -> `None` | Model state, optimizer state and the iteration number |
-| `load_checkpoint(src, model, optimizer)` | buffer, module, optimizer -> `int` | Load both states **in place**, return the iteration |
 
 ## The mental model
 

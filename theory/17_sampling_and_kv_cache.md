@@ -1,10 +1,6 @@
 # Topic 17 - Generation: sampling and the KV cache
 
-> **Exercise** `test_17_sampling_and_kv_cache.py` · **Reference** `solutions/sol_17_sampling_and_kv_cache.py` · **Assumes** topics 01-16
-
-## Where this fits
-
-Not a new part of the model but a way of running the whole of it: one token at a time, reusing everything that does not change.
+> **Exercise** `test_17_sampling_and_kv_cache.py`
 
 Topic 15 built a model that maps a sequence to logits, and topic 16 trained it.
 Generation is what happens after: pick a token from the last position's logits, append it, and run again.
@@ -14,43 +10,6 @@ Sampling is four lines of code that decide every user-visible property of the mo
 The KV cache is the single optimization that makes autoregressive generation practical, turning a quadratic cost per token into a linear one.
 
 The invariant the tests check, and the one that matters, is that caching must produce **exactly** the same numbers as a full forward pass.
-
-What you need from earlier topics:
-
-| From | What exactly |
-| --- | --- |
-| 02 | `cat` along the time axis, which is literally what a cache does |
-| 05 | `topk`, `scatter`, `gather`, and the cumsum trick |
-| 13 | The position offset, without which a cached run diverges |
-| 14 | Attention with `T != S`, which is the cached case |
-
-## What you build here
-
-Nine components: seven functions and two classes.
-
-### 17.1 Filters for the logits
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `apply_temperature(logits, temperature)` | `(B, V)`, float -> `(B, V)` | Divide by `T`. At `T == 0`, return logits from which the argmax is picked deterministically, without dividing |
-| `top_k_filter(logits, k)` | `(B, V)`, int -> `(B, V)` | Everything outside the top `k` becomes `-inf`. `k <= 0` is a no-op |
-| `top_p_filter(logits, p)` | `(B, V)`, float -> `(B, V)` | Keep the smallest set whose total probability reaches `p`. The token that **crosses** the threshold is kept. Result in the original token order |
-| `repetition_penalty(logits, generated, penalty)` | `(B, V)`, `(B, T)`, float -> `(B, V)` | Divide the already-generated tokens' logits by `penalty` when positive, multiply when negative |
-| `sample_from_logits(logits, temperature, top_k, top_p, generator)` | `(B, V) -> (B,)` int64 | Temperature, top-k, top-p, softmax, multinomial, in that order. `temperature == 0` is greedy with no randomness |
-
-### 17.2 The KV cache
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `KVCache` | `append(k, v) -> (k, v)` | Store `(B, H, T, Dh)` tensors per layer, append along time, return the full history. `len(cache)` is how many positions have accumulated |
-| `CachedSelfAttention(d_model, num_heads)` | `forward(x, cache=None) -> (B, T, D)` | Projections `q_proj`, `k_proj`, `v_proj`, `output_proj`, no bias. With a cache, append and attend over the whole history. The causal mask is only needed when `T > 1` |
-| `cache_memory_bytes(batch, num_layers, num_kv_heads, seq_len, head_dim, dtype)` | ints, dtype -> `int` | Two tensors per layer. This is the number GQA exists for |
-
-### 17.3 Generation
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `greedy_generate(step_fn, prompt, max_new_tokens)` | callable, `(B, T_p)`, int -> `(B, T_p + n)` | The naive loop, no cache: run the whole prefix each step, append the most probable token |
 
 ## The mental model
 

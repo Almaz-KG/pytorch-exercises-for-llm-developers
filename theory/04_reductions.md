@@ -1,10 +1,6 @@
 # Topic 04 - Reductions
 
-> **Exercise** `test_04_reductions.py` · **Reference** `solutions/sol_04_reductions.py` · **Assumes** topics 01-03
-
-## Where this fits
-
-Still the workbench, and this one shows up in almost every part of the model.
+> **Exercise** `test_04_reductions.py`
 
 Every loss is a reduction.
 Every normalization layer is two reductions.
@@ -14,58 +10,6 @@ The mechanics are simple and the mistakes are not.
 Averaging over padding tokens inflates or deflates your loss by a factor nobody notices.
 Using the unbiased variance in LayerNorm puts you slightly off every reference implementation.
 A naive `log(sum(exp(x)))` overflows to `inf` on perfectly ordinary logits.
-
-Where it comes back: the variance and RMS here are topic 11, `logsumexp` is topic 10 and again topic 18, `topk` is topic 17, the global gradient norm is topic 16.
-
-What you need from topic 03: `keepdim`, and why a reduced tensor has to broadcast back against the one it came from.
-
-## What you build here
-
-Eighteen functions.
-Three quarters of them are one line once you know which argument to pass.
-
-### 4.1 Basic reductions and axes
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `sum_over_time(x)` | `(B, T, D) -> (B, D)` | Sum along the time axis |
-| `mean_over_batch_and_time(x)` | `(B, T, D) -> (D,)` | Two axes at once |
-| `center_and_keepdim(x)` | `(..., D) -> ((..., 1), (..., D))` | The mean with `keepdim=True`, and `x` minus it |
-| `biased_variance(x)` | `(..., D) -> (..., 1)` | Denominator `N`, not `N-1`. LayerNorm's convention |
-| `rms(x)` | `(..., D) -> (..., 1)` | `sqrt(mean(x^2))`, no mean subtraction. The heart of RMSNorm |
-
-### 4.2 Reductions with a mask
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `masked_mean(x, mask)` | `(B, T, D)`, `(B, T)` bool -> `(B, D)` | Average over real tokens only. Divide by `mask.sum()`, never by `T` |
-| `count_tokens(mask)` | `(B, T)` bool -> `((B,)` int64, `int)` | Per-row lengths, and the total as a Python `int` |
-| `masked_max(x, mask)` | `(B, T)`, `(B, T)` bool -> `(B,)` | Maximum over allowed positions. Zeroing does not work here |
-
-### 4.3 max, argmax, topk
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `greedy_tokens(logits)` | `(B, T, V) -> (B, T)` int64 | The most probable token id per position |
-| `top_k_tokens(logits, k)` | `(B, V)` -> `((B, k), (B, k))` | Values and indices, descending |
-| `argmax_2d(x)` | `(n, m) -> (int, int)` | Row and column of the maximum, via a flat argmax and `divmod` |
-| `accuracy(logits, targets, ignore_index=-100)` | `(B, T, V)`, `(B, T) -> float` | Fraction correct, with ignored positions excluded from both numerator and denominator |
-
-### 4.4 logsumexp and entropy
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `logsumexp_manual(x, dim)` | tensor, int -> reduced tensor | The stable form, without `torch.logsumexp`. Must survive inputs like `1000.0` |
-| `entropy(probs)` | `(..., V) -> (...,)` | Entropy in nats. A zero probability must contribute 0, not NaN |
-
-### 4.5 Norms
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `l2_normalize(x, eps=1e-8)` | `(..., D) -> (..., D)` | Divide each vector by its own L2 norm, with `eps` guarding a zero vector |
-| `global_grad_norm(tensors)` | `list[Tensor] -> scalar` | One L2 norm over every element of every tensor. The quantity gradient clipping thresholds |
-| `token_frequencies(ids, vocab_size)` | `(...,)` int64 -> `(V,)` int64 | Occurrence counts per id |
-| `cumulative_mean(x)` | `(T,) -> (T,)` | `out[i]` is the mean of `x[0..i]`, via `cumsum`, no loops |
 
 ## The mental model
 

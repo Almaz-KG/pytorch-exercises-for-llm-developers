@@ -1,11 +1,9 @@
 # Topic 07 - einsum and einops
 
-> **Exercise** `test_07_einsum_and_einops.py` · **Reference** `solutions/sol_07_einsum_and_einops.py` · **Assumes** topics 01-06
+> **Exercise** `test_07_einsum_and_einops.py`
 
-## Where this fits
 
 `transpose(-2, -1).matmul(...).permute(0, 2, 1, 3).reshape(...)` is correct code that nobody can read, including the person who wrote it last week.
-
 `einsum` and `einops` replace it with a statement of *what the axes mean*, which turns a class of silent shape bugs into either a working line or a loud error.
 CS336 uses `einops` as its primary tool, and so does every modern codebase worth reading, so the muscle memory being built here is typing `"b t (h d) -> b h t d"` without thinking.
 

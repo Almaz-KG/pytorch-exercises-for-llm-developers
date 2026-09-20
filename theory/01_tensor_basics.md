@@ -1,11 +1,6 @@
 # Topic 01 - Tensor basics
 
-> **Exercise** `test_01_tensor_basics.py` · **Reference** `solutions/sol_01_tensor_basics.py` · **Assumes** nothing
-
-## Where this fits
-
-None of the model is built yet.
-This is the workbench under all of it.
+> **Exercise** `test_01_tensor_basics.py`·
 
 A tensor is three things bolted together: a flat block of memory, a dtype that says how to read that memory, and a shape that says how to index into it.
 Almost every confusing bug in an LLM codebase is one of those three quietly not being what you assumed.
@@ -15,51 +10,6 @@ An integer division you did not notice turns a learning rate into zero.
 
 This topic is where checking those three becomes reflex.
 Topic 02 then starts moving shapes around, and everything after it assumes you can tell a copy from a view without thinking.
-
-## What you build here
-
-Fifteen functions, none longer than two lines.
-The work is knowing which call to reach for, not writing code.
-
-### 1.1 Creating tensors
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `make_arange_matrix(n, m)` | ints -> `(n, m)` int64 | Filled row by row with `0 .. n*m-1` |
-| `make_constant(shape, value, dtype)` | tuple, float, dtype -> that shape | Every element equal to `value`, in exactly the dtype asked for |
-| `make_identity_like(x)` | `(n, n)` -> `(n, n)` | An identity with the same size, dtype and device as `x`. There is no `torch.eye_like` |
-
-### 1.2 Metadata
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `describe(x)` | tensor -> `dict` | Keys `shape` (a plain tuple), `ndim`, `numel`, `dtype`, `bytes`. `bytes` is the memory of the data itself |
-| `promoted_dtype(a, b)` | two tensors -> `torch.dtype` | The dtype `a + b` would have, without computing the sum |
-
-### 1.3 Arithmetic and casting
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `linear_combination(a, b, alpha, beta)` | tensors, floats -> tensor | `alpha * a + beta * b` as a new tensor, inputs untouched |
-| `to_float32(x)` | tensor -> tensor | Cast to float32, and return `x` itself, the same object, when it already is float32 |
-| `mean_of_ints(x)` | int tensor -> scalar float32 | The mean of an integer tensor. `torch.mean` refuses int64, so the cast has to happen in the right place |
-
-### 1.4 Copies, views and in-place
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `independent_copy(x)` | tensor -> tensor | Equal values, its own storage |
-| `shares_memory(a, b)` | two tensors -> `bool` | Whether both look into the same storage |
-| `add_inplace(x, value)` | tensor, float -> the same tensor | Write into the existing memory. The test checks that `id(x)` and `x.data_ptr()` are unchanged |
-| `zero_row_(x, i)` | `(n, m)`, int -> the same tensor | Zero row `i` in place |
-
-### 1.5 Small things LLM code needs constantly
-
-| Component | In -> out | What it must do |
-| --- | --- | --- |
-| `count_greater(x, threshold)` | tensor, float -> `int` | How many elements are strictly greater. A Python `int`, not a tensor |
-| `clamp_and_scale(x, lo, hi)` | tensor, floats -> tensor | Clip into `[lo, hi]`, then map that range linearly onto `[0, 1]` |
-| `model_memory_bytes(num_params, dtype)` | int, dtype -> `int` | The bytes that many parameters occupy in that dtype |
 
 ## The mental model
 
