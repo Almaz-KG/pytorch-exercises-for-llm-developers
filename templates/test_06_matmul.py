@@ -158,7 +158,7 @@ def test_matvec():
         ((8, 2, 3), (8, 3, 3), (8, 2, 3)),
     ],
 )
-def test_matmul_shape(a, b, expected):
+def test_matmul_shape(a: tuple[int], b: tuple[int], expected: tuple[int]):
     assert matmul_shape(a, b) == expected
     assert tuple(torch.matmul(torch.zeros(a), torch.zeros(b)).shape) == expected
 
@@ -199,7 +199,7 @@ def test_linear_backward_matches_autograd():
     b = torch.zeros(7, requires_grad=True)
     out = torch.nn.functional.linear(x, w, b)
     g = torch.randn_like(out)
-    out.backward(g)
+    out.backward(g)  # type: ignore
 
     gx, gw, gb = linear_backward(g, x.detach(), w.detach())
     torch.testing.assert_close(gx, x.grad)

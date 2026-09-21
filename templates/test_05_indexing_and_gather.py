@@ -287,7 +287,7 @@ def test_expand_for_beams():
 
 
 @pytest.mark.parametrize("k", [1, 3, 5])
-def test_keep_top_k_counts(k):
+def test_keep_top_k_counts(k: int):
     logits = torch.randn(4, 7)
     out = keep_top_k(logits, k)
     assert (torch.isfinite(out).sum(dim=-1) == k).all()

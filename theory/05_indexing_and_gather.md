@@ -2,10 +2,6 @@
 
 > **Exercise** `test_05_indexing_and_gather.py`
 
-An embedding layer is an indexing operation, so the first thing the model does is this topic.
-Cross-entropy is a `gather`, so the last thing it does is too.
-In between, top-k sampling is a `scatter`, beam search reorders a KV cache by index every step, and packing a padded batch before the loss is a boolean mask.
-
 Indexing is the one part of tensor programming with no analogue in ordinary array code, because PyTorch has three separate systems for it that look alike and behave differently.
 Knowing which of the three you are in is most of the skill.
 
