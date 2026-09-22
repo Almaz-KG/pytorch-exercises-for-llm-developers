@@ -4,6 +4,8 @@
 
 
 `transpose(-2, -1).matmul(...).permute(0, 2, 1, 3).reshape(...)` is correct code that nobody can read, including the person who wrote it last week.
+
+
 `einsum` and `einops` replace it with a statement of *what the axes mean*, which turns a class of silent shape bugs into either a working line or a loud error.
 CS336 uses `einops` as its primary tool, and so does every modern codebase worth reading, so the muscle memory being built here is typing `"b t (h d) -> b h t d"` without thinking.
 
@@ -114,7 +116,7 @@ Any axis in the input pattern missing from the output pattern is reduced.
 The reductions are `"mean"`, `"sum"`, `"max"`, `"min"`, `"prod"`, `"any"`, `"all"`.
 
 ```python
-reduce(x, "b t d -> b d", "mean")     # mean-pool over time
+reduce(x, "b t d -> b d", "mean")  # mean-pool over time
 reduce(x, "b h t d -> b t d", "max")  # max over heads
 ```
 

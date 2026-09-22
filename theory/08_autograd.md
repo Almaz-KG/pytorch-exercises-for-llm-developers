@@ -110,14 +110,14 @@ This same expression reappears inside the backward pass of attention in topic 19
 class MyOp(torch.autograd.Function):
     @staticmethod
     def forward(ctx, a, b, some_flag):
-        ctx.save_for_backward(a, b)   # tensors only
-        ctx.some_flag = some_flag     # non-tensors go on ctx directly
+        ctx.save_for_backward(a, b)  # tensors only
+        ctx.some_flag = some_flag  # non-tensors go on ctx directly
         return result
 
     @staticmethod
     def backward(ctx, grad_output):
         a, b = ctx.saved_tensors
-        return grad_a, grad_b, None   # one return per forward input
+        return grad_a, grad_b, None  # one return per forward input
 ```
 
 Rules that are easy to get wrong:
