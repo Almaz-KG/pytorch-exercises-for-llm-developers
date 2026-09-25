@@ -18,12 +18,12 @@ from torch import Tensor
 
 def embedding_lookup(table: Tensor, ids: Tensor) -> Tensor:
     """table: (V, D), ids: (B, T) int64 -> (B, T, D). With ordinary indexing, without nn.Embedding."""
-    return table[ids]
+    raise NotImplementedError
 
 
 def select_rows(x: Tensor, rows: list[int]) -> Tensor:
     """Pick the given rows of a matrix in the given order (repeats allowed)."""
-    return x[rows]
+    raise NotImplementedError
 
 
 def fancy_index_pairs(x: Tensor, batch_idx: Tensor, pos_idx: Tensor) -> Tensor:
@@ -32,7 +32,7 @@ def fancy_index_pairs(x: Tensor, batch_idx: Tensor, pos_idx: Tensor) -> Tensor:
 
     This is "advanced indexing with two tensors" - the index axes go in pairs.
     """
-    return x[batch_idx, pos_idx]
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -46,7 +46,7 @@ def gather_target_logits(logits: Tensor, targets: Tensor) -> Tensor:
     The most frequent gather construction in all of LM training.
     Hint: torch.gather requires index to have as many axes as input.
     """
-    return logits.gather(dim=-1, index=targets.unsqueeze(dim=-1)).squeeze()
+    raise NotImplementedError
 
 
 def last_valid_hidden(h: Tensor, lengths: Tensor) -> Tensor:
@@ -55,16 +55,14 @@ def last_valid_hidden(h: Tensor, lengths: Tensor) -> Tensor:
 
     This is how pooling for classification is done on a decoder-only model.
     """
-    B, _, D = h.shape
-    index = (lengths - 1)[:, None, None].expand((B, 1, D))
-    return h.gather(dim=1, index=index).squeeze()
+    raise NotImplementedError
 
 
 def gather_beams(x: Tensor, beam_idx: Tensor) -> Tensor:
     """x: (B, D), beam_idx: (B,) -> (B, D): reorder the rows by the indices.
     This is how beam search reshuffles the KV cache after every step.
     """
-    return x[beam_idx]
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -74,8 +72,7 @@ def gather_beams(x: Tensor, beam_idx: Tensor) -> Tensor:
 
 def scatter_one_hot(ids: Tensor, vocab_size: int) -> Tensor:
     """ids: (B, T) -> (B, T, V) float one-hot, assembled through scatter_ (not F.one_hot)."""
-    results = torch.zeros(*ids.shape, vocab_size, device=ids.device)
-    return results.scatter_(dim=-1, index=ids.unsqueeze(-1), value=1.0)
+    raise NotImplementedError
 
 
 def bag_of_words(ids: Tensor, vocab_size: int) -> Tensor:
@@ -83,10 +80,7 @@ def bag_of_words(ids: Tensor, vocab_size: int) -> Tensor:
 
     Hint: scatter_add_ with a source of ones.
     """
-    zeros = torch.zeros((ids.shape[0], vocab_size))
-    ones = torch.ones_like(ids, dtype=torch.float32)
-
-    return zeros.scatter_add_(dim=-1, index=ids, src=ones)
+    raise NotImplementedError
 
 
 def keep_top_k(logits: Tensor, k: int) -> Tensor:
@@ -95,9 +89,7 @@ def keep_top_k(logits: Tensor, k: int) -> Tensor:
     This exact trick sits inside top-k sampling.
     Hint: topk gives the indices; make a tensor of -inf and scatter the found values into it.
     """
-    vals, topk = torch.topk(logits, k=k)
-    inf = torch.full(logits.shape, fill_value=float("-inf"))
-    return inf.scatter_(dim=-1, index=topk, src=vals)
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -110,15 +102,12 @@ def select_valid(x: Tensor, mask: Tensor) -> Tensor:
 
     This is how packing before the loss is done, so that no gradients are computed over padding.
     """
-    return x[mask]
+    raise NotImplementedError
 
 
 def replace_where(x: Tensor, cond: Tensor, value: float) -> Tensor:
     """Return a copy of x where value stands wherever cond holds (leave in-place alone)."""
-
-    x = x.clone()
-    x[cond] = value
-    return x
+    raise NotImplementedError
 
 
 def find_positions(ids: Tensor, token_id: int) -> Tensor:
@@ -126,7 +115,7 @@ def find_positions(ids: Tensor, token_id: int) -> Tensor:
 
     Useful for finding <|endoftext|> in a stream of tokens.
     """
-    return torch.arange(ids.shape[-1])[ids == token_id]
+    raise NotImplementedError
 
 
 def mask_after_eos(ids: Tensor, eos_id: int) -> Tensor:
@@ -136,8 +125,7 @@ def mask_after_eos(ids: Tensor, eos_id: int) -> Tensor:
     Hint: a cumsum over the boolean tensor "there was an eos here" gives the number of eos seen;
     compare it against 1 carefully, so that the eos itself stays True. Without loops.
     """
-    is_eos = ids == eos_id
-    return is_eos.cumsum(dim=-1) - is_eos.to(torch.long) == 0
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -150,7 +138,7 @@ def make_lm_pairs(ids: Tensor) -> tuple[Tensor, Tensor]:
 
     At position i the model predicts token i+1 - that is the whole of next token prediction.
     """
-    return ids[:, :-1], ids[:, 1:]
+    raise NotImplementedError
 
 
 def expand_for_beams(x: Tensor, num_beams: int) -> Tensor:
@@ -158,8 +146,7 @@ def expand_for_beams(x: Tensor, num_beams: int) -> Tensor:
 
     Hint: repeat_interleave, not repeat - the order differs, and that is the trap.
     """
-    B, T = x.shape
-    return x.repeat_interleave(repeats=num_beams, dim=0).view((B * num_beams, T))
+    raise NotImplementedError
 
 
 # ==========================================================================
