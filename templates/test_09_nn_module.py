@@ -233,7 +233,12 @@ def test_module_list_registers_parameters():
     assert sum(p.numel() for p in stack.parameters()) == 3 * (4 * 4 + 4)
     assert len(list(stack.named_parameters())) == 6
     x = torch.randn(2, 4)
-    assert stack(x).shape == (2, 4)
+    expected = x
+    for layer in stack.layers:
+        expected = F.linear(expected, layer.weight, layer.bias)
+    out = stack(x)
+    assert out.shape == (2, 4)
+    torch.testing.assert_close(out, expected, msg="forward must apply every layer in order")
 
 
 def test_parameter_names():
