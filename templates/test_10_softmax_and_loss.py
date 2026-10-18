@@ -201,7 +201,7 @@ def test_kl_divergence():
 def test_cross_entropy_grad():
     logits = torch.randn(5, 9, requires_grad=True)
     targets = torch.randint(0, 9, (5,))
-    F.cross_entropy(logits, targets).backward()
+    F.cross_entropy(logits, targets).backward() # type: ignore
     torch.testing.assert_close(cross_entropy_grad(logits.detach(), targets), logits.grad, atol=1e-6, rtol=1e-5)
 
 
@@ -217,7 +217,7 @@ def test_uniform_loss():
 
 @pytest.mark.depends_on("cross_entropy_from_logits", "uniform_loss")
 @pytest.mark.parametrize("vocab", [4, 100, 50257])
-def test_untrained_model_loss_matches_log_vocab(vocab):
+def test_untrained_model_loss_matches_log_vocab(vocab: int):
     """The real check: a model with zero logits must have a loss of exactly log(V)."""
     logits = torch.zeros(16, vocab)
     targets = torch.randint(0, vocab, (16,))
