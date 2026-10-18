@@ -9,7 +9,6 @@ The key things to bring to the point of automatism:
 
 import pytest
 import torch
-from einops import reduce  # type: ignore
 from torch import Tensor
 
 # ==========================================================================
@@ -19,12 +18,12 @@ from torch import Tensor
 
 def sum_over_time(x: Tensor) -> Tensor:
     """(B, T, D) -> (B, D): the sum over the time axis."""
-    return reduce(x, "b t d -> b d", "sum")
+    return x.sum(dim=1)
 
 
 def mean_over_batch_and_time(x: Tensor) -> Tensor:
     """(B, T, D) -> (D,): the mean over two axes at once."""
-    return reduce(x, "b t d -> d", "mean")
+    return x.mean(dim=[0, 1])
 
 
 def center_and_keepdim(x: Tensor) -> tuple[Tensor, Tensor]:
@@ -46,7 +45,7 @@ def biased_variance(x: Tensor) -> Tensor:
 
 def rms(x: Tensor) -> Tensor:
     """sqrt(mean(x^2)) over the last axis, keepdim=True. The heart of RMSNorm."""
-    return (x**2).mean(dim=-1, keepdim=True).sqrt()
+    return x.pow(2).mean(dim=-1, keepdim=True).sqrt()
 
 
 # ==========================================================================
@@ -59,15 +58,13 @@ def masked_mean(x: Tensor, mask: Tensor) -> Tensor:
 
     The average must be taken over the real tokens only. Divide by mask.sum(), not by T.
     """
-    m = mask.unsqueeze(-1).to(x.dtype)
+    m = mask[:, :, None].to(x.dtype)
     return (x * m).sum(dim=1) / m.sum(dim=1).clamp(min=1.0)
 
 
 def count_tokens(mask: Tensor) -> tuple[Tensor, int]:
     """mask: (B, T) bool -> (the sequence lengths (B,) int64, the total number of tokens as a python int)."""
-    # print(mask)
-    # print(int(mask.sum().item()))
-    # print(mask.sum(dim=-1))
+
     return mask.sum(dim=-1), int(mask.sum().item())
 
 
@@ -76,10 +73,7 @@ def masked_max(x: Tensor, mask: Tensor) -> Tensor:
 
     Hint: fill the forbidden positions with -inf before the max.
     """
-    # print(x)
-    # print(x.masked_fill(mask=~mask, value=float('-inf')))
-    # print(x.masked_fill(mask=~mask, value=float('-inf')).max(dim=-1)[0].to(x.dtype))
-    return x.masked_fill(mask=~mask, value=float("-inf")).max(dim=-1)[0].to(x.dtype)
+    return x.masked_fill(mask=~mask, value=float("-inf")).max(dim=-1)[0]
 
 
 # ==========================================================================
@@ -99,9 +93,8 @@ def top_k_tokens(logits: Tensor, k: int) -> tuple[Tensor, Tensor]:
 
 def argmax_2d(x: Tensor) -> tuple[int, int]:
     """Find the (row, column) of the maximum of a matrix. Through a flat argmax and divmod, without loops."""
-    index = int(x.argmax().item())
-    r, c = divmod(index, x.shape[1])
-    return r, c
+    index = x.flatten().argmax().item()
+    return divmod(index, x.shape[-1])  # type: ignore
 
 
 def accuracy(logits: Tensor, targets: Tensor, ignore_index: int = -100) -> float:
@@ -111,13 +104,9 @@ def accuracy(logits: Tensor, targets: Tensor, ignore_index: int = -100) -> float
     Return a python float.
     """
     predictions = logits.argmax(dim=-1)
-    print(logits)
-    print(predictions)
     valid = targets != ignore_index
-    print(valid)
     correct = (predictions == targets) & valid
-    print(correct)
-    return float(correct.sum().item()) / max(int(valid.sum().item()), 1)
+    return float(correct.sum().item()) / max(valid.sum().item(), 1.0)
 
 
 # ==========================================================================
@@ -141,11 +130,8 @@ def entropy(probs: Tensor) -> Tensor:
 
     Careful with log(0): zero probabilities must contribute 0, not nan.
     """
-    print(probs)
 
-    logs = torch.where(probs > 0, probs.log(), torch.zeros_like(probs))
-    print(logs)
-
+    logs = torch.where(probs > 0.0, probs.log(), torch.zeros_like(probs))
     return -(probs * logs).sum(dim=-1)
 
 
@@ -164,7 +150,6 @@ def global_grad_norm(tensors: list[Tensor]) -> Tensor:
 
     This is exactly the quantity that stands in gradient clipping.
     """
-
     return torch.stack([(t**2).sum() for t in tensors]).sum().sqrt()
 
 
@@ -173,19 +158,13 @@ def token_frequencies(ids: Tensor, vocab_size: int) -> Tensor:
 
     Hint: torch.bincount, do not forget minlength and flatten.
     """
-    # print(ids)
-    # print(vocab_size)
-    # print(torch.bincount(ids.flatten(), minlength=vocab_size))
+
     return torch.bincount(ids.flatten(), minlength=vocab_size)
 
 
 def cumulative_mean(x: Tensor) -> Tensor:
     """(T,) -> (T,): out[i] = the mean of x[0..i]. Through cumsum, without loops."""
-    # print(x)
-    # print(x.cumsum(dim=-1))
-    # print(x.numel())
-    # print(torch.arange(start=1, end=x.numel())+1)
-    return x.cumsum(dim=-1) / torch.arange(start=1, end=x.numel() + 1)
+    return x.cumsum(dim=-1) / torch.arange(1, x.shape[-1] + 1)
 
 
 # ==========================================================================

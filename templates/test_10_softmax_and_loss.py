@@ -201,7 +201,7 @@ def test_kl_divergence():
 def test_cross_entropy_grad():
     logits = torch.randn(5, 9, requires_grad=True)
     targets = torch.randint(0, 9, (5,))
-    F.cross_entropy(logits, targets).backward() # type: ignore
+    F.cross_entropy(logits, targets).backward()  # type: ignore
     torch.testing.assert_close(cross_entropy_grad(logits.detach(), targets), logits.grad, atol=1e-6, rtol=1e-5)
 
 

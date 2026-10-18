@@ -10,9 +10,10 @@ The axis naming convention used throughout the course:
 
 import pytest
 import torch
+from einops import rearrange, reduce, repeat
 import torch.nn.functional as F
-from einops import rearrange, repeat
 from torch import Tensor
+
 
 # ==========================================================================
 # 2.1 reshape / view / flatten
@@ -161,8 +162,8 @@ def pad_to_length(x: Tensor, target_len: int, pad_value: int) -> Tensor:
 
     Hint: F.pad and the order of the pairs in its argument - from the last axis to the first.
     """
-    ln = target_len - x.shape[-1]
-    return F.pad(x, pad=[0, ln], value=pad_value)
+
+    return F.pad(x, pad=[0, target_len - x.shape[-1]], value=pad_value)
 
 
 def shift_right(x: Tensor, pad_value: int) -> Tensor:

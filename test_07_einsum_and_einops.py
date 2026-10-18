@@ -14,7 +14,7 @@ where einsum or einops is asked for. The whole point is to train exactly those.
 import pytest
 import torch
 from einops import rearrange, reduce, repeat
-from torch import Tensor
+from torch import Tensor, einsum
 
 # ==========================================================================
 # 7.1 einsum: warm-up
@@ -23,32 +23,32 @@ from torch import Tensor
 
 def es_trace(x: Tensor) -> Tensor:
     """The trace of a square matrix through einsum."""
-    return torch.einsum("...ii", x)
+    return einsum("ii->", x)
 
 
 def es_diagonal(x: Tensor) -> Tensor:
     """The diagonal of a square matrix through einsum (without summing)."""
-    return torch.einsum("ii->i", x)
+    return einsum("ii->i", x)
 
 
 def es_transpose(x: Tensor) -> Tensor:
     """Transposing a matrix through einsum."""
-    return torch.einsum("ij->ji", x)
+    return einsum("ij -> ji", x)
 
 
 def es_matmul(a: Tensor, b: Tensor) -> Tensor:
     """(M, K) @ (K, N) through einsum."""
-    return torch.einsum("m k, k n -> m n", a, b)
+    return einsum("m k, k n -> m n", a, b)
 
 
 def es_outer(a: Tensor, b: Tensor) -> Tensor:
     """The outer product of (N,) and (M,) -> (N, M) through einsum."""
-    return torch.einsum("n,m->n m", a, b)
+    return einsum("n,m -> n m", a, b)
 
 
 def es_row_sums(x: Tensor) -> Tensor:
     """The row sums of a matrix through einsum."""
-    return torch.einsum("ij -> i", x)
+    return einsum("ij -> i", x)
 
 
 # ==========================================================================
@@ -61,12 +61,12 @@ def es_attention_scores(q: Tensor, k: Tensor) -> Tensor:
 
     One einsum line instead of transpose + matmul.
     """
-    return torch.einsum("b h t d, b h s d -> b h t s", q, k)
+    return einsum("b h t d, b h s d -> b h t s", q, k)
 
 
 def es_attention_output(weights: Tensor, v: Tensor) -> Tensor:
     """weights: (B, H, T, S), v: (B, H, S, Dh) -> (B, H, T, Dh)."""
-    return torch.einsum("b h t s, b h s d -> b h t d", weights, v)
+    return einsum("b h t s, b h s d -> b h t d", weights, v)
 
 
 def es_per_head_projection(x: Tensor, w: Tensor) -> Tensor:
@@ -74,7 +74,7 @@ def es_per_head_projection(x: Tensor, w: Tensor) -> Tensor:
 
     Every head has its own projection matrix - that is exactly the convenient way to think about MHA.
     """
-    return torch.einsum("b t d, h d r -> b h t r", x, w)
+    return einsum("b t d, h d D -> b h t D", x, w)
 
 
 def es_weight_grad(x: Tensor, grad_out: Tensor) -> Tensor:
@@ -82,7 +82,7 @@ def es_weight_grad(x: Tensor, grad_out: Tensor) -> Tensor:
 
     The batch axis is summed over, which is why it is not in the output.
     """
-    return torch.einsum("n i, n o -> o i", x, grad_out)
+    return einsum("n i, n o -> o i", x, grad_out)
 
 
 def es_batched_bilinear(x: Tensor, W: Tensor, y: Tensor) -> Tensor:
@@ -90,7 +90,7 @@ def es_batched_bilinear(x: Tensor, W: Tensor, y: Tensor) -> Tensor:
 
     Careful: the batch is NOT summed over, everything else is.
     """
-    return torch.einsum("bi,ij,bj -> b", x, W, y)
+    return einsum("B d, d k, B k -> B", x, W, y)
 
 
 # ==========================================================================
@@ -118,7 +118,7 @@ def eo_split_qkv(qkv: Tensor, num_heads: int) -> Tensor:
 
     The order inside the parentheses matters: first q/k/v, inside that the heads, inside that the channel.
     """
-    return rearrange(qkv, "b t (n h d) -> n b h t d", n=3, h=num_heads)
+    return rearrange(qkv, "b t (h H d) -> h b H t d", h=3, H=num_heads)
 
 
 def eo_group_tokens(x: Tensor, group: int) -> Tensor:
@@ -153,7 +153,7 @@ def eo_repeat_kv(kv: Tensor, num_groups: int) -> Tensor:
 
 def eo_broadcast_mask(mask: Tensor, num_heads: int) -> Tensor:
     """(B, T, S) -> (B, H, T, S) through repeat."""
-    return repeat(mask, "b t s -> b n t s", n=num_heads)
+    return repeat(mask, "b t s -> b h t s", h=num_heads)
 
 
 # ==========================================================================

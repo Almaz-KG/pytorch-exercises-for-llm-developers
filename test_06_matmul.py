@@ -20,7 +20,7 @@ from torch import Tensor
 
 def matvec(A: Tensor, x: Tensor) -> Tensor:
     """A: (M, K), x: (K,) -> (M,)."""
-    return torch.einsum("m k, k -> m", A, x)
+    return A @ x
 
 
 def matmul_shape(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
@@ -42,7 +42,7 @@ def matmul_shape(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
 
 def batched_matmul(a: Tensor, b: Tensor) -> Tensor:
     """a: (B, H, T, Dh), b: (B, H, Dh, S) -> (B, H, T, S). In one call, without loops over the heads."""
-    return torch.einsum("b h t d, b h d s -> b h t s", a, b)
+    return a @ b
 
 
 def gram_matrix(x: Tensor) -> Tensor:
@@ -60,9 +60,9 @@ def linear_forward(x: Tensor, weight: Tensor, bias: Tensor | None = None) -> Ten
 
     No reshaping of the batch is needed - matmul sorts the leading axes out by itself.
     """
-    if bias is None:
-        return x @ weight.T
-    return x @ weight.T + bias
+    if bias is not None:
+        return x @ weight.T + bias
+    return x @ weight.T
 
 
 def linear_backward(grad_out: Tensor, x: Tensor, weight: Tensor) -> tuple[Tensor, Tensor, Tensor]:
@@ -76,15 +76,19 @@ def linear_backward(grad_out: Tensor, x: Tensor, weight: Tensor) -> tuple[Tensor
       grad_W = grad_out^T @ x
       grad_b = the sum of grad_out over the batch
     """
-    gradX = grad_out @ weight
-    gradW = grad_out.T @ x
-    gradB = grad_out.sum(dim=0)
+    grad_x = grad_out @ weight
+    grad_w = grad_out.T @ x
+    grad_b = grad_out.sum(dim=0)
 
-    return gradX, gradW, gradB
+    return grad_x, grad_w, grad_b
 
 
 def lora_delta(x: Tensor, A: Tensor, B: Tensor, alpha: float, rank: int) -> Tensor:
-    """The LoRA correction: x: (N, in), A: (in, r), B: (r, out) -> (N, out), multiplied by alpha / rank.
+    """The LoRA correction:
+        x: (N, in),
+        A: (in, r),
+        B: (r, out)
+    -> (N, out), multiplied by alpha / rank.
 
     And a question of understanding along the way: why is it cheaper to compute (x @ A) @ B than x @ (A @ B).
     """
@@ -101,11 +105,14 @@ def attention_scores(q: Tensor, k: Tensor) -> Tensor:
 
     Only matmul and transpose - no einsum, this is an exercise in shapes.
     """
-    return q @ k.transpose(-2, -1) / (q.shape[-1] ** 0.5)
+    import math
+
+    return (q @ k.transpose(-2, -1)) / math.sqrt(q.shape[-1])
 
 
 def attention_output(weights: Tensor, v: Tensor) -> Tensor:
-    """weights: (B, H, T, S), v: (B, H, S, Dh) -> (B, H, T, Dh)."""
+    """weights: (B, H, T, S),
+    v: (B, H, S, Dh) -> (B, H, T, Dh)."""
     return weights @ v
 
 
@@ -127,14 +134,17 @@ def cheaper_order(m: int, k: int, n: int, p: int) -> str:
     and in which order to contract attention on a very long context.
     """
 
-    def flops(m: int, k: int, n: int) -> int:
-        return 2 * m * n * k
+    def get_flops(a: int, b: int, c: int) -> int:
+        return 2 * a * b * c
 
-    left = flops(m, k, n) + matmul_flops(m, n, p)
-    right = flops(k, n, p) + matmul_flops(m, k, p)
+    left = get_flops(m, k, n) + get_flops(m, n, p)
+    right = get_flops(k, n, p) + get_flops(m, k, p)
+    print(left)
+    print(right)
+
     if left < right:
         return "left"
-    if right < left:
+    if left > right:
         return "right"
     return "equal"
 

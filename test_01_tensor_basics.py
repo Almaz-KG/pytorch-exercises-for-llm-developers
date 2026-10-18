@@ -26,7 +26,7 @@ def make_arange_matrix(n: int, m: int) -> Tensor:
 
     Hint: torch.arange + .reshape / .view
     """
-    return torch.arange(n * m).view((n, m))
+    return torch.arange(n * m).reshape((n, m))
 
 
 def make_constant(shape: tuple[int, ...], value: float, dtype: torch.dtype) -> Tensor:
@@ -85,7 +85,7 @@ def linear_combination(a: Tensor, b: Tensor, alpha: float, beta: float) -> Tenso
 
 def to_float32(x: Tensor) -> Tensor:
     """Cast the tensor to float32. If it already is float32 - return it as is (the same object)."""
-    return x.to(torch.float32)
+    return x.float()
 
 
 def mean_of_ints(x: Tensor) -> Tensor:
@@ -93,7 +93,7 @@ def mean_of_ints(x: Tensor) -> Tensor:
 
     Result: a scalar float32 tensor.
     """
-    return x.mean(dtype=torch.float32)
+    return x.float().mean()
 
 
 # ==========================================================================
@@ -141,7 +141,7 @@ def count_greater(x: Tensor, threshold: float) -> int:
 
 def clamp_and_scale(x: Tensor, lo: float, hi: float) -> Tensor:
     """Clip the values into [lo, hi], then map [lo, hi] linearly onto [0, 1]."""
-    return (x.clamp(min=lo, max=hi) - lo) / (hi - lo)
+    return (x.clamp(lo, hi) - lo) / (hi - lo)
 
 
 def model_memory_bytes(num_params: int, dtype: torch.dtype) -> int:

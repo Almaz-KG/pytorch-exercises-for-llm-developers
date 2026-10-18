@@ -2,114 +2,433 @@
 
 > **Exercise** `test_05_indexing_and_gather.py`
 
-Indexing is the one part of tensor programming with no analogue in ordinary array code, because PyTorch has three separate systems for it that look alike and behave differently.
-Knowing which of the three you are in is most of the skill.
+## Why this topic
+
+Topics 01 to 04 treated a tensor as a whole: its shape, its axes, a sum along one of them.
+This topic is about reaching inside and picking out particular pieces of it.
+
+That sounds like `x[3]`, and sometimes it is.
+But a language model needs much more than "element number 3".
+It needs "for each of these 512 token ids, fetch the matching row of a table", "for every position in the batch, fetch the score of the token that actually came next", "throw away everything except the 50 best scores in each row".
+Each of those is one line of PyTorch, with no Python loop, as long as you know which indexing tool to reach for.
+
+PyTorch has several, and they look alike on the page while behaving quite differently.
+Square brackets alone mean three different things depending on what you put inside them.
+Then there is `gather`, which reads one value per row, and `scatter`, which writes one value per row.
+Knowing which one you are using, what shape it returns, and whether it shares memory with the original is most of the skill.
+
+Almost everything later in the repository leans on this file.
+The embedding layer in topic 13 is one line of indexing.
+The loss in topic 10 is a `gather`.
+Top-k sampling in topic 17 is a `topk` plus a `scatter`.
+Mixture-of-experts in topic 19 is an `index_add_`.
 
 ## The mental model
 
-### The three systems
+### A few words you will meet
 
-**Basic indexing** uses integers and slices, and always returns a **view**.
-`x[0]`, `x[1:3]`, `x[:, 2]`, `x[..., -1]`.
-Shares storage, costs nothing.
+The exercise is phrased in language-model terms, so here is the vocabulary, before any of it is explained properly in later topics.
 
-**Advanced (fancy) indexing** uses tensors or lists of integers, and always returns a **copy**.
-`x[torch.tensor([0, 2, 0])]`, `x[ids]`, `x[rows, cols]`.
-The result's shape is built from the shape of the index tensors, not from the shape of `x`.
+| Word | Meaning here |
+| --- | --- |
+| token id | an integer that stands for one piece of text; a sentence becomes a row of them |
+| vocabulary, `V` | how many different token ids exist, so every id is in `[0, V)` |
+| embedding table | a `(V, D)` tensor with one row of `D` numbers per token id |
+| hidden state | the `D` numbers the model holds for one position, so a batch of them is `(B, T, D)` |
+| logits | the model's output: one score per vocabulary entry, per position, `(B, T, V)` |
+| target | the id of the token that actually came next at a position |
+| padding | filler positions added at the end of short sequences so a batch is a rectangle |
+| EOS | a special "end of sequence" token id |
 
-**Boolean masking** uses a bool tensor and returns a copy whose size is not known until runtime.
-`x[mask]`.
+Shapes follow the alphabet from the theory index: `B` batch, `T` sequence length, `D` width, `V` vocabulary, `N` a count of selected items.
 
-Mixing basic and advanced in one subscript is legal, and is where the rules stop being intuitive.
+### A refresher: views and copies
+
+From topic 01: a **view** is a new tensor object that looks at the same memory as the original, and a **copy** has memory of its own.
+Writing into a view changes the original; writing into a copy does not.
+A view costs nothing to make, whatever its size; a copy costs memory and time proportional to its size.
+
+Every indexing tool below falls clearly on one side of that line, and it matters for both speed and correctness.
+
+### The three things square brackets can mean
+
+Here is one small tensor that the examples in this section use:
+
+```python
+>>> x = torch.arange(12).reshape(3, 4)
+>>> x
+tensor([[ 0,  1,  2,  3],
+        [ 4,  5,  6,  7],
+        [ 8,  9, 10, 11]])
+```
+
+**1. Basic indexing: integers and slices. Returns a view.**
+
+```python
+>>> x[1]          # row 1
+tensor([4, 5, 6, 7])
+>>> x[:, 2]       # column 2
+tensor([ 2,  6, 10])
+>>> x[0:2, 1:3]   # rows 0-1, columns 1-2
+tensor([[1, 2],
+        [5, 6]])
+>>> x[..., -1]    # last entry along the last axis, whatever comes before
+tensor([ 3,  7, 11])
+```
+
+Every one of these is a view.
+What you can select is always a regular grid: a fixed stride along each axis, which is exactly what a view can describe (topic 02).
+An integer removes its axis, and a slice keeps it.
+Negative numbers count from the end, so `-1` is the last element.
+
+**2. Advanced indexing: a tensor or list of integers. Returns a copy.**
+
+```python
+>>> x[torch.tensor([2, 0, 2])]     # rows 2, 0 and 2 again, in that order
+tensor([[ 8,  9, 10, 11],
+        [ 0,  1,  2,  3],
+        [ 8,  9, 10, 11]])
+```
+
+Now you can pick any rows, in any order, with repeats.
+That cannot be described as a regular grid over the original memory, so PyTorch has to copy the selected rows into a new tensor.
+A plain Python list of integers works the same as an integer tensor: `x[[2, 0, 2]]` gives the same result.
+
+**3. Boolean masking: a tensor of `True`/`False`. Returns a copy.**
+
+```python
+>>> x[x > 6]
+tensor([ 7,  8,  9, 10, 11])
+```
+
+It keeps the elements where the mask is `True` and lines them up in one flat row.
+How many that is depends on the data, so the size of the result is not known until the mask is looked at.
+Section 5.4 covers it.
+
+You can mix the kinds in one subscript, for example `x[ids, 1:3]`.
+That is legal, and it is also where the shape rules get hard to predict, so this exercise keeps them separate.
 
 ### 5.1 Indexing as an embedding lookup
 
-The single most important fact in this file: if `table` is `(V, D)` and `ids` is any integer tensor of shape `S`, then `table[ids]` has shape `S + (D,)`.
+**The one rule to remember.**
+When you index the first axis of a tensor with an integer tensor, the index's shape replaces that axis, and the remaining axes are kept at the end:
 
 ```
-table (V, D) indexed by ids (B, T)   ->   (B, T, D)
+table          (V, D)
+ids            any shape S, values in [0, V)
+table[ids]     S + (D,)
 ```
 
-The index tensor's shape replaces the axis being indexed, and the remaining axes of `table` are appended.
-That is literally all `nn.Embedding` does in its forward pass, and it works for `ids` of any rank.
+So with a table of shape `(V, D)` and ids of shape `(B, T)`, `table[ids]` is `(B, T, D)`: every id in the grid is replaced by its row of `D` numbers.
 
-**Multiple index tensors** index different axes *in parallel*, not as a cross product.
-Given `x` of `(B, T, D)` and two 1-D index tensors `bi` and `pi` of the same length `N`, `x[bi, pi]` has shape `(N, D)` and element `n` is `x[bi[n], pi[n]]`.
-The index tensors are broadcast against each other first, so `x[bi[:, None], pi[None, :]]` would instead give the full `(len(bi), len(pi), D)` cross product.
-Choosing between those two by shaping the indices is the technique worth internalizing.
+```python
+>>> table = torch.arange(12.0).reshape(4, 3)   # 4 ids, 3 numbers each
+>>> ids = torch.tensor([[0, 2], [3, 0]])       # a 2 x 2 grid of ids
+>>> table[ids].shape
+torch.Size([2, 2, 3])
+>>> table[ids][1, 0]                           # the id at [1, 0] is 3
+tensor([ 9., 10., 11.])
+```
 
-Negative indices work and wrap from the end, which is convenient and is also how an off-by-one turns into wrong data instead of an exception.
+That is the entire forward pass of an embedding layer: no arithmetic, just a lookup.
+It works for an index of any shape, `(N,)`, `(B, T)` or anything else.
+
+**Picking rows in a given order** is the same rule with a 1-D index.
+The order of the index is the order of the output, and an id that appears twice gives two copies of its row.
+`torch.index_select(x, 0, idx)` does the same thing as a function call, and insists that `idx` is 1-D.
+
+**Two index tensors at once: paired, not crossed.**
+You can pass one index tensor per axis.
+They are read **side by side**, like the columns of a table, not combined in every possible way:
+
+```python
+>>> rows = torch.tensor([0, 2, 1])
+>>> cols = torch.tensor([3, 0, 0])
+>>> x[rows, cols]          # x[0, 3], x[2, 0], x[1, 0]
+tensor([3, 8, 4])
+```
+
+Three pairs in, three values out.
+If the tensor has more axes than you index, the leftover axes come along whole: with `h` of shape `(B, T, D)` and two index tensors of length `N`, `h[b_idx, t_idx]` is `(N, D)`, one full `D`-vector per pair.
+
+Before pairing, the index tensors are broadcast against each other (topic 03).
+That is how you get the cross product when you do want it: shape one index as a column and the other as a row.
+
+```python
+>>> x[rows[:, None], cols[None, :]]    # (3, 1) and (1, 3) broadcast to (3, 3)
+tensor([[ 3,  0,  0],
+        [11,  8,  8],
+        [ 7,  4,  4]])
+```
+
+Choosing between "paired" and "crossed" just by shaping the indices is the technique to remember from this section.
+
+A very common pair is `torch.arange(B)` as the first index, meaning "every row, in order", with a second index holding one chosen position per row.
+`torch.arange(n)` is the tensor `[0, 1, ..., n - 1]`.
 
 ### 5.2 gather
 
-`torch.gather(input, dim, index)` answers a question that fancy indexing answers clumsily: pick one element along `dim` for every position of every other axis.
+**The problem it solves.**
+You have a score for every class in every row, and for each row you want the score of one particular class, a different one per row.
+With rows `[10, 11, 12]` and `[20, 21, 22]`, and wanted columns `2` and `0`, the answer is `[12, 20]`.
 
-The contract is strict:
+**The contract.**
+`torch.gather(input, dim, index)` walks over `index`, and for every entry reads `input` at the same position, except that along `dim` it uses the entry's value instead:
 
-- `index` must have the **same number of dimensions** as `input`.
-- `index` must have the same size as `input` on every axis **except** `dim`, where it may be anything.
-- The output has exactly the shape of `index`.
-- `out[i][j][k] = input[i][index[i][j][k]][k]` when `dim == 1`, and analogously for other `dim`.
+```
+dim == 1:   out[i][j] = input[i][ index[i][j] ]
+dim == 0:   out[i][j] = input[ index[i][j] ][j]
+```
 
-The idiom for cross-entropy: `logits` is `(B, T, V)`, `targets` is `(B, T)`, and you want `(B, T)` holding the logit of the correct token.
-`targets` is one axis short, so it becomes `(B, T, 1)`, `gather(-1, ...)` returns `(B, T, 1)`, and a final squeeze gives `(B, T)`.
-Unsqueeze, gather, squeeze: memorize that as one unit.
+The rules that follow from that, and that cause nearly every error with it:
 
-**Selecting the last real token** of each padded sequence is the same pattern with `lengths - 1` as the index, expanded to `(B, 1, D)` to gather along the time axis of `(B, T, D)`.
-The alternative spelling with advanced indexing is `h[torch.arange(B), lengths - 1]`, which is shorter and equally correct.
-Both are worth having.
+- `index` must have the **same number of axes** as `input`.
+- On every axis other than `dim`, `index` must not be larger than `input`.
+- The output has **exactly the shape of `index`**.
+- `index` must be an `int64` tensor, and every value must be a valid position along `dim`.
 
-**Reordering rows** by an index vector is plain advanced indexing: `x[idx]` where `idx` is `(B,)`.
-`torch.index_select(x, dim, idx)` is the explicit function form and requires `idx` to be 1-D.
+```python
+>>> s = torch.tensor([[10., 11., 12.],
+...                   [20., 21., 22.]])
+>>> torch.gather(s, 1, torch.tensor([[2], [0]]))       # one pick per row
+tensor([[12.],
+        [20.]])
+>>> torch.gather(s, 1, torch.tensor([[2, 2, 0], [1, 0, 0]]))   # three picks per row
+tensor([[12., 12., 10.],
+        [21., 20., 20.]])
+>>> torch.gather(s, 1, torch.tensor([2, 0]))           # one axis short
+RuntimeError: Index tensor must have the same number of dimensions as input tensor
+```
+
+The first call is the problem from above.
+Notice the index had to be `(2, 1)`, not `(2,)`, and the output came back as `(2, 1)`.
+That gives the standard three-step pattern for "one value per row along the last axis":
+
+1. `unsqueeze(-1)` the index, to add the missing axis of size 1;
+2. `gather` along `-1`;
+3. `squeeze(-1)` the result, to remove that axis again.
+
+The same three steps work with any number of leading axes: `(B, T, V)` scores with `(B, T)` chosen ids is exactly the same situation as `(2, 3)` with `(2,)`.
+Topic 10 uses this to read out the score of the correct token at every position, and it is the most common `gather` in all of language-model training.
+
+**gather along a different axis.**
+Nothing forces `dim` to be the last axis.
+To pick one **position** per sequence out of `h` of shape `(B, T, D)`, you gather along the time axis, `dim=1`.
+Then the index needs shape `(B, 1, D)`: one position per row, repeated across all `D` features so that every feature of that position is read.
+`idx.view(B, 1, 1).expand(B, 1, D)` builds that from a `(B,)` tensor without copying (topic 02), and a final `squeeze(1)` leaves `(B, D)`.
+
+For this particular job, paired advanced indexing from 5.1 is the shorter spelling: an `arange` for the rows and the chosen positions for the second axis.
+Both are worth knowing, because the `gather` form generalizes to cases advanced indexing does not handle neatly.
+
+**Lengths are counts, positions start at 0.**
+A sequence with 3 real tokens has them at positions 0, 1 and 2.
+Whenever a quantity is a length or a count, check whether you need it as is or as a position.
+An off-by-one here does not raise: it silently reads padding instead of the last real token, or, with a negative index, wraps around and reads the other end of the sequence.
+
+**Reordering rows.**
+"Put row `idx[0]` first, then row `idx[1]`, and so on" is just `x[idx]` from 5.1.
+Beam search, which keeps several candidate continuations per prompt and drops the bad ones after each step, reorders its stored state this way after every step (topic 19).
 
 ### 5.3 scatter
 
-`scatter_` is the inverse of `gather`: instead of reading at the indices, it writes at them.
+`gather` reads at the positions an index names.
+`scatter` is the mirror image: it **writes** at them.
 
-`dst.scatter_(dim, index, src)` sets `dst[i][index[i][j][k]][k] = src[i][j][k]` for `dim == 1`.
-`src` may be a tensor shaped like `index`, or a constant through the `value=` form.
-Like `gather`, `index` must have the same rank as `dst`.
+```
+dim == 1:   dst[i][ index[i][j] ] = src[i][j]
+```
 
-A one-hot encoding is a scatter of `1.0` into a zero tensor at the positions given by the ids: start from `zeros(B, T, V)`, index `ids.unsqueeze(-1)` of `(B, T, 1)`, scatter along `-1`.
+`dst.scatter_(dim, index, src)` writes the values of `src`, which has the shape of `index`.
+`dst.scatter_(dim, index, value=v)` writes the same number `v` everywhere instead.
+The same shape rules as `gather` apply: `index` has as many axes as `dst`.
 
-`scatter_add_` accumulates instead of overwriting, which is what you need when several indices collide.
-A bag-of-words count is `scatter_add_` of ones into a `(B, V)` zero tensor at the ids, and duplicates are exactly the point: a token appearing three times should add three, where a plain `scatter_` would leave 1.
+```python
+>>> torch.zeros(2, 5).scatter_(1, torch.tensor([[4], [1]]), value=7.0)
+tensor([[0., 0., 0., 0., 7.],
+        [0., 7., 0., 0., 0.]])
+```
 
-`index_add_(dim, index, source)` is the same accumulation with a 1-D index, and is the call that shows up in Mixture-of-Experts when each expert's outputs are added back into a shared buffer.
+The trailing underscore means it changes `dst` in place, and it also returns `dst`, so you can write it straight after the tensor you create: `torch.zeros(...).scatter_(...)`.
+The result's dtype is the dtype of `dst`, so if you want floats, start from a float tensor; `torch.zeros` gives `float32` by default.
 
-**Top-k filtering** combines the two directions.
-Take `topk` to get values and indices, create a tensor filled with `-inf`, and scatter the kept values back into it at their indices.
-Building a boolean keep-mask and `masked_fill`ing its complement gives the same answer and is often clearer.
+**One-hot vectors.**
+A one-hot vector of length `V` is all zeros except a single 1 at a chosen position.
+It is how "the correct answer is class 3" is written as a tensor, and topic 10 needs it.
+`F.one_hot` exists, but it is nothing more than a scatter of 1s into zeros, which is what the exercise asks you to write.
+The output should be the shape of the ids plus one new last axis of size `V`.
 
-All of `scatter_`, `scatter_add_`, `index_add_` are in-place and return the modified tensor, so they chain as `torch.zeros(...).scatter_(...)`.
+**Collisions: `scatter_` versus `scatter_add_`.**
+If two entries of `index` point at the same place, `scatter_` writes twice, and only one write survives.
+Which one is not specified, and can differ between CPU and GPU.
+
+`scatter_add_` adds instead of overwriting, so collisions accumulate:
+
+```python
+>>> torch.zeros(6).scatter_add_(0, torch.tensor([1, 4, 1, 1]), torch.ones(4))
+tensor([0., 3., 0., 0., 1., 0.])
+```
+
+Position 1 was named three times and received three 1s.
+That is a histogram: counting how often each value appears, in one call.
+For `scatter_add_`, `src` must be a tensor (there is no `value=` form) with the same shape as `index`, and the same dtype as `dst`.
+
+`dst.index_add_(dim, index, source)` does the same accumulation with a 1-D index that selects whole slices.
+The example above gives exactly the same result with `index_add_`, and it is the call mixture-of-experts uses to add each expert's outputs back into a shared buffer (topic 19).
+
+**Keeping only the k largest.**
+Top-k sampling (topic 17) keeps the `k` best scores in each row and makes every other one impossible.
+"Impossible" means `-inf`: topic 10's softmax turns `-inf` into a probability of exactly 0.
+
+`torch.topk(x, k, dim=-1)` returns two tensors, the `k` largest values per row and their positions, both of shape `(..., k)`:
+
+```python
+>>> torch.topk(torch.tensor([[0.3, 2.0, -1.0, 0.7, 1.5]]), 2, dim=-1)
+torch.return_types.topk(
+values=tensor([[2.0000, 1.5000]]),
+indices=tensor([[1, 4]]))
+```
+
+Those positions are exactly the shape of index that `scatter_` wants.
+`torch.full(shape, value)` and `torch.full_like(x, value)` make a tensor filled with one number, `float("-inf")` included.
+
+A tempting alternative is to find the `k`-th largest value and keep everything at least that large.
+That keeps more than `k` entries whenever there is a tie at the boundary.
+Writing back exactly the positions `topk` returned keeps exactly `k`.
 
 ### 5.4 Boolean masks
 
-`x[mask]` where `mask` is bool selects the positions where `mask` is True and flattens them.
-When `mask` has fewer axes than `x`, it applies to the leading axes: for `x` of `(B, T, D)` and `mask` of `(B, T)`, `x[mask]` is `(N, D)` where `N == mask.sum()`.
-That is packing, which is how you drop padding before a loss so that no compute or gradient is wasted on it.
+**Selecting with a mask.**
+A boolean mask with the same shape as `x` picks individual elements, and the result is always flat:
 
-`torch.nonzero(cond, as_tuple=True)` gives the *coordinates* where a condition holds rather than the values.
-For a 1-D tensor, `cond.nonzero(as_tuple=True)[0]` is the list of positions.
+```python
+>>> m = torch.tensor([[1., 2., 3.], [4., 5., 6.]])
+>>> m[m > 2.5]
+tensor([3., 4., 5., 6.])
+```
 
-`torch.where(cond, a, b)` is the non-destructive elementwise select, as opposed to `masked_fill_` which writes in place.
+A mask with **fewer** axes than `x` applies to the leading axes, and keeps the rest whole.
+For `x` of shape `(B, T, D)` and a mask of shape `(B, T)`, each `True` selects one entire `D`-vector:
 
-**Masking everything after the first EOS** is the cumsum trick, and it generalizes widely.
-`is_eos` is a bool tensor, and `is_eos.cumsum(dim)` counts how many EOS tokens have been seen up to and including each position.
-That count is 0 before the first EOS, 1 at the EOS itself, and grows after.
-Keeping positions where the count is `< 1` excludes the EOS.
-An exclusive cumsum is the inclusive one minus the current element, so `cumsum - is_eos` is "how many EOS strictly before here", and comparing that to zero keeps the EOS and drops everything after.
-Working this out on a length-5 toy row on paper is faster than guessing.
+```python
+>>> x3 = torch.arange(12).reshape(2, 3, 2)
+>>> keep = torch.tensor([[True, False, True], [False, False, True]])
+>>> x3[keep]               # (N, 2) with N = keep.sum() = 3
+tensor([[ 0,  1],
+        [ 4,  5],
+        [10, 11]])
+```
+
+The selected vectors come out in reading order, row by row.
+This is called **packing**: the padding is dropped, the real tokens from the whole batch end up in one list, and nothing is computed on filler afterwards.
+
+**Packing or keeping the padding.**
+The size of a packed tensor depends on the data.
+On a GPU that is expensive: the CPU has to wait for the GPU to finish counting the `True` values before it knows how much memory to allocate.
+It also rules the operation out of compiled code that expects fixed shapes.
+So production code often does the opposite: it keeps the padded shape and multiplies the loss at padded positions by zero, paying for wasted computation in exchange for shapes that never change.
+For training, the modern answer is a third option: fill every sequence to full length with several documents back to back, so there is no padding at all.
+Topic 20 builds that.
+
+**Replacing values without selecting them.**
+Sometimes you want to keep the shape and only change some entries.
+Two tools do that:
+
+```python
+>>> torch.where(m > 2.5, m, 0.0)          # where true take m, else 0.0
+tensor([[0., 0., 3.],
+        [4., 5., 6.]])
+>>> m.masked_fill(m > 2.5, -1.0)          # where true put -1.0, else keep m
+tensor([[ 1.,  2., -1.],
+        [-1., -1., -1.]])
+```
+
+Both return a new tensor and leave `m` alone.
+`masked_fill_`, with the underscore, writes into `m` itself, and so changes the caller's tensor too.
+When a function is handed a tensor and asked for a modified copy, the in-place form is a bug, even though it returns the right values.
+
+**Where is it true?**
+`torch.nonzero(cond)` returns the **positions** where a condition holds, rather than the values:
+
+```python
+>>> w = torch.tensor([3, 7, 3, 3, 1])
+>>> torch.nonzero(w == 3)
+tensor([[0],
+        [2],
+        [3]])
+>>> torch.nonzero(w == 3, as_tuple=True)
+(tensor([0, 2, 3]),)
+```
+
+The default form returns one row per hit and one column per axis, so even for a 1-D input it is `(N, 1)`.
+`as_tuple=True` returns one 1-D tensor per axis instead, which for a 1-D input is a tuple with a single tensor in it.
+`torch.where(cond)` with only one argument is the same as `nonzero(cond, as_tuple=True)`.
+Positions always come back as `int64`.
+
+**Counting as you go: `cumsum` on booleans.**
+Some masks depend on what came **earlier** in the row, like "everything after the first EOS".
+A loop would check token by token; the vectorized way is a running count.
+
+`cumsum` on a boolean tensor treats `True` as 1 and `False` as 0, and at each position gives the number of `True` values seen so far, **including** the current one:
+
+```python
+>>> b = torch.tensor([False, True, False, True, False])
+>>> b.cumsum(0)
+tensor([0, 1, 1, 2, 2])
+```
+
+Read the result as a question you can ask at every position at once.
+"Has a `True` appeared at or before here?" is `count > 0`.
+"Has exactly one appeared so far?" is `count == 1`.
+Sometimes you want the count **before** the current position, not including it.
+That is the inclusive count minus the current element itself:
+
+```python
+>>> b.cumsum(0) - b.long()
+tensor([0, 0, 1, 1, 2])
+```
+
+The difference between those two counts is exactly the difference between "is this position strictly after a marker" and "is this position at or after one".
+For a mask that must keep the marker itself but drop what follows, write out both counts for a short toy row on paper, and pick the comparison that gives the row you want.
+Rows with no marker at all should come out right without any special case; check that on paper too.
 
 ### 5.5 Training pairs
 
-Next-token prediction turns a sequence of `T + 1` ids into inputs `[0 : T]` and targets `[1 : T+1]`.
-Two slices of the same tensor, offset by one, and both are views so it costs nothing.
-Position `i` of the input predicts position `i` of the target, which is the original token `i + 1`.
+**Next-token prediction.**
+A language model learns by guessing each next token from the ones before it.
+Take a row of `T + 1` token ids.
+The model reads the first `T` of them as input, and at every input position `i` its target is the token at position `i + 1`:
 
-**Expanding for beams** widens `(B, T)` to `(B * num_beams, T)` with each example's beams *adjacent*.
-`repeat_interleave(num_beams, dim=0)` gives `[a, a, b, b]`; `repeat(num_beams, 1)` gives `[a, b, a, b]`.
-This is the same ordering trap as GQA head expansion in topic 02, and it is worth noticing that it is the same trap.
+| position `i` | 0 | 1 | 2 |
+| --- | --- | --- | --- |
+| input | `a` | `b` | `c` |
+| target | `b` | `c` | `d` |
+
+for the original row `a b c d`.
+So the inputs are the row without its last token, and the targets are the row without its first token.
+Both are basic slices along the time axis, which means both are views: preparing training pairs copies nothing.
+
+**Expanding for beams.**
+Beam search keeps several candidate continuations, the beams, for each prompt, so before it starts, every prompt has to be copied once per beam.
+There are two ways to order the copies:
+
+```python
+>>> a = torch.tensor([[1, 2], [3, 4]])
+>>> a.repeat_interleave(2, dim=0)      # each row twice in a row: a a b b
+tensor([[1, 2],
+        [1, 2],
+        [3, 4],
+        [3, 4]])
+>>> a.repeat(2, 1)                     # the whole block twice: a b a b
+tensor([[1, 2],
+        [3, 4],
+        [1, 2],
+        [3, 4]])
+```
+
+Beam search wants the copies of one prompt **next to each other**, the first form.
+Then the beams of prompt `p` are rows `p * num_beams` up to `p * num_beams + num_beams - 1`, and a flat row number splits back into "which prompt, which beam" with a single `divmod(row, num_beams)`.
+With the other ordering every step needs an extra index remapping, and getting it wrong produces fluent text for the wrong prompt, with no error.
+It is the same ordering trap as expanding key/value heads in grouped-query attention (topic 02 and topic 14).
 
 ## API you need
 
@@ -117,103 +436,118 @@ This is the same ordering trap as GQA head expansion in topic 02, and it is wort
 
 | Call | Result |
 | --- | --- |
-| `x[i]`, `x[a:b]`, `x[..., -1]` | basic, a view |
-| `table[ids]` | advanced, a copy, shape `ids.shape + table.shape[1:]` |
-| `x[idx_a, idx_b]` | parallel advanced indexing, indices broadcast together |
-| `x[mask]` | boolean selection, flattens to `(N, ...)` |
-| `torch.index_select(x, dim, idx)` | explicit form, `idx` must be 1-D |
-| `torch.take_along_dim(x, idx, dim)` | like `gather` but broadcasts the index |
+| `x[i]`, `x[a:b]`, `x[:, j]`, `x[..., -1]` | basic indexing, a view |
+| `table[ids]` | advanced indexing, a copy of shape `ids.shape + table.shape[1:]` |
+| `x[[2, 0, 2]]` | a Python list of ints works like an int tensor |
+| `x[idx_a, idx_b]` | paired advanced indexing; the indices broadcast against each other |
+| `x[mask]` | boolean selection, a flat copy of shape `(N, ...)` |
+| `torch.index_select(x, dim, idx)` | rows by index as a function, `idx` must be 1-D |
+| `torch.arange(n)` | `[0, 1, ..., n - 1]`, int64 |
+| `torch.tensor(list_of_ints)` | int64 tensor from a Python list |
 
 ### gather and scatter
 
 | Call | Result |
 | --- | --- |
-| `torch.gather(x, dim, index)` | read along `dim`, output shaped like `index` |
-| `dst.scatter_(dim, index, src)` | write along `dim` |
-| `dst.scatter_(dim, index, value=v)` | write a constant |
-| `dst.scatter_add_(dim, index, src)` | accumulate along `dim` |
-| `dst.index_add_(dim, index, source)` | accumulate with a 1-D index |
-| `dst.index_copy_(dim, index, source)` | overwrite with a 1-D index |
-| `dst.index_fill_(dim, index, value)` | fill with a 1-D index |
+| `torch.gather(x, dim, index)` / `x.gather(dim, index)` | read along `dim`; output shaped like `index` |
+| `torch.take_along_dim(x, idx, dim)` | like `gather`, but broadcasts the index |
+| `dst.scatter_(dim, index, src)` | write `src` along `dim`, in place |
+| `dst.scatter_(dim, index, value=v)` | write the constant `v` |
+| `dst.scatter_add_(dim, index, src)` | accumulate `src` along `dim`, collisions add up |
+| `dst.index_add_(dim, index, source)` | accumulate whole slices with a 1-D index |
+| `dst.index_copy_(dim, index, source)` / `dst.index_fill_(dim, index, value)` | overwrite or fill whole slices with a 1-D index |
+| `torch.topk(x, k, dim=-1)` | `(values, indices)` of the `k` largest, both `(..., k)` |
+| `torch.zeros(shape)`, `torch.ones(shape)` | float32 by default; pass `dtype=` otherwise |
+| `torch.full(shape, v)` / `torch.full_like(x, v)` | a tensor of one value, `float("-inf")` included |
+| `torch.zeros_like(x)` / `torch.ones_like(x)` | same shape, dtype and device as `x` |
+| `t.unsqueeze(d)` / `t.squeeze(d)` | add or remove an axis of size 1 |
+| `t.expand(*sizes)` | broadcast a size-1 axis without copying |
 
 `gather` and `scatter_` both require `index.ndim == input.ndim`.
-That single requirement is behind most of the errors this file produces.
+That one rule is behind most of the errors this file produces.
 
 ### Conditions
 
 | Call | Result |
 | --- | --- |
-| `torch.where(cond, a, b)` | elementwise select, returns a copy |
-| `x.masked_fill(mask, value)` | copy with fills |
-| `x.masked_fill_(mask, value)` | in-place |
-| `torch.nonzero(cond, as_tuple=True)` | tuple of coordinate tensors |
-| `cond.cumsum(dim)` | running count of True values |
-| `F.one_hot(ids, num_classes)` | the library one-hot, int64; the exercise wants it by hand |
-| `torch.repeat_interleave(x, n, dim)` | each slice repeated `n` times consecutively |
+| `torch.where(cond, a, b)` | elementwise select, a new tensor; `a` or `b` may be a plain number |
+| `torch.where(cond)` | same as `nonzero(cond, as_tuple=True)` |
+| `x.masked_fill(mask, value)` | a copy with fills |
+| `x.masked_fill_(mask, value)` | the same, written into `x` |
+| `torch.nonzero(cond)` | `(N, ndim)` positions; `as_tuple=True` gives one 1-D tensor per axis |
+| `cond.cumsum(dim)` | running count of `True` values, inclusive, int64 |
+| `b.long()` / `b.int()` | booleans as 1s and 0s |
+| `torch.equal(a, b)` | `True` if same shape and same values |
 
-### A worked example
+### Repeating
+
+| Call | Result |
+| --- | --- |
+| `x.repeat_interleave(n, dim)` | each slice `n` times in a row: `a a b b` |
+| `x.repeat(*times)` | the whole tensor tiled: `a b a b` |
+
+### A worked example on neutral data
 
 ```python
->>> table = torch.arange(12.0).reshape(4, 3)     # (V=4, D=3)
->>> ids = torch.tensor([[0, 2], [3, 0]])         # (B=2, T=2)
->>> table[ids].shape
-torch.Size([2, 2, 3])
-
->>> x = torch.tensor([[10., 11., 12.], [20., 21., 22.]])
->>> idx = torch.tensor([[2], [0]])
->>> torch.gather(x, 1, idx)                      # output shaped like idx
-tensor([[12.],
-        [20.]])
-
+>>> grid = torch.tensor([[5., 1., 9.], [7., 3., 2.]])
+>>> grid[torch.tensor([1, 1, 0])]                 # rows in a chosen order, with a repeat
+tensor([[7., 3., 2.],
+        [7., 3., 2.],
+        [5., 1., 9.]])
+>>> grid[torch.tensor([0, 1]), torch.tensor([2, 0])]   # paired: grid[0, 2], grid[1, 0]
+tensor([9., 7.])
+>>> grid.gather(1, torch.tensor([[1, 1], [2, 0]]))     # two picks per row
+tensor([[1., 1.],
+        [2., 7.]])
 >>> torch.zeros(2, 4).scatter_add_(1, torch.tensor([[0, 0, 1], [3, 3, 3]]), torch.ones(2, 3))
 tensor([[2., 1., 0., 0.],
         [0., 0., 0., 3.]])
+>>> torch.where(grid > 4, grid, -1.0)
+tensor([[ 5., -1.,  9.],
+        [ 7., -1., -1.]])
 ```
 
 ## Traps
 
-- `gather` and `scatter_` raise unless `index` has the same rank as the input.
-  `unsqueeze(-1)` before, `squeeze(-1)` after.
-- `scatter_` overwrites on duplicate indices and the winner is unspecified; use `scatter_add_` when duplicates carry meaning.
-- Fancy indexing returns a copy, so `x[idx] += 1` updates a temporary and does nothing to `x`.
-  Use `index_add_` for that.
+- `gather` and `scatter_` raise unless `index` has the same number of axes as the input.
+  Add the missing axis with `unsqueeze`, remove it after with `squeeze`.
+- A `gather` index must be `int64` and in range; a negative or too-large index raises.
+- `scatter_` with repeated indices keeps one write, and which one is unspecified; use `scatter_add_` when repeats should add up.
+- `scatter_add_` takes a `src` tensor of the same shape as `index` and the same dtype as the destination, not a plain number.
+- `x[idx] += 1` with repeated indices adds 1 only **once** per distinct position, not once per occurrence.
+  Use `index_add_` when every occurrence should count.
 - `x[a, b]` with two index tensors pairs them elementwise.
-  If you wanted a cross product, shape them as `(N, 1)` and `(1, M)`.
-- `x[mask]` flattens, so all shape information beyond the masked axes is gone.
-- `x[mask]` has a data-dependent size and forces a synchronization.
-- `repeat` and `repeat_interleave` differ in ordering, and beam search only works with the latter.
-- Negative indices silently wrap, so an off-by-one reads the wrong end of the sequence rather than raising.
-- `index_select` refuses a multi-dimensional index; `gather` refuses a 1-D one.
+  For the cross product, shape them as `(N, 1)` and `(1, M)`.
+- `x[mask]` flattens: the axes covered by the mask are gone, and their information with them.
+- `x[mask]` has a size that depends on the data, which on a GPU forces a wait.
+- `masked_fill_` and `scatter_` change their tensor in place; on an argument that was handed to you, that changes the caller's data.
+- `torch.nonzero` without `as_tuple=True` returns `(N, 1)` for a 1-D input, not `(N,)`.
+- A length is a count; the last real position is one less.
+  An off-by-one reads padding, and a negative index wraps around to the other end without an error.
+- Keeping "everything at least as large as the k-th value" keeps more than `k` on ties.
+- `repeat` and `repeat_interleave` order the copies differently, and beam search needs the copies of one row next to each other.
+- `index_select` refuses a multi-dimensional index and `gather` refuses one with the wrong number of axes.
   They are not interchangeable.
 
 ## Ready when
 
 Without looking anything up you can:
 
+- [ ] say which of `x[1:3]`, `x[[1, 2]]` and `x[x > 0]` returns a view, and why the others cannot
 - [ ] give the output shape of `table[ids]` for any `table` and `ids`
-- [ ] write the unsqueeze/gather/squeeze idiom that pulls target logits out of `(B, T, V)`
-- [ ] say what `scatter_add_` does that `scatter_` does not, and when the difference matters
-- [ ] explain what `x[mask]` returns for `x` of `(B, T, D)` and `mask` of `(B, T)`
-- [ ] use a cumsum to mask everything after the first occurrence of a token
-- [ ] say why beam expansion uses `repeat_interleave`
-
-## Context
-
-
-
-**Packing versus keeping the padding.**
-`select_valid` produces a tensor whose length depends on the data, which forces a device synchronization and rules the operation out of any graph compiled with static shapes.
-Production code therefore often keeps the padded shape and zeroes the loss at padded positions instead, paying for compute it throws away in exchange for shapes that never change.
-Which one wins depends on how much padding there is, and the modern answer for training is a third option: pack multiple documents into one full-length sequence so there is no padding to skip.
-Topic 20 builds that.
-
-**Why the beam ordering is not a matter of taste.**
-Beam search keeps `B * num_beams` rows and, after scoring, needs to know which example and which beam a flat index belongs to.
-With beams adjacent, that decoding is `divmod(flat_index, num_beams)` and the cache reorder is a single `gather`.
-With the other ordering every step needs an index remap, and the bug it produces is a model that generates fluent text for the wrong prompt.
-Topic 19 builds the search itself.
+- [ ] predict the result of `x[rows, cols]`, and change the shapes of the indices to get the cross product instead
+- [ ] state the four rules of `gather`, and use unsqueeze, gather, squeeze to take one value per row out of `(B, T, V)`
+- [ ] gather one position per sequence out of `(B, T, D)` both with `gather` and with paired indexing
+- [ ] build a one-hot tensor and a count per id with `scatter_` and `scatter_add_`, and say when the difference matters
+- [ ] replace everything but the top `k` scores per row with `-inf` and explain why ties do not matter
+- [ ] say what `x[mask]` returns for `x` of `(B, T, D)` and `mask` of `(B, T)`, and why production code often avoids it
+- [ ] return a modified copy without touching the input
+- [ ] use an inclusive and an exclusive running count to build a mask that depends on the first marker in a row
+- [ ] split a row of `T + 1` ids into inputs and targets without copying
+- [ ] say why beam expansion uses `repeat_interleave` and not `repeat`
 
 ## Going deeper
 
-- [Tensor indexing API](https://pytorch.org/docs/stable/generated/torch.Tensor.index_select.html) and the NumPy [advanced indexing](https://numpy.org/doc/stable/user/basics.indexing.html) documentation, which PyTorch follows closely.
-- [`torch.gather`](https://pytorch.org/docs/stable/generated/torch.gather.html), whose doc page states the index equation explicitly and is worth rereading whenever the axes stop making sense.
+- [Tensor indexing in PyTorch](https://pytorch.org/docs/stable/tensor_view.html) for which operations return views, and the NumPy [indexing guide](https://numpy.org/doc/stable/user/basics.indexing.html), which PyTorch follows closely and which explains advanced indexing in full.
+- [`torch.gather`](https://pytorch.org/docs/stable/generated/torch.gather.html) and [`Tensor.scatter_`](https://pytorch.org/docs/stable/generated/torch.Tensor.scatter_.html), whose doc pages state the index equations for every `dim`; reread them whenever the axes stop making sense.
+- [`torch.topk`](https://pytorch.org/docs/stable/generated/torch.topk.html), including the `sorted` and `largest` arguments.

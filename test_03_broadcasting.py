@@ -23,16 +23,16 @@ def broadcast_shape(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
 
     Implement the rule manually (without torch.broadcast_shapes) - this is an exercise in understanding.
     """
+    mx: int = max(len(a), len(b))
     result: list[int] = []
 
-    n = max(len(a), len(b))
-
-    for i in range(1, n + 1):
+    for i in range(1, mx + 1):
         ai = a[-i] if i <= len(a) else 1
         bi = b[-i] if i <= len(b) else 1
 
         if ai != bi and ai != 1 and bi != 1:
-            raise ValueError("Ooops")
+            raise ValueError("Oooops")
+
         result.append(max(ai, bi))
 
     return tuple(reversed(result))
@@ -52,7 +52,7 @@ def explain_trap() -> tuple[int, ...]:
 
 def add_bias(x: Tensor, bias: Tensor) -> Tensor:
     """x: (B, T, D), bias: (D,) -> (B, T, D)."""
-    return x + bias[None, None, :]
+    return x + bias
 
 
 def scale_per_head(x: Tensor, scales: Tensor) -> Tensor:
@@ -94,7 +94,7 @@ def pairwise_sq_dist(a: Tensor, b: Tensor) -> Tensor:
 
     Through broadcasting: (N, 1, D) - (1, M, D) -> (N, M, D), then a sum over D.
     """
-    return (a[:, None, :] - b[None, :, :]).pow(2).sum(dim=-1)
+    return (a.unsqueeze(dim=1) - b.unsqueeze(dim=0)).pow(2).sum(dim=-1)
 
 
 def one_hot_by_comparison(ids: Tensor, vocab_size: int) -> Tensor:
@@ -102,7 +102,7 @@ def one_hot_by_comparison(ids: Tensor, vocab_size: int) -> Tensor:
 
     Through a comparison against arange by broadcasting, without F.one_hot.
     """
-    return (ids[..., None] == torch.arange(vocab_size, device=ids.device)).float()
+    return (ids.unsqueeze(dim=-1) == torch.arange(vocab_size)).float()
 
 
 # ==========================================================================
@@ -115,15 +115,18 @@ def causal_mask(seq_len: int) -> Tensor:
 
     Build it by comparing two arange tensors of different shape, without torch.tril.
     """
-    return torch.arange(seq_len)[None, :] <= torch.arange(seq_len)[:, None]
+    i = torch.arange(seq_len)[:, None]
+    j = torch.arange(seq_len)[None, :]
+
+    return i >= j
 
 
 def relative_positions(q_len: int, k_len: int) -> Tensor:
     """(q_len, k_len) int64, out[i, j] = i - j. The basis of relative position bias and ALiBi."""
-    q = torch.arange(q_len)[:, None]
-    k = torch.arange(k_len)[None, :]
+    i = torch.arange(q_len)[:, None]
+    j = torch.arange(k_len)[None, :]
 
-    return q - k
+    return i - j
 
 
 def alibi_bias(slopes: Tensor, seq_len: int) -> Tensor:
@@ -134,7 +137,8 @@ def alibi_bias(slopes: Tensor, seq_len: int) -> Tensor:
     """
     i = torch.arange(seq_len)[:, None]
     j = torch.arange(seq_len)[None, :]
-    return -slopes[:, None, None] * (i - j).float()
+
+    return -slopes[:, None, None] * (i - j)
 
 
 def apply_additive_mask(scores: Tensor, mask: Tensor) -> Tensor:
