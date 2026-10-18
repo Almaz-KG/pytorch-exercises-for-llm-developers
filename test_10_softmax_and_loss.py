@@ -23,23 +23,17 @@ from torch import Tensor
 
 def softmax_manual(x: Tensor, dim: int) -> Tensor:
     """A numerically stable softmax along the axis dim, without torch.softmax."""
-    e = (x - x.max(dim=dim, keepdim=True).values).exp()
-    return e / e.sum(dim=dim, keepdim=True)
+    raise NotImplementedError
 
 
 def log_softmax_manual(x: Tensor, dim: int) -> Tensor:
     """A numerically stable log_softmax: x - logsumexp(x, dim, keepdim=True). Without torch.log_softmax."""
-    lse = x.exp().sum(dim=dim, keepdim=True).log()
-    return x - lse
+    raise NotImplementedError
 
 
 def temperature_softmax(logits: Tensor, temperature: float) -> Tensor:
     """softmax(logits / T). As T -> 0 the distribution tends to the argmax, at large T to the uniform one."""
-    assert temperature != 0.0, "Temperature cannot be equal to 0"
-
-    x = logits / temperature
-    e = (x - x.max(dim=-1, keepdim=True).values).exp()
-    return e / e.sum(dim=-1, keepdim=True)
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -53,9 +47,7 @@ def cross_entropy_from_logits(logits: Tensor, targets: Tensor) -> Tensor:
     Without F.cross_entropy and without F.log_softmax: only logsumexp and gather.
     The formula: loss_i = logsumexp(logits_i) - logits_i[target_i].
     """
-
-    tl = logits.gather(-1, targets[:, None]).squeeze(-1)
-    return (torch.logsumexp(logits, dim=-1) - tl).mean()
+    raise NotImplementedError
 
 
 def sequence_cross_entropy(logits: Tensor, targets: Tensor, ignore_index: int = -100) -> Tensor:
@@ -64,12 +56,7 @@ def sequence_cross_entropy(logits: Tensor, targets: Tensor, ignore_index: int = 
     The positions where targets == ignore_index enter neither the sum nor the denominator.
     This is the real loss of a language model with padding.
     """
-    flat_logits = logits.reshape(-1, logits.shape[-1])
-    flat_targets = targets.reshape(-1)
-    valid = flat_targets != ignore_index
-    safe_targets = flat_targets.clamp(min=0)
-    per_token = torch.logsumexp(flat_logits, dim=-1) - flat_logits.gather(-1, safe_targets.unsqueeze(-1)).squeeze(-1)
-    return (per_token * valid).sum() / valid.sum()
+    raise NotImplementedError
 
 
 def label_smoothing_loss(logits: Tensor, targets: Tensor, smoothing: float) -> Tensor:
@@ -78,18 +65,12 @@ def label_smoothing_loss(logits: Tensor, targets: Tensor, smoothing: float) -> T
 
     Return the batch-averaged loss.
     """
-    logp = log_softmax_manual(logits, dim=-1)
-    nll = -logp.gather(
-        -1,
-        targets[:, None],
-    ).squeeze(-1)
-    smooth = -logp.mean(dim=-1)
-    return ((1 - smoothing) * nll + smoothing * smooth).mean()
+    raise NotImplementedError
 
 
 def perplexity(loss: Tensor) -> Tensor:
     """The perplexity from the mean loss in nats. An understanding check: it is simply exp(loss)."""
-    return loss.exp()
+    raise NotImplementedError
 
 
 def kl_divergence(student_logits: Tensor, teacher_logits: Tensor) -> Tensor:
@@ -98,9 +79,7 @@ def kl_divergence(student_logits: Tensor, teacher_logits: Tensor) -> Tensor:
     This is the distillation loss. It has to be computed through the log_softmax of both,
     without dividing probabilities explicitly.
     """
-    tl = log_softmax_manual(teacher_logits, dim=-1)
-    sl = log_softmax_manual(student_logits, dim=-1)
-    return (tl.exp() * (tl - sl)).sum(dim=-1).mean()
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -113,8 +92,7 @@ def cross_entropy_grad(logits: Tensor, targets: Tensor) -> Tensor:
 
     The answer: (softmax(logits) - onehot(targets)) / N.
     """
-    one_hot = torch.zeros_like(logits, device=logits.device).scatter_(-1, targets[:, None], 1.0)
-    return (softmax_manual(logits, dim=-1) - one_hot) / logits.shape[0]
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -127,9 +105,7 @@ def shift_invariance_gap(x: Tensor, shift: float) -> Tensor:
 
     ~0 is expected: that is the shift invariance.
     """
-    sx = softmax_manual(x + shift, dim=-1)
-    x = softmax_manual(x, dim=-1)
-    return torch.abs(x - sx).max()
+    raise NotImplementedError
 
 
 def uniform_loss(vocab_size: int) -> float:
@@ -138,7 +114,7 @@ def uniform_loss(vocab_size: int) -> float:
     The answer has to be known by heart: it is log(V). For V=50257 that is ~10.8 -
     the first thing checked on the first step of training.
     """
-    return math.log(vocab_size)
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -225,7 +201,7 @@ def test_kl_divergence():
 def test_cross_entropy_grad():
     logits = torch.randn(5, 9, requires_grad=True)
     targets = torch.randint(0, 9, (5,))
-    F.cross_entropy(logits, targets).backward() # type: ignore
+    F.cross_entropy(logits, targets).backward()  # type: ignore
     torch.testing.assert_close(cross_entropy_grad(logits.detach(), targets), logits.grad, atol=1e-6, rtol=1e-5)
 
 

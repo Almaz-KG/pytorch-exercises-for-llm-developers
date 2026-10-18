@@ -32,15 +32,10 @@ class MyLinear(nn.Module):
 
     def __init__(self, in_features: int, out_features: int, bias: bool = True):
         super().__init__()
-        self.weight = nn.Parameter(torch.empty(out_features, in_features))
-        nn.init.normal_(self.weight, std=in_features**-0.5)
-        if bias:
-            self.bias = nn.Parameter(torch.zeros(out_features))
-        else:
-            self.register_parameter("bias", None)
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        return F.linear(x, self.weight, bias=self.bias)
+        raise NotImplementedError
 
 
 class MyEmbedding(nn.Module):
@@ -48,10 +43,10 @@ class MyEmbedding(nn.Module):
 
     def __init__(self, num_embeddings: int, embedding_dim: int):
         super().__init__()
-        self.weight = nn.Parameter(torch.zeros(num_embeddings, embedding_dim))
+        raise NotImplementedError
 
     def forward(self, ids: Tensor) -> Tensor:
-        return self.weight[ids]
+        raise NotImplementedError
 
 
 class CausalSelfAttentionSkeleton(nn.Module):
@@ -63,11 +58,10 @@ class CausalSelfAttentionSkeleton(nn.Module):
 
     def __init__(self, max_len: int):
         super().__init__()
-        idx = torch.arange(max_len)
-        self.register_buffer("mask", idx[:, None] >= idx[None, :], persistent=True)
+        raise NotImplementedError
 
     def forward(self, seq_len: int) -> Tensor:
-        return self.mask[:seq_len, :seq_len]  # type: ignore
+        raise NotImplementedError
 
 
 class BlockStack(nn.Module):
@@ -78,12 +72,10 @@ class BlockStack(nn.Module):
 
     def __init__(self, d_model: int, n_layers: int):
         super().__init__()
-        self.layers = nn.ModuleList([nn.Linear(d_model, d_model) for _ in range(n_layers)])
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        for l in self.layers:
-            x = l(x)
-        return x
+        raise NotImplementedError
 
 
 # ==========================================================================
@@ -93,19 +85,17 @@ class BlockStack(nn.Module):
 
 def count_parameters(model: nn.Module, trainable_only: bool = True) -> int:
     """The number of elements (not tensors) in the parameters of the model."""
-    return sum([p.numel() for p in model.parameters() if p.requires_grad or not trainable_only])
+    raise NotImplementedError
 
 
 def parameter_names(model: nn.Module) -> list[str]:
     """A sorted list of the full parameter names, as they sit in the state_dict."""
-    return sorted([n for n, _ in model.named_parameters()])
+    raise NotImplementedError
 
 
 def total_bytes(model: nn.Module) -> int:
     """How many bytes all the parameters and buffers of the model take."""
-    params = sum([p.element_size() * p.numel() for p in model.parameters()]) + sum([])
-    buff = sum([b.element_size() * b.numel() for b in model.buffers()])
-    return params + buff
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -120,11 +110,7 @@ def init_linear_(layer: nn.Linear, std: float) -> nn.Linear:
     Hint: nn.init.trunc_normal_ and nn.init.zeros_. Everything in-place, under torch.no_grad
     (the functions from nn.init already do that for you).
     """
-
-    nn.init.trunc_normal_(layer.weight, mean=0.0, std=std, a=-3 * std, b=3 * std)
-    if layer.bias is not None:
-        nn.init.zeros_(layer.bias)
-    return layer
+    raise NotImplementedError
 
 
 def init_all_linears_(model: nn.Module, std: float) -> nn.Module:
@@ -132,20 +118,14 @@ def init_all_linears_(model: nn.Module, std: float) -> nn.Module:
 
     Hint: model.apply(fn) calls fn on every submodule.
     """
-
-    def fn(module: nn.Module):
-        if isinstance(module, nn.Linear):
-            init_linear_(module, std)
-
-    model.apply(fn)
-    return model
+    raise NotImplementedError
 
 
 def scaled_residual_std(base_std: float, n_layers: int) -> float:
     """The GPT-2 trick: the weights that write into the residual stream are initialized with
     std / sqrt(2*n_layers), otherwise the variance of the residual grows with depth. Return that value.
     """
-    return base_std * (2.0 * n_layers) ** -0.5
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -159,12 +139,7 @@ def save_load_roundtrip(model: nn.Module) -> nn.Module:
 
     For simplicity assume the model is a MyLinear(in, out).
     """
-    buf = io.BytesIO()
-    torch.save(model.state_dict(), buf)
-    buf.seek(0)
-    load = MyLinear(model.weight.shape[1], model.weight.shape[0], bias=model.bias is not None)
-    load.load_state_dict(torch.load(buf, weights_only=True))
-    return load
+    raise NotImplementedError
 
 
 def strip_prefix(state_dict: dict[str, Tensor], prefix: str) -> dict[str, Tensor]:
@@ -173,7 +148,7 @@ def strip_prefix(state_dict: dict[str, Tensor], prefix: str) -> dict[str, Tensor
 
     This exact function lives in the conftest.py of the first CS336 assignment.
     """
-    return {k.removeprefix(prefix): v for k, v in state_dict.items()}
+    raise NotImplementedError
 
 
 def tie_weights(embedding: MyEmbedding, head: MyLinear) -> None:
@@ -182,7 +157,7 @@ def tie_weights(embedding: MyEmbedding, head: MyLinear) -> None:
     After the call a change in one must be visible in the other, and the number of unique
     parameters of the model must go down.
     """
-    head.weight = embedding.weight
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -195,11 +170,7 @@ def dropout_behaviour(p: float, x: Tensor) -> tuple[Tensor, Tensor]:
 
     The point: to convince yourself by hand that model.eval() switches dropout off rather than "reducing" it.
     """
-    drop = nn.Dropout(p)
-    drop.train()
-    out = drop(x)
-    drop.eval()
-    return out, drop(x)
+    raise NotImplementedError
 
 
 def capture_activations(model: nn.Sequential, x: Tensor) -> dict[str, Tensor]:
@@ -208,26 +179,7 @@ def capture_activations(model: nn.Sequential, x: Tensor) -> dict[str, Tensor]:
     This is the main way to debug "where the activations blew up" in a large model.
     The hooks are better removed once they have been used.
     """
-
-    acts: dict[str, Tensor] = {}
-    handles = []
-
-    def make_hook(name: str):
-        def hook(_module, _inputs, output):
-            acts[name] = output.detach()
-
-        return hook
-
-    for name, module in model.named_children():
-        handles.append(module.register_forward_hook(make_hook(name)))
-
-    try:
-        model(x)
-    finally:
-        for h in handles:
-            h.remove()
-
-    return acts
+    raise NotImplementedError
 
 
 # ==========================================================================
