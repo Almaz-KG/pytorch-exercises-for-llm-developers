@@ -205,7 +205,7 @@ def test_cross_entropy_grad():
     torch.testing.assert_close(cross_entropy_grad(logits.detach(), targets), logits.grad, atol=1e-6, rtol=1e-5)
 
 
-def test_shift_invariance():
+def test_shift_invariance_gap():
     x = torch.randn(3, 8)
     assert shift_invariance_gap(x, 100.0).item() < 1e-6
 

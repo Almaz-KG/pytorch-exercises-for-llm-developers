@@ -2,129 +2,447 @@
 
 > **Exercise** `test_10_softmax_and_loss.py`
 
+## Why this topic
 
-This is the bottom of the forward pass: the step that turns `(B, T, V)` logits into one number, and the last thing that happens before topic 08's backward pass takes over.
+A language model reads some text and, at every position, has to guess the next token.
+It does not answer with a single word.
+It answers with one number per entry of its vocabulary, `V` numbers in all, and a bigger number means "I think this one is more likely".
+Those raw numbers are called **logits**.
 
-The same softmax also sits in the middle of attention, so everything you learn here about stability applies twice.
+Logits are awkward to work with directly.
+They can be negative, they can be huge, and they do not add up to anything in particular.
+So this topic does two things with them.
 
-Cross-entropy is the loss of every language model, and it is the one place where a subtle numerical mistake produces a model that trains to a slightly worse number instead of crashing.
-Feeding probabilities into a function that expects logits, computing `log(softmax(x))` instead of `log_softmax(x)`, or averaging over padded positions each cost real quality and none of them raise.
+First, **softmax** turns a row of logits into probabilities: every value between 0 and 1, and the whole row adding up to 1.
+Now "how likely is the word `cat`?" has an answer.
 
-Two payoffs at the end of this file: the prettiest formula in deep learning, `grad = (p - onehot) / N`, and the single most useful sanity check in LLM training, that the initial loss must be `log(V)`.
+Second, **cross-entropy** grades the guess.
+We know which token actually came next, so we look up the probability the model gave it and turn that into a single number, the **loss**: small when the model was confident and right, large when it was confident and wrong.
+That number is what topic 08's `backward()` starts from, and what the optimizer in topic 16 tries to push down.
+
+Both steps look like one-line formulas, and on paper they are.
+In a computer they are where numbers overflow to `inf`, quietly round to `0`, or turn into `nan`.
+The nasty part is that the most common mistakes here do not crash.
+Feeding probabilities where logits are expected, taking `log(softmax(x))`, or averaging over padding all give a loss that looks fine and a model that ends up slightly worse.
+
+The same softmax also sits in the middle of attention (topic 14), so everything about stability you learn here pays off twice.
+And the file ends with two rewards: the prettiest formula in deep learning, `gradient = (p - onehot) / N`, and the most useful one-second sanity check in LLM training, that an untrained model's loss is `log(V)`.
 
 ## The mental model
 
+### A few words you will meet
+
+| Word | Meaning here |
+| --- | --- |
+| logits | the raw scores the model outputs, one per vocabulary entry, any real number |
+| probability distribution | a row of numbers, each in `[0, 1]`, that add up to 1 |
+| target | the id of the token that actually came next, an `int64` in `[0, V)` |
+| loss | one number that says how wrong the model is; training makes it smaller |
+| nats | the unit of a loss computed with the natural log `ln`; using `log2` would give bits |
+
+Shapes follow the alphabet from the theory index: a batch of `N` rows of `V` logits is `(N, V)`, and a batch of sequences is `(B, T, V)`.
+
+### A two-minute refresher on `exp` and `log`
+
+Everything in this topic is built from two functions, so it is worth remembering how they behave.
+
+`exp(x)` is `e ≈ 2.718` raised to the power `x`.
+It is always positive, even for very negative `x`: `exp(-5) ≈ 0.0067`.
+It keeps order: a bigger `x` always gives a bigger `exp(x)`.
+And it turns addition into multiplication: `exp(a + b) = exp(a) * exp(b)`.
+
+`log(x)` (always the natural log in this repository) undoes `exp`: `log(exp(x)) = x`.
+It turns multiplication back into addition: `log(a * b) = log(a) + log(b)`, and `log(a / b) = log(a) - log(b)`.
+`log(1) = 0`, the log of anything between 0 and 1 is negative, and as `x` approaches 0, `log(x)` heads to minus infinity.
+
+**Where the computer gives up.**
+A float32 can hold numbers up to about `3.4e38`.
+`exp(88)` is about `1.65e38` and still fits; `exp(89)` does not, and becomes `inf`.
+On the small side, `exp(-104)` is too tiny to represent and becomes exactly `0`.
+So `exp` of numbers a little outside `[-100, 88]` breaks, and once you have an `inf`, the next division gives `inf / inf = nan`:
+
+```python
+>>> torch.exp(torch.tensor([88.0, 89.0, -104.0]))
+tensor([1.6516e+38,        inf, 0.0000e+00])
+>>> torch.exp(torch.tensor(1000.0)) / torch.exp(torch.tensor(1000.0))
+tensor(nan)
+```
+
+In float16, which is common in training, the upper limit is only about `exp(11)`.
+Logits of 20 or 30 are perfectly normal in a real model, so this is not an edge case.
+
+You already met the cure in topic 04: `logsumexp`.
+This topic is mostly about using it everywhere.
+
 ### 10.1 Softmax
 
+**The formula.**
+For a row of logits `x_1, ..., x_V`:
+
 ```
-softmax(x)_i = exp(x_i) / sum_j exp(x_j)
+softmax(x)_i = exp(x_i) / (exp(x_1) + exp(x_2) + ... + exp(x_V))
 ```
+
+Read it as two steps.
+`exp` makes every score positive while keeping their order.
+Dividing by the total makes the row add up to 1.
+
+Here it is on a three-word vocabulary with logits `[2, 1, 0]`:
+
+```
+exp:          [7.389, 2.718, 1.000]      total = 11.107
+softmax:      [0.665, 0.245, 0.090]      adds up to 1
+```
+
+Notice what `exp` does to the gaps.
+The logits are 1 apart, but the first probability is `e ≈ 2.7` times the second, and the second is 2.7 times the third.
+A difference of 1 in logits always means a factor of `e` in probability, wherever on the number line it happens.
+Only the differences between logits matter, never their absolute level.
 
 **Shift invariance.**
-`softmax(x + c) == softmax(x)` for any constant `c`, because `exp(x_i + c) = exp(c) exp(x_i)` and the `exp(c)` cancels between numerator and denominator.
-This is an identity, not an approximation, and it is the licence to subtract the maximum before exponentiating.
-
-The stable form is therefore:
+That last sentence is exact, and it is the most important property of softmax.
+Add the same constant `c` to every logit: each `exp(x_i + c)` becomes `exp(c) * exp(x_i)`, the total gains the same factor `exp(c)`, and it cancels out of the fraction.
 
 ```
-m = x.amax(dim, keepdim=True)
-softmax(x) = exp(x - m) / sum(exp(x - m))
+softmax(x + c) == softmax(x)        for any number c
 ```
 
-Every exponent is now at most 0, so the largest term is exactly 1 and nothing overflows.
-Without the subtraction, logits around 100 already overflow float16 and logits around 800 overflow float32.
+So `[2, 1, 0]`, `[102, 101, 100]` and `[-3, -4, -5]` all give the same three probabilities.
+This is an identity, not an approximation.
 
-**log_softmax** is not `log(softmax(x))`.
-Computing the softmax first pushes small probabilities to zero in floating point, and then the log is `-inf`.
-The correct form goes straight to the answer:
+**The stable softmax.**
+Shift invariance is a license to pick whatever `c` is most convenient.
+The convenient choice is to subtract the largest logit in the row.
+After that, the largest value is exactly 0 and everything else is negative, so:
+
+- the biggest `exp` is `exp(0) = 1`, and nothing can overflow;
+- the total is at least 1, so the division never divides by zero.
+
+Small terms may still round down to 0, but that is harmless: a probability of `1e-50` that becomes `0` was not going to change anything.
+The softmax you write in this topic must do this, and the test feeds it logits of 1000 to check.
+
+**Which axis.**
+Softmax runs along one axis, `dim`, and every row along that axis is normalized on its own.
+For logits of shape `(B, T, V)` that axis is the last one, but the function in 10.1 has to work for any `dim`, including `0`.
+Both the maximum and the total are reductions along `dim` that must broadcast back against the input, which is exactly the `keepdim=True` habit from topic 04.
+Note that `x.max(dim)` returns a pair of values and indices, while `x.amax(dim)` returns just the values.
+
+**Masked entries.**
+Attention (topic 14) hides some positions by setting their logit to `-inf`.
+`exp(-inf)` is exactly 0, so a masked entry gets probability 0 and the rest of the row still adds up to 1:
+
+```python
+>>> torch.tensor([0.0, float("-inf")]).softmax(-1)
+tensor([1., 0.])
+```
+
+A stable softmax handles this for free, as long as the row has at least one real value.
+If every entry in a row is `-inf`, the maximum is `-inf` too, `-inf - (-inf)` is `nan`, and the whole row becomes `nan`.
+That cannot happen in this topic, but remember it for topic 14.
+
+**log_softmax.**
+Cross-entropy needs the log of a probability, not the probability.
+The obvious way, `log(softmax(x))`, is broken.
+Look at logits `[0, -200]`: the second probability is `exp(-200) ≈ 1e-87`, which float32 rounds to exactly `0`, and `log(0)` is `-inf`.
+
+```python
+>>> x = torch.tensor([0.0, -200.0])
+>>> x.softmax(-1).log()
+tensor([0., -inf])
+>>> F.log_softmax(x, -1)
+tensor([   0., -200.])
+```
+
+The true answer is about `-200`, a perfectly ordinary number.
+The information was destroyed by rounding the probability before taking its log.
+
+The fix comes from writing out the log of the softmax formula with the rules from the refresher:
 
 ```
-log_softmax(x) = x - logsumexp(x, dim, keepdim=True)
+log softmax(x)_i = log( exp(x_i) / sum_j exp(x_j) )
+                 = x_i - log( sum_j exp(x_j) )
+                 = x_i - logsumexp(x)
 ```
 
-Every quantity stays in log space, so a probability of `1e-40` is represented perfectly well as `-92.1`.
-The rule to internalize: **stay in log space until the very last moment**.
+`log` and `exp` cancelled on top, and the bottom is exactly `logsumexp`, which topic 04 taught you to compute stably.
+No probability is ever formed, so nothing is ever rounded to 0.
 
-**Temperature** divides the logits before the softmax: `softmax(logits / T)`.
-As `T -> 0` the largest logit dominates and the distribution approaches the argmax one-hot.
-As `T -> inf` all logits are squashed together and the distribution approaches uniform.
-`T == 1` is no change.
+The rule to take away from this whole topic: **stay in log space until the very last moment.**
+A probability of `1e-40` is hopeless in float32, but its log, `-92.1`, is an ordinary number.
+
+**Temperature.**
+Before the softmax, you can divide the logits by a positive number `T`, the temperature: `softmax(logits / T)`.
+Dividing by `T` stretches or squeezes the gaps between logits, and the gaps are all softmax cares about.
+
+Same logits `[2, 1, 0]` as before:
+
+| `T` | softmax(logits / T) | what happened |
+| --- | --- | --- |
+| 0.5 | `[0.867, 0.117, 0.016]` | gaps doubled, the winner takes almost everything |
+| 1 | `[0.665, 0.245, 0.090]` | unchanged |
+| 2 | `[0.507, 0.307, 0.186]` | gaps halved, flatter |
+| 10 | `[0.367, 0.332, 0.301]` | almost uniform |
+
+As `T` goes towards 0, the distribution collapses onto the largest logit, like an argmax.
+As `T` grows, it flattens towards uniform, `1/V` everywhere.
+This is the knob that topic 17 turns when it samples text: low temperature for safe, repetitive output, high for creative, chaotic output.
+In this topic the temperature softmax runs over the last axis, the vocabulary.
 
 ### 10.2 Cross-entropy
 
-For a target distribution `q` and a predicted `p`, cross-entropy is `-sum_i q_i log p_i`.
-When the target is a single correct class, `q` is one-hot and this collapses to `-log p_target`.
+**Surprise.**
+Say the model gave the correct next token probability `p`.
+How should we grade that?
+Cross-entropy uses `-log p`, which you can read as "how surprised the model was by the right answer":
 
-Substituting the softmax and simplifying gives the form to implement directly:
+| `p` given to the right token | loss `-log p` |
+| --- | --- |
+| 1.0 | 0 |
+| 0.9 | 0.105 |
+| 0.5 | 0.693 |
+| 0.1 | 2.303 |
+| 0.01 | 4.605 |
+| 0.001 | 6.908 |
+| 0 | infinite |
+
+Certain and right costs nothing.
+Each time the probability drops by a factor of 10, the loss grows by the same 2.3.
+And giving the right answer probability 0 is infinitely bad, which is why the model learns never to rule anything out entirely.
+
+The loss of a batch is the average of this number over all `N` positions in it.
+That average, not the sum, is the convention, so that the loss does not change just because the batch got bigger.
+
+**Where the name comes from.**
+In general, cross-entropy compares a target distribution `q` with a predicted one `p`:
 
 ```
-loss_i = logsumexp(logits_i) - logits_i[target_i]
+cross_entropy(q, p) = - sum_i q_i * log p_i
 ```
 
-No probabilities, no logs of small numbers, one `logsumexp` and one `gather`.
+For next-token prediction, the target puts all its weight on the one correct token: `q` is 1 at the target and 0 everywhere else.
+That kind of vector is called **one-hot**.
+All terms but one vanish, and what is left is `-log p_target`.
+Label smoothing, below, is what you get when `q` is not one-hot.
+
+**The formula you actually compute.**
+`-log p_target` is the negative of one entry of `log_softmax`.
+Plug in the `log_softmax` formula from 10.1:
+
+```
+loss_i = -log softmax(logits_i)[target_i]
+       = logsumexp(logits_i) - logits_i[target_i]
+```
+
+That is the form the exercise asks for: one `logsumexp` per row and one lookup of the target's logit per row, then the average over rows.
+No probabilities and no logs of small numbers anywhere, so logits of `1e4` are as easy as logits of `1`.
+
+Check it on the three-word example, with the first word as the target:
+
+```
+logsumexp([2, 1, 0]) = log(11.107) = 2.4076
+logits[target]       = 2
+loss                 = 0.4076            and indeed -log(0.665) = 0.4076
+```
+
+Looking up "the target's logit in each row" is the unsqueeze, gather, squeeze pattern from topic 05.
 This is why topics 04 and 05 came first.
 
 **`F.cross_entropy` takes logits.**
-It applies `log_softmax` internally.
-Passing it a softmax output means it takes the softmax twice, which does not crash, does not look obviously wrong in the loss curve, and costs a visibly worse model.
+PyTorch's own function runs `log_softmax` internally.
+If you pass it probabilities, it applies softmax a second time on top of your softmax.
+Nothing crashes, the loss curve looks plausible, and the model trains to a noticeably worse result.
 
-Its expected shapes are `(N, C)` for the input and `(N,)` for the target, or `(N, C, d1, ...)` for higher-rank inputs where the **class axis is second**, not last.
-For a language model with `(B, T, V)` logits the usual move is to flatten to `(B*T, V)` and `(B*T,)` rather than to transpose.
+It also has its own shape convention.
+The input is `(N, C)` with targets `(N,)`, where `C` is the number of classes, or for higher-rank inputs `(N, C, d1, ...)` with the **class axis second**, not last.
+A language model's logits are `(B, T, V)` with the class axis last, so the usual move is to flatten them into `(B*T, V)` and the targets into `(B*T,)` with `reshape` (topic 02), rather than to transpose.
 
-**`ignore_index`** excludes positions from both the numerator and the denominator.
-Excluding from the numerator only, which is what a naive masked implementation does, divides by the wrong count and scales the loss.
-With 30% padding, a loss computed over `T` instead of over the real token count is 30% too low.
+**Padding and `ignore_index`.**
+Sentences in a batch have different lengths, but a tensor has to be a rectangle.
+So short sequences are padded at the end with filler positions, and the targets at those positions are set to a special value that is not a real token id.
+PyTorch's convention is `-100`, called the `ignore_index`.
 
-**Label smoothing** replaces the one-hot target with `(1 - s)` on the correct class and `s / V` over all classes.
-Expanding `-sum_i q_i log p_i` with that `q` gives
+A padded position must count for nothing: it must not appear in the sum of losses, and it must not appear in the count you divide by.
+Forgetting the second half is the classic bug.
+Say a batch has two real tokens with loss 2.0 each, and two padding positions:
 
 ```
-loss = (1 - s) * (-log p_target) + (s / V) * sum_i (-log p_i)
+correct:   (2.0 + 2.0) / 2 = 2.0      divide by the number of real tokens
+wrong:     (2.0 + 2.0) / 4 = 1.0      divide by every position, padding included
 ```
 
-so it is the ordinary loss blended with the mean negative log probability over the whole vocabulary.
+The wrong version reports a loss that is too low by exactly the padding fraction.
+It does not crash, and since the padding fraction changes from batch to batch, it also makes losses from different batches incomparable.
 
-**Perplexity** is `exp(mean loss in nats)`.
-It is the effective number of equally likely choices the model is deciding between at each token.
-If a model's loss is `log(V)` its perplexity is `V`, meaning it has learned nothing.
+Two practical details for doing this by hand.
+A boolean mask `targets != ignore_index` marks the real positions, and `mask.sum()` counts them.
+Multiplying a float tensor by a boolean one treats `True` as 1 and `False` as 0.
 
-**KL divergence** for distillation is
+The other detail bites everyone once.
+`gather` needs every index to be a valid position, and `-100` is not one:
+
+```python
+>>> torch.randn(2, 3).gather(-1, torch.tensor([[0], [-100]]))
+IndexError: index -100 is out of bounds for dimension 1 with size 3
+```
+
+The loss at a padded position is going to be thrown away anyway, so it does not matter which logit you read there.
+What matters is that the index is some valid id before the lookup happens; `torch.where` or `clamp` will put one in.
+
+**Label smoothing.**
+With a one-hot target, the loss only reaches 0 when the correct probability is exactly 1, which needs the correct logit to be infinitely larger than all others.
+The model keeps pushing in that direction forever and becomes overconfident.
+
+Label smoothing softens the target.
+With a smoothing amount `s`, the target distribution becomes `(1 - s)` times the one-hot, plus `s / V` spread over **every** class, the correct one included.
+With `V = 4`, `s = 0.1` and the target being the first class:
+
+```
+one-hot target:    [1,     0,     0,     0    ]
+smoothed target:   [0.925, 0.025, 0.025, 0.025]     0.9 + 0.1/4 on the target, 0.1/4 elsewhere
+```
+
+Putting that `q` into `- sum_i q_i log p_i` and grouping the terms gives:
+
+```
+loss = (1 - s) * (-log p_target)  +  (s / V) * sum_i (-log p_i)
+```
+
+The first part is the ordinary cross-entropy, scaled down.
+In the second part, `(1 / V) * sum_i` is just an average over the vocabulary, so it is `s` times the mean of `-log p_i` over all classes.
+Every `log p_i` there should come from a stable `log_softmax`, for the reasons in 10.1.
+At `s = 0` the formula is exactly the ordinary loss again.
+This matches `F.cross_entropy(..., label_smoothing=s)`, which also spreads `s / V` onto the correct class.
+
+Label smoothing has been standard in image classification and machine translation for years, because it improves how well a model's confidence matches its accuracy.
+Modern LLM pretraining mostly does not use it: at web scale the data already contains plenty of genuine ambiguity, and a deliberately blurred target wastes effort on a distribution nobody wants.
+It comes back in fine-tuning on small datasets, where overconfidence is the real risk.
+
+**Perplexity.**
+A loss of 2.3 nats is hard to picture.
+Perplexity converts it into something you can: `perplexity = exp(mean loss)`.
+
+It is the number of equally likely options the model is effectively choosing between at each step.
+A model that spreads its bets evenly over 8 tokens has loss `log(8)` and perplexity 8, like rolling an 8-sided die.
+A perfect model has loss 0 and perplexity 1: no doubt at all.
+A model with loss `log(V)` has perplexity `V`: it is guessing blindly over the whole vocabulary.
+
+This only works because the loss is in nats, matching `exp`.
+A loss measured in bits would need `2 ** loss` instead.
+
+**KL divergence and distillation.**
+Distillation trains a small student model to imitate a big teacher model.
+Instead of a one-hot target, the student is graded against the teacher's whole probability distribution, which carries more information: "the next word is probably `cat`, maybe `dog`, certainly not `the`".
+
+The measure of how far the student is from the teacher is the Kullback-Leibler divergence:
 
 ```
 KL(teacher || student) = sum_i p_teacher_i * (log p_teacher_i - log p_student_i)
 ```
 
-Compute both sides with `log_softmax` and take the teacher's probabilities as `exp` of its log-probabilities.
-Never form the ratio `p_t / p_s` directly; the difference of logs is the numerically sound spelling of the same thing.
-KL is not symmetric, and which argument goes first is a modelling decision.
+Read it as "how much extra surprise do I get if I use the student's probabilities, when the data really follows the teacher's?".
+It is always at least 0, and exactly 0 when the two distributions are equal.
+It is cross-entropy minus the teacher's own entropy, so it measures only the part of the surprise that is the student's fault.
+
+Three things to get right:
+
+- **Stay in log space.** Get `log p_teacher` and `log p_student` with `log_softmax`, subtract them, and get the teacher's probabilities as `exp` of its log-probabilities. Never form the ratio `p_teacher / p_student`: dividing two tiny probabilities is exactly the rounding problem from 10.1.
+- **The order matters.** `KL(a || b)` is not `KL(b || a)`. With `p = [0.7, 0.2, 0.1]` and `q = [0.5, 0.3, 0.2]`, one direction is `0.085` and the other `0.092`. The weights in front always come from the first argument, here the teacher.
+- **What "averaged over the batch" means.** Sum over the vocabulary axis, giving one KL per row, then average over the `N` rows. This is what PyTorch calls `reduction="batchmean"`.
+
+`F.kl_div` itself is famously easy to misuse.
+It takes the **student's log-probabilities first** and the teacher's distribution second, which is the reverse of how `KL(teacher || student)` is written.
+By default it expects the second argument as plain probabilities, unless you pass `log_target=True`.
+And its `reduction="mean"` averages over every element, `N * V` of them, which is not the mathematical KL, a documented historical wart.
+Computing it by hand, as the exercise asks, sidesteps all three.
 
 ### 10.3 The gradient
 
-For the mean cross-entropy over `N` positions:
+Topic 08 worked out the softmax Jacobian, a `V x V` table.
+For cross-entropy, almost all of it cancels, and the result is short enough to remember for life.
+
+Take one row and the loss from 10.2, `loss = logsumexp(x) - x_target`.
+Ask how it changes when one logit `x_j` changes, one piece at a time:
+
+- the derivative of `logsumexp(x)` with respect to `x_j` is `exp(x_j) / sum_k exp(x_k)`, which is just `p_j`, the softmax probability;
+- the derivative of `x_target` with respect to `x_j` is 1 if `j` is the target, and 0 otherwise. Over all `j` that is the one-hot vector of the target.
+
+So for one row, the gradient is `p - onehot(target)`.
+The batch loss is the average over `N` rows, so each row's share is divided by `N`:
 
 ```
-dL / d logits = (softmax(logits) - onehot(targets)) / N
+dLoss / dlogits = (softmax(logits) - onehot(targets)) / N
 ```
 
-The derivation composes the softmax Jacobian from topic 08 with the `-log p_target` term, and almost everything cancels.
-Read the result structurally.
-The gradient on the correct class is `p_target - 1`, negative, pushing that logit up.
-The gradient on every other class is `p_j`, positive, pushing them down in proportion to the probability the model wrongly assigned.
-A perfectly confident correct prediction gives zero gradient everywhere.
+Read it entry by entry:
+
+- **On the correct token** the gradient is `p_target - 1`, which is negative. Gradient descent steps against the gradient, so that logit goes **up**.
+- **On every wrong token** the gradient is `p_j`, which is positive, so those logits go **down**, each in proportion to how much probability the model wrongly gave it.
+- **A perfect prediction**, `p_target = 1`, makes every entry zero. Nothing left to learn.
+
+Each row's gradient also adds up to zero, `1 - 1`, which is shift invariance again: pushing all logits up together would change nothing, so the gradient never asks for it.
+
+Back to the three-word example, target the first word:
+
+```
+p                     = [ 0.665,  0.245,  0.090]
+onehot                = [ 1,      0,      0    ]
+p - onehot (N = 1)    = [-0.335,  0.245,  0.090]
+```
+
+```python
+>>> logits = torch.tensor([[2.0, 1.0, 0.0]], requires_grad=True)
+>>> F.cross_entropy(logits, torch.tensor([0])).backward()
+>>> logits.grad
+tensor([[-0.3348,  0.2447,  0.0900]])
+```
+
+Autograd agrees.
+
+To build the one-hot part in code, `F.one_hot(ids, num_classes)` turns a tensor of ids into rows of 0s and 1s.
+It returns `int64`, so cast it to the logits' dtype before mixing it into float arithmetic, and pass `num_classes` explicitly: without it, PyTorch guesses `V` from the largest id it happens to see.
+
+**Why this formula matters beyond the exercise.**
+`F.cross_entropy` never builds the `V x V` softmax Jacobian.
+It computes the loss, keeps the probabilities, and on the backward pass subtracts the one-hot: one fused operation instead of a softmax layer followed by a separate loss layer.
+The same closed form makes chunked cross-entropy possible: the loss splits cleanly by position, so the `(B*T, V)` logit tensor can be processed a block of rows at a time and never held whole.
+At a 128k vocabulary that is the difference between fitting in memory and not, and topic 18 builds it.
 
 ### 10.4 Properties worth feeling
 
-**Shift invariance** can be measured: the maximum absolute difference between `softmax(x)` and `softmax(x + c)` should be at the level of floating point noise, not exactly zero, because the two computations round differently.
+**Shift invariance, measured.**
+On paper, `softmax(x)` and `softmax(x + c)` are identical.
+In float32 they are computed through different intermediate numbers, so they round differently, and the largest difference between them is tiny but usually not exactly zero:
 
-**The initial loss is `log(V)`.**
-An untrained model with small random weights produces near-uniform logits, so every token has probability `1/V` and the loss is `-log(1/V) = log(V)`.
-For GPT-2's 50257-token vocabulary that is about 10.82.
-For a 128k vocabulary it is about 11.76.
+```
+max |softmax(x) - softmax(x + 100)|    ≈ 6e-7  for a random (3, 8) x
+```
 
-This is the first thing to check on step zero of any training run.
-A much higher initial loss means the initialization is too large or the output layer is badly scaled.
-A much lower one means information is leaking from the targets into the inputs, usually an off-by-one in the causal mask or in the input/target shift.
-Topic 15 checks this directly on a real model.
+Measuring "how far apart are two tensors" as the largest absolute difference is the same idea `assert_close` uses: subtract, take the absolute value, take the maximum.
+Seeing a number at the level of float32 noise, around `1e-7`, rather than something like `0.01`, is the whole point.
+
+**An untrained model's loss is `log(V)`.**
+A freshly initialized model has small random weights, so its logits are all close to each other.
+By shift invariance, close logits mean nearly equal probabilities: about `1/V` for every token.
+The right token therefore gets about `1/V`, and the loss is `-log(1/V) = log(V)`.
+
+| `V` | `log(V)` | example |
+| --- | --- | --- |
+| 2 | 0.693 | a coin flip |
+| 100 | 4.605 | |
+| 32 000 | 10.37 | Llama 2 |
+| 50 257 | 10.82 | GPT-2 |
+| 128 256 | 11.76 | Llama 3 |
+
+This is the first number to look at on step zero of any training run, and it is a free bug detector:
+
+- **Much higher** than `log(V)`: the logits start too spread out, so the initialization or the output layer is scaled too large (topic 09's 9.3).
+- **Much lower**: the model is seeing the answers. Usually the causal mask lets a position look at the future, or the inputs and targets are not shifted by one.
+
+Topic 15 checks this on a real model.
+
+`uniform_loss` returns a plain Python `float`, and the test compares it to 9 decimal places.
+`math.log` works in double precision and gets there.
+A float32 tensor does not: `torch.log(torch.tensor(50257.0))` is off by about `3e-7`.
 
 ## API you need
 
@@ -132,89 +450,106 @@ Topic 15 checks this directly on a real model.
 
 | Call | Result |
 | --- | --- |
-| `F.softmax(x, dim)` / `x.softmax(dim)` | stable softmax |
-| `F.log_softmax(x, dim)` | stable log-softmax, not `log(softmax(x))` |
-| `torch.logsumexp(x, dim, keepdim=False)` | the denominator in log space |
-| `x.amax(dim, keepdim=True)` | the max for manual stabilization |
+| `torch.exp(x)` / `x.exp()`, `torch.log(x)` / `x.log()` | elementwise `exp` and natural log |
+| `x.amax(dim, keepdim=True)` | the maximum along `dim`, values only |
+| `x.max(dim, keepdim=True)` | a pair `(values, indices)`; use `.values` |
+| `x.sum(dim, keepdim=True)` | the total along `dim` |
+| `torch.logsumexp(x, dim, keepdim=False)` | `log(sum(exp(x)))` along `dim`, computed stably |
+| `F.softmax(x, dim)` / `x.softmax(dim)` | PyTorch's stable softmax, for checking yours |
+| `F.log_softmax(x, dim)` | PyTorch's stable log-softmax, not `log(softmax(x))` |
 
 ### Losses
 
 | Call | Result |
 | --- | --- |
-| `F.cross_entropy(logits, targets, ignore_index=-100, label_smoothing=0.0, reduction="mean")` | takes **logits**, class axis is dim 1 |
-| `F.nll_loss(log_probs, targets, ignore_index=-100)` | takes **log-probabilities** |
-| `F.kl_div(input_log_probs, target_probs, reduction="batchmean", log_target=False)` | note the argument conventions |
-| `F.one_hot(ids, num_classes)` | int64 one-hot, cast it before arithmetic |
-| `torch.gather(logits, -1, targets.unsqueeze(-1)).squeeze(-1)` | the target logits |
+| `F.cross_entropy(logits, targets, ignore_index=-100, label_smoothing=0.0, reduction="mean")` | takes **logits**; the class axis is dim 1 |
+| `F.nll_loss(log_probs, targets, ignore_index=-100)` | takes **log-probabilities**, not logits |
+| `F.kl_div(student_log_probs, teacher, reduction="batchmean", log_target=False)` | student first, in log space |
+| `F.one_hot(ids, num_classes)` | rows of 0s and 1s, dtype `int64` |
+| `x.gather(-1, idx.unsqueeze(-1)).squeeze(-1)` | one value per row, the pattern from topic 05 |
 
-`reduction` is `"mean"`, `"sum"` or `"none"`, and `"none"` returning per-position losses is what you want when you are doing your own masking.
+`reduction` is `"mean"`, `"sum"` or `"none"`.
+`"none"` returns one loss per position, which is what you want when you are doing your own masking.
+
+### Shapes, masks and dtypes
+
+| Call | Result |
+| --- | --- |
+| `x.reshape(-1, V)` / `t.reshape(-1)` | flatten `(B, T, V)` to `(N, V)` and `(B, T)` to `(N,)` |
+| `targets != ignore_index` | boolean mask of the real positions |
+| `mask.sum()` | the number of `True` entries, as `int64` |
+| `torch.where(cond, a, b)` | `a` where `cond` is true, `b` elsewhere |
+| `t.clamp(min=..., max=...)` | limit values to a range |
+| `t.to(dtype)` / `t.float()` | cast, for example a one-hot before arithmetic |
+| `x.abs()`, `x.max()` | absolute value; the largest element of the whole tensor |
+| `math.log(v)` | natural log of a Python number, in double precision |
 
 ### A worked example on neutral data
 
-```python
->>> logits = torch.tensor([[2.0, 1.0, 0.0]])
->>> targets = torch.tensor([0])
->>> F.cross_entropy(logits, targets)
-tensor(0.4076)
->>> torch.logsumexp(logits, -1) - logits.gather(-1, targets[:, None]).squeeze(-1)
-tensor([0.4076])
+Every piece of this topic on one row of four logits:
 
->>> p = logits.softmax(-1)
->>> (p - F.one_hot(targets, 3)) / 1        # the analytic gradient
-tensor([[-0.3348,  0.2447,  0.0900]])
->>> logits.requires_grad_(True)
->>> F.cross_entropy(logits, targets).backward(); logits.grad
-tensor([[-0.3348,  0.2447,  0.0900]])
+```python
+>>> x = torch.tensor([3.0, 1.0, 0.0, -2.0])
+>>> torch.logsumexp(x, -1)
+tensor(3.1755)
+>>> x - torch.logsumexp(x, -1)          # log-probabilities
+tensor([-0.1755, -2.1755, -3.1755, -5.1755])
+>>> F.softmax(x, -1)                    # probabilities, adding up to 1
+tensor([0.8390, 0.1135, 0.0418, 0.0057])
+>>> F.softmax(x + 50, -1)               # shifted: same probabilities
+tensor([0.8390, 0.1135, 0.0418, 0.0057])
+>>> F.one_hot(torch.tensor([1, 3]), 4)
+tensor([[0, 1, 0, 0],
+        [0, 0, 0, 1]])
+>>> math.log(4)                          # the loss of a uniform guess over 4 classes
+1.3862943611198906
 ```
 
 ## Traps
 
 - `F.cross_entropy` takes logits.
-  Softmaxing first is a silent quality regression.
-- `log(softmax(x))` underflows where `log_softmax(x)` does not.
-- `F.cross_entropy` puts the class axis at position 1 for rank > 2 inputs, not last.
+  Applying softmax first trains a worse model without any error.
+- `exp` of a large logit overflows to `inf`, and `inf / inf` is `nan`.
+  Subtract the maximum first.
+- `log(softmax(x))` rounds small probabilities to `0` and returns `-inf`.
+  Use `x - logsumexp(x)`.
+- The maximum and the total must be taken with `keepdim=True`, or they will not broadcast back along the right axis when `dim` is not the last one.
+- `x.max(dim)` returns a `(values, indices)` pair, not a tensor.
+- A row that is `-inf` everywhere softmaxes to `nan`.
+- `F.cross_entropy` puts the class axis at position 1 for inputs of rank above 2.
   Flatten to `(N, V)` instead of guessing.
-- Masking padding out of the numerator but dividing by the full count scales the loss.
-- `F.kl_div` wants log-probabilities as input and probabilities as target, and `reduction="mean"` is not the mathematical mean.
-- `F.one_hot` returns int64; multiplying it into a float tensor promotes, which is usually harmless but occasionally surprising.
-- Temperature belongs on logits.
-  Dividing probabilities by `T` and renormalizing is a different function.
-- Perplexity is `exp` of the loss only when the loss is in nats.
-  Base-2 losses need `2 ** loss`.
+- Excluding padding from the sum but not from the divisor makes the loss too small by the padding fraction.
+- `gather` with `-100` as an index raises; padded positions need a valid placeholder index before the lookup.
+- In label smoothing, `s / V` goes to every class, the correct one included.
+- `F.kl_div` takes the student's log-probabilities first and the teacher second, and its `reduction="mean"` is not the mathematical KL.
+- Never divide probabilities to get KL; subtract log-probabilities.
+- `F.one_hot` returns `int64`; cast it before arithmetic, and pass `num_classes`.
+- The gradient of the mean loss has a `/ N`; the gradient of the summed loss does not.
+- Temperature divides the logits, not the probabilities.
+- Perplexity is `exp(loss)` only when the loss is in nats.
+- `uniform_loss` must be a Python `float` from `math.log`, not a float32 tensor.
 - An initial loss far from `log(V)` is a bug report, not noise.
 
 ## Ready when
 
 Without looking anything up you can:
 
-- [ ] write the stable softmax and say why subtracting the max is exact
-- [ ] write cross-entropy as `logsumexp(logits) - logits[target]` and explain where it comes from
-- [ ] state the gradient of mean CE with respect to the logits and interpret each term
-- [ ] say what `log(50257)` is to one decimal place and why you would ever care
-- [ ] explain what goes wrong when padding is excluded from the sum but not from the divisor
-- [ ] describe what label smoothing changes about the target distribution
-
-## Context
-
-
-
-**Why cross-entropy is one fused kernel.**
-The gradient `(p - onehot) / N` never needs the softmax Jacobian to be materialized, so `F.cross_entropy` computes the loss and stashes exactly what the backward needs, rather than running a softmax layer and a negative-log-likelihood layer back to back.
-That fusion is also what makes chunked cross-entropy possible: since the loss decomposes per position and the gradient has a closed form, the `(B*T, V)` logit tensor can be processed a block at a time and never held whole.
-Topic 18 builds that, and at a 128k vocabulary it is the difference between fitting and not fitting.
-
-**Where label smoothing is and is not used.**
-It stops the model driving the correct logit to infinity, which improves calibration and often generalization, and it has been standard in machine translation and image classification for years.
-Modern LLM pretraining mostly does not use it, on the argument that at web scale the data already contains enough genuine ambiguity, and that a deliberately blurred target wastes capacity on a distribution nobody wants.
-It reappears in fine-tuning, where overfitting a small dataset is the actual risk.
-
-**Why `F.kl_div`'s signature is like that.**
-It was written to pair with `log_softmax` output on the input side, which is the numerically sound thing to pass, and the asymmetry between "input in log space, target not" catches everyone once.
-`reduction="mean"` averaging over every element, rather than per example, is a documented historical wart.
-Computing KL by hand, as this exercise asks, avoids both.
+- [ ] say in one sentence what softmax does to a row of logits, and what `exp` and the division each contribute
+- [ ] explain why subtracting the maximum changes nothing mathematically and fixes overflow
+- [ ] show on a two-element example why `log(softmax(x))` fails where `x - logsumexp(x)` does not
+- [ ] predict what a low and a high temperature do to `softmax([2, 1, 0])`
+- [ ] derive `loss = logsumexp(logits) - logits[target]` from `-log p_target`
+- [ ] explain what goes wrong when padding is excluded from the sum but not from the divisor, and why `-100` cannot go into `gather`
+- [ ] write down the smoothed target distribution for `V = 4`, `s = 0.1`
+- [ ] say what perplexity 8 means in plain words
+- [ ] state which argument of `KL(teacher || student)` provides the weights, and why the ratio of probabilities is never formed
+- [ ] state the gradient of mean cross-entropy with respect to the logits, derive it in two lines, and say which way each logit moves
+- [ ] say what `log(50257)` is to one decimal place, and what a much higher or a much lower initial loss tells you
 
 ## Going deeper
 
-- [`F.cross_entropy`](https://pytorch.org/docs/stable/generated/torch.nn.functional.cross_entropy.html), whose doc page spells out the shape conventions and the `ignore_index` semantics.
+- [`F.cross_entropy`](https://pytorch.org/docs/stable/generated/torch.nn.functional.cross_entropy.html), whose doc page spells out the shape conventions, `ignore_index` and `label_smoothing`.
+- [`F.kl_div`](https://pytorch.org/docs/stable/generated/torch.nn.functional.kl_div.html), for the argument order and the `reduction` warning in PyTorch's own words.
 - [Rethinking the Inception Architecture](https://arxiv.org/abs/1512.00567), section 7, where label smoothing was introduced.
-- Anything by Andrej Karpathy on "the initial loss should be `-log(1/V)`", which is the single highest-value debugging habit in this file.
+- [Distilling the Knowledge in a Neural Network](https://arxiv.org/abs/1503.02531), the paper behind KL-based distillation, which also uses temperature on both teacher and student.
+- Andrej Karpathy's [A Recipe for Training Neural Networks](https://karpathy.github.io/2019/04/25/recipe/), whose "verify loss @ init" step is the `log(V)` check from 10.4 and the single highest-value debugging habit in this file.

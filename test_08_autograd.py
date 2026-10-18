@@ -25,7 +25,9 @@ def grad_of_sum_of_squares(x: Tensor) -> Tensor:
 
     It is 2*x as expected, but it has to be obtained through autograd, not by the formula.
     """
-    raise NotImplementedError
+    x = x.detach().clone().requires_grad_(True)
+    (x**2).sum().backward()  # type: ignore
+    return x.grad  # type: ignore
 
 
 def grad_functional(x: Tensor) -> Tensor:
@@ -33,7 +35,9 @@ def grad_functional(x: Tensor) -> Tensor:
 
     The functional API is convenient when you do not want to touch .grad on the parameters.
     """
-    raise NotImplementedError
+    x = x.detach().clone().requires_grad_(True)
+    (grad,) = torch.autograd.grad((x**2).sum(), x)
+    return grad
 
 
 def grads_accumulate(x: Tensor) -> tuple[Tensor, Tensor]:
@@ -43,14 +47,20 @@ def grads_accumulate(x: Tensor) -> tuple[Tensor, Tensor]:
     The point: to show yourself by hand that the second backward is added to the first.
     That is exactly why the training loop has optimizer.zero_grad().
     """
-    raise NotImplementedError
+    y = (x**2).sum()
+
+    y.backward(retain_graph=True)
+    first = x.grad.clone()
+    y.backward()
+    return first, x.grad.clone()
 
 
 def stop_gradient(a: Tensor, b: Tensor) -> tuple[Tensor, Tensor]:
     """a, b are leaves with requires_grad=True. Compute y = sum(a * b), but in such a way
     that the gradient does NOT flow into b. Return (a.grad, b.grad) - the second must be None.
     """
-    raise NotImplementedError
+    (a * b.detach().clone()).sum().backward()
+    return a.grad, b.grad
 
 
 def forward_without_graph(x: Tensor, w: Tensor) -> Tensor:
@@ -58,7 +68,8 @@ def forward_without_graph(x: Tensor, w: Tensor) -> Tensor:
 
     This is inference mode: it saves memory several times over.
     """
-    raise NotImplementedError
+    with torch.no_grad():
+        return x @ w
 
 
 # ==========================================================================
@@ -71,7 +82,11 @@ def second_derivative(x: Tensor) -> Tensor:
 
     Hint: create_graph=True on the first differentiation.
     """
-    raise NotImplementedError
+    x = x.detach().clone().requires_grad_(True)
+
+    (first,) = torch.autograd.grad((x**3).sum(), x, create_graph=True)
+    (second,) = torch.autograd.grad(first.sum(), x)
+    return second
 
 
 def vjp(f: Callable[[Tensor], Tensor], x: Tensor, v: Tensor) -> Tensor:
@@ -79,7 +94,9 @@ def vjp(f: Callable[[Tensor], Tensor], x: Tensor, v: Tensor) -> Tensor:
 
     x comes without requires_grad, return a tensor with the shape of x.
     """
-    raise NotImplementedError
+    x = x.detach().clone().requires_grad_(True)
+    (grad,) = torch.autograd.grad(f(x), x, grad_outputs=v)
+    return grad
 
 
 def numeric_grad(f: Callable[[Tensor], Tensor], x: Tensor, eps: float = 1e-4) -> Tensor:
@@ -89,7 +106,17 @@ def numeric_grad(f: Callable[[Tensor], Tensor], x: Tensor, eps: float = 1e-4) ->
     A loop over the elements is allowed here - this is a debugging instrument,
     the one used to check that analytic gradients are right.
     """
-    raise NotImplementedError
+    grad = torch.zeros_like(x)
+    flat_x, flat_g = x.reshape(-1), grad.reshape(-1)
+    for i in range(flat_x.numel()):
+        original = flat_x[i].item()
+        flat_x[i] = original + eps
+        plus = f(x).item()
+        flat_x[i] = original - eps
+        minus = f(x).item()
+        flat_x[i] = original
+        flat_g[i] = (plus - minus) / (2 * eps)
+    return grad
 
 
 def softmax_vjp(probs: Tensor, grad_out: Tensor) -> Tensor:
@@ -101,7 +128,7 @@ def softmax_vjp(probs: Tensor, grad_out: Tensor) -> Tensor:
     Derive it yourself from J_ij = p_i (delta_ij - p_j) - this formula will come up again
     in the backward pass of attention.
     """
-    raise NotImplementedError
+    return probs * (grad_out - (grad_out * probs).sum(dim=-1, keepdim=True))
 
 
 # ==========================================================================
@@ -119,11 +146,13 @@ class SquareFunction(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x: Tensor) -> Tensor:
-        raise NotImplementedError
+        ctx.save_for_backward(x)
+        return x**2
 
     @staticmethod
     def backward(ctx, grad_output: Tensor) -> Tensor:
-        raise NotImplementedError
+        (x,) = ctx.saved_tensors
+        return 2 * x * grad_output
 
 
 class STEQuantize(torch.autograd.Function):
@@ -136,11 +165,11 @@ class STEQuantize(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, x: Tensor) -> Tensor:
-        raise NotImplementedError
+        return torch.round(x)
 
     @staticmethod
     def backward(ctx, grad_output: Tensor) -> Tensor:
-        raise NotImplementedError
+        return grad_output
 
 
 # ==========================================================================
@@ -156,7 +185,9 @@ def embedding_grad(table_size: tuple[int, int], ids: Tensor) -> Tensor:
     The result is instructive: the gradient of a row equals the number of its uses.
     That is exactly why rare tokens learn slowly.
     """
-    raise NotImplementedError
+    table = torch.randn(*table_size, requires_grad=True)
+    table[ids].sum().backward()
+    return table.grad
 
 
 def freeze_all_but_last(model: nn.Sequential) -> int:
@@ -165,14 +196,22 @@ def freeze_all_but_last(model: nn.Sequential) -> int:
 
     This is literally linear probing / partial fine-tuning.
     """
-    raise NotImplementedError
+    for p in model.parameters():
+        p.requires_grad_(False)
+    for p in model[-1].parameters():
+        p.requires_grad_(True)
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 def grad_norm_after_backward(model: nn.Module, x: Tensor, target: Tensor) -> float:
     """Run x through model, take the MSE loss against target, backward, and return
     the global L2 norm of the gradients of all the parameters as a python float.
     """
-    raise NotImplementedError
+    loss = torch.nn.functional.mse_loss(model(x), target)
+    model.zero_grad(set_to_none=True)
+    loss.backward()
+    total = sum(p.grad.pow(2).sum() for p in model.parameters() if p.grad is not None)
+    return float(total.sqrt().item())
 
 
 # ==========================================================================
