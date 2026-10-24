@@ -39,8 +39,13 @@ def learned_positional(embed: Tensor, pos_table: Tensor, offset: int = 0) -> Ten
 
     The offset is needed during generation: at a decoding step we have one token, but its position is not zero.
     """
-    T = embed.shape[-2]
-    return embed + pos_table[offset : offset + T]
+    # print(embed.shape)
+    # print((embed.view(-1, embed.shape[-1])).shape)
+
+    # print((pos_table + offset).shape)
+    # print(offset)
+
+    return embed + pos_table[offset : embed.shape[1] + offset]
 
 
 def sinusoidal_pe(seq_len: int, d_model: int) -> Tensor:
@@ -48,13 +53,15 @@ def sinusoidal_pe(seq_len: int, d_model: int) -> Tensor:
     PE[pos, 2i]   = sin(pos / 10000^(2i/d))
     PE[pos, 2i+1] = cos(pos / 10000^(2i/d))
     """
-    pos = torch.arange(seq_len, dtype=torch.float32)[:, None]
-    i = torch.arange(0, d_model, 2, dtype=torch.float32)
-    inv_freq = torch.pow(10000.0, -i / d_model)
-    angles = pos * inv_freq[None, :]
-    pe = torch.zeros(seq_len, d_model)
-    pe[:, 0::2] = angles.sin()
-    pe[:, 1::2] = angles.cos()
+    pos = torch.arange(0, seq_len).float().unsqueeze(1)
+    i_term = torch.arange(0, d_model, 2).float()
+    div_mod = torch.exp(i_term * (-math.log(10000) / d_model))
+
+    x = pos * div_mod
+
+    pe = torch.zeros(seq_len, d_model).float()
+    pe[:, 0::2] = torch.sin(x)
+    pe[:, 1::2] = torch.cos(x)
     return pe
 
 
@@ -68,8 +75,9 @@ def rope_inv_freq(d_head: int, theta: float = 10000.0) -> Tensor:
 
     The first pair spins fast (frequency 1), the last one very slowly.
     """
-    i = torch.arange(0, d_head, 2, dtype=torch.float32)
-    return torch.pow(theta, -i / d_head)
+    i_term = torch.arange(d_head // 2).float()
+
+    return torch.exp(-2 * i_term * math.log(theta) / d_head)
 
 
 def rope_cos_sin(seq_len: int, d_head: int, theta: float = 10000.0, offset: int = 0) -> tuple[Tensor, Tensor]:
@@ -78,9 +86,15 @@ def rope_cos_sin(seq_len: int, d_head: int, theta: float = 10000.0, offset: int 
 
     In a real model this is computed once and kept as a buffer.
     """
-    pos = torch.arange(offset, offset + seq_len, dtype=torch.float32)[:, None]
-    angles = pos * rope_inv_freq(d_head, theta)[None, :]
-    return angles.cos(), angles.sin()
+
+    def rope_inv_freq2(d_head: int, theta: float) -> Tensor:
+        i_term = torch.arange(d_head // 2).float()
+        return torch.exp(-2 * i_term * math.log(theta) / d_head)
+
+    inv_freqs = rope_inv_freq2(d_head=d_head, theta=theta)
+    pos = (torch.arange(seq_len) + offset).unsqueeze(1)
+
+    return (pos * inv_freqs).cos(), (pos * inv_freqs).sin()
 
 
 def apply_rope(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
@@ -92,11 +106,14 @@ def apply_rope(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
 
     The function must work both for (T, Dh) and for (B, H, T, Dh) - thanks to broadcasting.
     """
-    x_even, x_odd = x[..., 0::2], x[..., 1::2]
-    out_even = x_even * cos - x_odd * sin
-    out_odd = x_even * sin + x_odd * cos
-    out = torch.stack([out_even, out_odd], dim=-1)
-    return out.flatten(start_dim=-2)
+    even = x[..., 0::2]
+    odd = x[..., 1::2]
+
+    result = torch.zeros_like(x)
+    result[..., 0::2] = even * cos - odd * sin
+    result[..., 1::2] = even * sin + odd * cos
+
+    return result
 
 
 def apply_rope_to_qk(q: Tensor, k: Tensor, theta: float = 10000.0, offset: int = 0) -> tuple[Tensor, Tensor]:
@@ -105,8 +122,7 @@ def apply_rope_to_qk(q: Tensor, k: Tensor, theta: float = 10000.0, offset: int =
     Note: RoPE is applied to q and k, but NOT to v.
     """
     cos, sin = rope_cos_sin(seq_len=q.shape[-2], d_head=q.shape[-1], theta=theta, offset=offset)
-    cos, sin = cos.to(q.dtype), sin.to(q.dtype)
-    return apply_rope(q, cos=cos, sin=sin), apply_rope(k, cos, sin)
+    return apply_rope(q, cos, sin), apply_rope(k, cos, sin)
 
 
 # ==========================================================================
@@ -120,18 +136,21 @@ def rope_dot_product(q: Tensor, k: Tensor, pos_q: int, pos_k: int, theta: float 
     This will be needed to check the relativity.
     """
     d = q.shape[-1]
-    cq, sq = rope_cos_sin(1, d, theta, offset=pos_q)
-    ck, sk = rope_cos_sin(1, d, theta, offset=pos_k)
-    qr = apply_rope(q[None, :], cq, sq)[0]
-    kr = apply_rope(k[None, :], ck, sk)[0]
-    return (qr * kr).sum()
+    q_cos, q_sin = rope_cos_sin(1, d, theta=theta, offset=pos_q)
+    q_rope = apply_rope(q, q_cos, q_sin).squeeze(0)
+
+    k_cos, k_sin = rope_cos_sin(1, d, theta=theta, offset=pos_k)
+    k_rope = apply_rope(k, cos=k_cos, sin=k_sin).squeeze(0)
+
+    return torch.dot(q_rope, k_rope)
 
 
 def rope_norm_change(x: Tensor, pos: int, theta: float = 10000.0) -> Tensor:
     """By how much the rotation changes the norm of the vector. As expected - not at all: it is a pure rotation."""
-    cos, sin = rope_cos_sin(1, x.shape[-1], theta, offset=pos)
-    rotated = apply_rope(x[None, :], cos, sin)[0]
-    return rotated.norm() - x.norm()  # type: ignore
+
+    cos, sin = rope_cos_sin(1, x.shape[-1], theta=theta, offset=pos)
+    roped = apply_rope(x, cos, sin)
+    return roped.norm() - x.norm()  # type: ignore
 
 
 # ==========================================================================
@@ -154,9 +173,9 @@ class RotaryEmbedding(nn.Module):
 
     def forward(self, x: Tensor, offset: int = 0) -> Tensor:
         T = x.shape[-2]
-        cos = self.cos_cached[offset : offset + T].to(x.dtype)
-        sin = self.sin_cached[offset : offset + T].to(x.dtype)
-        return apply_rope(x, cos, sin)
+        cos = self.cos_cached[offset : T + offset]
+        sin = self.sin_cached[offset : T + offset]
+        return apply_rope(x, cos, sin)  # type: ignore
 
 
 # ==========================================================================
@@ -255,7 +274,7 @@ def test_apply_rope_preserves_norm():
     torch.testing.assert_close(out.norm(dim=-1), x.norm(dim=-1), atol=1e-5, rtol=1e-5)
 
 
-def test_rope_is_relative():
+def test_rope_dot_product():
     """The key property: the dot product depends only on the difference of the positions."""
     q, k = torch.randn(16), torch.randn(16)
     base = rope_dot_product(q, k, 5, 3)

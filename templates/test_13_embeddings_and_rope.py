@@ -226,7 +226,7 @@ def test_apply_rope_preserves_norm():
     torch.testing.assert_close(out.norm(dim=-1), x.norm(dim=-1), atol=1e-5, rtol=1e-5)
 
 
-def test_rope_is_relative():
+def test_rope_dot_product():
     """The key property: the dot product depends only on the difference of the positions."""
     q, k = torch.randn(16), torch.randn(16)
     base = rope_dot_product(q, k, 5, 3)

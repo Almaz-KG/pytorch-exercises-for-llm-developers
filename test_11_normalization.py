@@ -28,14 +28,14 @@ def layer_norm(x: Tensor, weight: Tensor, bias: Tensor, eps: float = 1e-5) -> Te
     mean = x.mean(dim=-1, keepdim=True)
     var = x.var(dim=-1, keepdim=True, unbiased=False)
 
-    return (x - mean) * torch.rsqrt(var + eps) * weight + bias
+    return ((x - mean) / torch.sqrt(var + eps)) * weight + bias
 
 
 def rms_norm(x: Tensor, weight: Tensor, eps: float = 1e-5) -> Tensor:
     """RMSNorm along the last axis: x / sqrt(mean(x^2) + eps) * weight."""
     # RMSNorm:   x / sqrt(mean(x^2) + eps) * gamma - without subtracting the mean and without a bias.
 
-    return x / ((x**2).mean(dim=-1, keepdim=True) + eps).sqrt() * weight
+    return x / torch.sqrt((x**2).mean(dim=-1, keepdim=True) + eps) * weight
 
 
 def rms_norm_upcast(x: Tensor, weight: Tensor, eps: float = 1e-5) -> Tensor:
@@ -44,8 +44,12 @@ def rms_norm_upcast(x: Tensor, weight: Tensor, eps: float = 1e-5) -> Tensor:
 
     This is exactly how RMSNorm is written in real repositories.
     """
-    xx = x.to(torch.float32)
-    return (xx / ((xx**2).mean(dim=-1, keepdim=True) + eps).sqrt() * weight).to(x.dtype)
+
+    dtype = x.dtype
+    x = x.to(torch.float32)
+    result = x / torch.sqrt((x**2).mean(dim=-1, keepdim=True) + eps) * weight
+
+    return result.to(dtype)
 
 
 # ==========================================================================
@@ -61,11 +65,11 @@ class RMSNorm(nn.Module):
 
     def __init__(self, d_model: int, eps: float = 1e-5):
         super().__init__()
-        self.eps = eps
         self.weight = nn.Parameter(torch.ones(d_model))
+        self.eps = eps
 
     def forward(self, x: Tensor) -> Tensor:
-        return rms_norm(x, self.weight, self.eps)
+        return rms_norm(x, self.weight, eps=self.eps)
 
 
 class LayerNormModule(nn.Module):
