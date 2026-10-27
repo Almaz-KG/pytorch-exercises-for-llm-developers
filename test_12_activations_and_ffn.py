@@ -16,7 +16,8 @@ import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import Tensor, einsum
+from einops import einsum
+from torch import Tensor
 
 # ==========================================================================
 # 12.1 Activations by hand
@@ -25,7 +26,7 @@ from torch import Tensor, einsum
 
 def relu(x: Tensor) -> Tensor:
     """max(x, 0) without F.relu."""
-    return torch.where(x < 0, 0, x)
+    return torch.where(x > 0, x, 0)
 
 
 def gelu_exact(x: Tensor) -> Tensor:
@@ -37,17 +38,17 @@ def gelu_tanh(x: Tensor) -> Tensor:
     """The tanh approximation of GELU (the one that sits in GPT-2):
     0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))).
     """
-    return x * 0.5 * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * x**3)))
+    return 0.5 * x * (1 + (math.sqrt(2 / math.pi) * (x + 0.044715 * x**3)).tanh())
 
 
 def silu(x: Tensor) -> Tensor:
     """SiLU (also known as swish): x * sigmoid(x). Without F.silu."""
-    return x * torch.sigmoid(x)
+    return x * x.sigmoid()
 
 
 def silu_grad(x: Tensor) -> Tensor:
     """The derivative of SiLU, derived by hand: sigmoid(x) * (1 + x * (1 - sigmoid(x)))."""
-    return torch.sigmoid(x) * (1 + x * (1 - torch.sigmoid(x)))
+    return x.sigmoid() * (1 + x * (1 - x.sigmoid()))
 
 
 # ==========================================================================
@@ -60,12 +61,8 @@ def ffn_relu(x: Tensor, w1: Tensor, w2: Tensor) -> Tensor:
 
     The weights are given in the nn.Linear convention (out, in), so they have to be multiplied transposed.
     """
-    # print(x.shape)
-    # print(w1.shape)
-    # print(w2.shape)
-    activation = relu(einsum("f d, b t d -> b t f", w1, x))
-    # print(activation.shape)
-    return einsum("d f, b t f -> b t d", w2, activation)
+    activation = relu(einsum(x, w1, "... d, f d -> ... f"))
+    return einsum(activation, w2, "... f, d f -> ... d")
 
 
 def swiglu(x: Tensor, w1: Tensor, w2: Tensor, w3: Tensor) -> Tensor:
@@ -73,13 +70,10 @@ def swiglu(x: Tensor, w1: Tensor, w2: Tensor, w3: Tensor) -> Tensor:
     w1: (d_ff, d_model), w2: (d_model, d_ff), w3: (d_ff, d_model)
     out = (SiLU(x @ w1.T) * (x @ w3.T)) @ w2.T
     """
+    silu_act = silu(einsum(x, w1, "... d, f d -> ... f"))
+    xw3 = einsum(x, w3, "... d, f d -> ... f")
 
-    xw1 = einsum("b t d, f d -> b t f", x, w1)
-    xw3 = einsum("b t d, f d -> b t f", x, w3)
-
-    slu = silu(xw1) * xw3
-
-    return einsum("b t f, d f -> b t d", slu, w2)
+    return einsum((silu_act * xw3), w2, "... f, d f -> ... d")
 
 
 class SwiGLUFFN(nn.Module):
@@ -90,12 +84,17 @@ class SwiGLUFFN(nn.Module):
 
     def __init__(self, d_model: int, d_ff: int):
         super().__init__()
+        self.d_model = d_model
+        self.d_ff = d_ff
+
         self.w1 = nn.Linear(d_model, d_ff, bias=False)
         self.w2 = nn.Linear(d_ff, d_model, bias=False)
         self.w3 = nn.Linear(d_model, d_ff, bias=False)
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.w2(silu(self.w1(x)) * self.w3(x))
+        silu_act = silu(self.w1(x))
+        xw3 = self.w3(x)
+        return self.w2(silu_act * xw3)
 
 
 # ==========================================================================
@@ -114,12 +113,12 @@ def swiglu_d_ff(d_model: int, multiple_of: int = 64) -> int:
 
 def ffn_params(d_model: int, d_ff: int, gated: bool) -> int:
     """The number of FFN parameters without biases: two matrices for the ordinary one, three for a gated one (SwiGLU)."""
-    return (3 if gated else 2) * d_model * d_ff
+    return (2 if not gated else 3) * d_model * d_ff
 
 
 def ffn_flops(batch_tokens: int, d_model: int, d_ff: int, gated: bool) -> int:
     """The FLOPs of the FFN forward pass: the sum of 2*m*n*k over all the matrix multiplications."""
-    return 2 * (3 if gated else 2) * d_model * d_ff * batch_tokens
+    return (2 if not gated else 3) * 2 * batch_tokens * d_model * d_ff
 
 
 # ==========================================================================
