@@ -134,6 +134,19 @@ def activation_memory_bytes(batch: int, seq_len: int, d_model: int, num_layers: 
 #
 # 15.1 first: the three bricks each get their own test. Everything below them is assembled out of
 # all three, so those tests declare the bricks as prerequisites and stay skipped until they exist.
+#
+# Submodules and weights are reached through get_submodule / get_parameter rather than attribute access:
+# the stubs above declare no attributes, and these two calls keep the type checker informed.
+
+
+def _ref_causal_attention(x: Tensor, attn: nn.Module, num_heads: int) -> Tensor:
+    """Causal multi-head self-attention built from plain torch and the module's own weights."""
+    B, T, D = x.shape
+    q, k, v = (
+        (x @ attn.get_parameter(f"{name}_proj.weight").T).view(B, T, num_heads, -1).transpose(1, 2) for name in "qkv"
+    )
+    out = nn.functional.scaled_dot_product_attention(q, k, v, is_causal=True)
+    return out.transpose(1, 2).reshape(B, T, D) @ attn.get_parameter("output_proj.weight").T
 
 
 def test_rms_norm():
@@ -155,92 +168,130 @@ def test_swiglu():
     x = torch.randn(4, 8)
     out = ffn(x)
     assert out.shape == (4, 8)
-    expected = ffn.w2(nn.functional.silu(ffn.w1(x)) * ffn.w3(x))
+    w1, w2, w3 = (ffn.get_parameter(f"{name}.weight") for name in ("w1", "w2", "w3"))
+    expected = (nn.functional.silu(x @ w1.T) * (x @ w3.T)) @ w2.T
     torch.testing.assert_close(out, expected, atol=1e-6, rtol=1e-5)
 
 
-def test_causal_self_attention():
+@pytest.mark.parametrize("num_heads", [1, 2, 4])
+def test_causal_self_attention(num_heads):
+    attn = CausalSelfAttention(16, num_heads)
+    x = torch.randn(2, 5, 16)
+    torch.testing.assert_close(attn(x), _ref_causal_attention(x, attn, num_heads), atol=1e-5, rtol=1e-5)
+
+
+def test_causal_self_attention_names():
     attn = CausalSelfAttention(32, 4)
     names = {n for n, _ in attn.named_parameters()}
     assert names == {"q_proj.weight", "k_proj.weight", "v_proj.weight", "output_proj.weight"}
     assert sum(p.numel() for p in attn.parameters()) == 4 * 32 * 32
 
-    x = torch.randn(2, 7, 32)
-    assert attn(x).shape == (2, 7, 32)
 
-
-def test_causal_self_attention_masks_the_future():
+def test_causal_self_attention_is_causal():
+    """The output at position t must read the inputs up to t, and nothing after."""
     x = torch.randn(1, 6, 16, requires_grad=True)
     attn = CausalSelfAttention(16, 2)
     attn(x)[0, 2].sum().backward()
+    assert x.grad is not None
     assert x.grad[0, 3:].abs().max().item() == 0.0, "information leaked in from the future"
-    assert x.grad[0, :3].abs().max().item() > 0.0
+    assert (x.grad[0, :2].abs().amax(dim=-1) > 0).all(), "the output does not read the earlier tokens"
 
 
 @pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention")
-def test_block_structure():
-    block = TransformerBlock(32, 4, 64)
-    children = dict(block.named_children())
-    assert set(children.keys()) == {"ln1", "attn", "ln2", "ffn"}
-    x = torch.randn(2, 5, 32)
-    assert block(x).shape == x.shape
-
-
-@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention")
-def test_block_is_pre_norm_with_residuals():
+def test_transformer_block():
+    """A pre-norm block: each sublayer reads a normalized copy of the stream and adds its result back."""
     torch.manual_seed(0)
     block = TransformerBlock(16, 2, 32)
+    ln1, attn, ln2, ffn = (block.get_submodule(name) for name in ("ln1", "attn", "ln2", "ffn"))
     x = torch.randn(2, 4, 16)
-    h = x + block.attn(block.ln1(x))
-    expected = h + block.ffn(block.ln2(h))
+    h = x + attn(ln1(x))
+    expected = h + ffn(ln2(h))
     torch.testing.assert_close(block(x), expected, atol=1e-5, rtol=1e-5)
 
 
 @pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention")
-def test_block_identity_when_sublayers_are_zero():
+def test_transformer_block_names():
+    block = TransformerBlock(32, 4, 64)
+    assert {name for name, _ in block.named_children()} == {"ln1", "attn", "ln2", "ffn"}
+    assert block.get_submodule("ln1") is not block.get_submodule("ln2"), "ln1 and ln2 must be separate instances"
+
+
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention")
+def test_transformer_block_identity_when_sublayers_are_zero():
     """Zero out the output projections - the residual stream is obliged to carry the input through unchanged."""
     block = TransformerBlock(16, 2, 32)
     with torch.no_grad():
-        block.attn.output_proj.weight.zero_()
-        block.ffn.w2.weight.zero_()
+        block.get_parameter("attn.output_proj.weight").zero_()
+        block.get_parameter("ffn.w2.weight").zero_()
     x = torch.randn(3, 5, 16)
     torch.testing.assert_close(block(x), x, atol=1e-6, rtol=0)
 
 
 @pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
-def test_lm_shapes_and_names():
-    model = TransformerLM(vocab_size=100, d_model=32, num_heads=4, d_ff=64, num_layers=2)
-    ids = torch.randint(0, 100, (2, 7))
+@pytest.mark.parametrize("num_layers", [1, 3])
+def test_transformer_lm(num_layers):
+    """embeddings -> every block in order -> ln_final -> lm_head, assembled from the model's own parts."""
+    model = TransformerLM(vocab_size=40, d_model=16, num_heads=2, d_ff=32, num_layers=num_layers)
+    ids = torch.randint(0, 40, (2, 5))
+
+    h = model.get_parameter("token_embeddings.weight")[ids]
+    for i in range(num_layers):
+        h = model.get_submodule(f"layers.{i}")(h)
+    expected = model.get_submodule("lm_head")(model.get_submodule("ln_final")(h))
+
     logits = model(ids)
-    assert logits.shape == (2, 7, 100)
+    assert logits.shape == (2, 5, 40)
+    torch.testing.assert_close(logits, expected, atol=1e-5, rtol=1e-5)
+
+
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
+def test_transformer_lm_names():
+    model = TransformerLM(vocab_size=100, d_model=32, num_heads=4, d_ff=64, num_layers=2)
+    assert {name for name, _ in model.named_children()} == {"token_embeddings", "layers", "ln_final", "lm_head"}
+    assert isinstance(model.get_submodule("layers"), nn.ModuleList)
+    assert isinstance(model.get_submodule("token_embeddings"), nn.Embedding)
 
     names = {n for n, _ in model.named_parameters()}
     assert "token_embeddings.weight" in names
     assert "ln_final.weight" in names
     assert "lm_head.weight" in names
+    assert "lm_head.bias" not in names
     assert "layers.0.attn.q_proj.weight" in names
     assert "layers.1.ffn.w1.weight" in names
     assert "layers.0.ln1.weight" in names
+    assert model.get_submodule("layers.0") is not model.get_submodule("layers.1"), "every layer must be its own block"
 
 
 @pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
-def test_lm_is_causal():
+def test_transformer_lm_init():
+    """The embeddings and every linear weight come from N(0, 0.02); the norm weights stay at one."""
+    torch.manual_seed(0)
+    model = TransformerLM(vocab_size=1000, d_model=64, num_heads=4, d_ff=128, num_layers=2)
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear | nn.Embedding):
+            w = module.weight.detach()
+            assert abs(w.std().item() - 0.02) < 0.002, f"{name}: std {w.std().item():.4f}, expected 0.02"
+            assert abs(w.mean().item()) < 0.002, f"{name}: mean {w.mean().item():.4f}, expected 0"
+    torch.testing.assert_close(model.get_parameter("ln_final.weight"), torch.ones(64))
+
+
+@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
+def test_transformer_lm_is_causal():
+    """Changing a token may change the logits at its own position and after it, never before."""
     model = TransformerLM(vocab_size=50, d_model=32, num_heads=4, d_ff=64, num_layers=2)
     ids = torch.randint(0, 50, (1, 6))
-    emb = model.token_embeddings(ids).detach().requires_grad_(True)
-
-    h = emb
-    for layer in model.layers:
-        h = layer(h)
-    logits = model.lm_head(model.ln_final(h))
-    logits[0, 2].sum().backward()
-
-    assert emb.grad[0, 3:].abs().max().item() == 0.0, "the model is peeking into the future"
-    assert emb.grad[0, :3].abs().max().item() > 0.0
+    changed = ids.clone()
+    changed[0, 3] = (ids[0, 3] + 1) % 50
+    with torch.no_grad():
+        before, after = model(ids), model(changed)
+    torch.testing.assert_close(
+        after[:, :3], before[:, :3], atol=1e-6, rtol=0, msg="the model is peeking into the future"
+    )
+    assert not torch.allclose(after[:, 3:], before[:, 3:]), "the later positions do not read the changed token"
 
 
 @pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
-def test_untrained_loss_is_log_vocab():
+def test_transformer_lm_untrained_loss_is_log_vocab():
     """The first check of any training run: the loss at the start must be ~log(V)."""
     torch.manual_seed(0)
     V = 512
@@ -248,11 +299,11 @@ def test_untrained_loss_is_log_vocab():
     ids = torch.randint(0, V, (4, 16))
     logits = model(ids)
     loss = nn.functional.cross_entropy(logits.reshape(-1, V), ids.reshape(-1))
-    assert abs(loss.item() - math.log(V)) < 0.3, f"loss {loss.item():.3f}, expected ~{math.log(V):.3f}"
+    assert abs(loss.item() - math.log(V)) < 0.1, f"loss {loss.item():.3f}, expected ~{math.log(V):.3f}"
 
 
 @pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
-def test_lm_can_overfit_one_batch():
+def test_transformer_lm_can_overfit_one_batch():
     """The model must be able to memorize a single batch - otherwise the graph or the mask is broken somewhere."""
     torch.manual_seed(0)
     V = 32
@@ -261,16 +312,15 @@ def test_lm_can_overfit_one_batch():
     inputs, targets = ids[:, :-1], ids[:, 1:]
     opt = torch.optim.AdamW(model.parameters(), lr=3e-3)
 
-    first = None
-    for step in range(60):
+    losses = []
+    for _ in range(60):
         logits = model(inputs)
         loss = nn.functional.cross_entropy(logits.reshape(-1, V), targets.reshape(-1))
         opt.zero_grad()
         loss.backward()
         opt.step()
-        if step == 0:
-            first = loss.item()
-    assert loss.item() < 0.1 * first, f"the loss did not fall: {first:.3f} -> {loss.item():.3f}"
+        losses.append(loss.item())
+    assert losses[-1] < 0.1 * losses[0], f"the loss did not fall: {losses[0]:.3f} -> {losses[-1]:.3f}"
 
 
 def test_count_lm_params():
@@ -284,7 +334,7 @@ def test_count_lm_params():
 
 
 @pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock", "TransformerLM")
-def test_count_matches_real_model():
+def test_count_lm_params_matches_real_model():
     model = TransformerLM(vocab_size=100, d_model=32, num_heads=4, d_ff=64, num_layers=2)
     formula = count_lm_params(100, 32, 64, 2, tied_embeddings=False)
     real = sum(p.numel() for p in model.parameters())
@@ -293,13 +343,5 @@ def test_count_matches_real_model():
 
 
 def test_activation_memory_bytes():
-    b = activation_memory_bytes(8, 2048, 4096, 32, torch.bfloat16)
-    assert b == 8 * 2048 * 4096 * 32 * 2
-
-
-@pytest.mark.depends_on("RMSNorm", "SwiGLU", "CausalSelfAttention", "TransformerBlock")
-@pytest.mark.parametrize("num_layers", [1, 3])
-def test_lm_depth(num_layers):
-    model = TransformerLM(vocab_size=40, d_model=16, num_heads=2, d_ff=32, num_layers=num_layers)
-    assert len(model.layers) == num_layers
-    assert model(torch.randint(0, 40, (1, 5))).shape == (1, 5, 40)
+    assert activation_memory_bytes(8, 2048, 4096, 32, torch.bfloat16) == 8 * 2048 * 4096 * 32 * 2
+    assert activation_memory_bytes(1, 10, 8, 2, torch.float32) == 10 * 8 * 2 * 4
