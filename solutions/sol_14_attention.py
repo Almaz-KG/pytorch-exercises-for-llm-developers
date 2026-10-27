@@ -28,7 +28,7 @@ def attention_weights(q: Tensor, k: Tensor, mask: Tensor | None = None) -> Tenso
     return scores.softmax(dim=-1)
 
 
-def _causal_mask(t: int, s: int, device) -> Tensor:
+def _causal_mask(t: int, s: int, device: torch.device) -> Tensor:
     q_idx = torch.arange(t, device=device)[:, None]
     k_idx = torch.arange(s, device=device)[None, :]
     return q_idx >= k_idx
