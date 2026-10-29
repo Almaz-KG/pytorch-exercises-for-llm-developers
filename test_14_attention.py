@@ -16,7 +16,6 @@ import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from einops import einsum, rearrange
 from torch import Tensor
 
 # ==========================================================================
@@ -26,12 +25,12 @@ from torch import Tensor
 
 def split_heads(x: Tensor, num_heads: int) -> Tensor:
     """(B, T, D) -> (B, H, T, Dh)."""
-    return rearrange(x, "b t (h d) -> b h t d", h=num_heads)
+    raise NotImplementedError
 
 
 def merge_heads(x: Tensor) -> Tensor:
     """(B, H, T, Dh) -> (B, T, D)."""
-    return rearrange(x, "b h t d -> b t (h d)")
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -45,18 +44,7 @@ def scaled_dot_product_attention(q: Tensor, k: Tensor, v: Tensor, mask: Tensor |
 
     Return (..., T, Dh). The softmax is taken along the key axis.
     """
-    # Attention(Q, K, V) = softmax(Q K^T / sqrt(Dh) + mask) V
-    print(q.shape)
-    print(k.shape)
-    print(v.shape)
-
-    qk = einsum(q, k, "... t d, ... s d -> ... t s") / math.sqrt(q.shape[-1])
-    if mask is not None:
-        masked = torch.masked_fill(qk, ~mask, float("-inf"))
-        sm = torch.softmax(masked, dim=-1)
-    else:
-        sm = torch.softmax(qk, dim=-1)
-    return einsum(sm, v, "... t s, ... s d -> ... t d")
+    raise NotImplementedError
 
 
 def attention_weights(q: Tensor, k: Tensor, mask: Tensor | None = None) -> Tensor:
@@ -64,10 +52,7 @@ def attention_weights(q: Tensor, k: Tensor, mask: Tensor | None = None) -> Tenso
 
     Useful for debugging and for the pictures in reports.
     """
-    qk = einsum(q, k, "... t d, ... s d -> ... t s") / math.sqrt(q.shape[-1])
-    if mask is not None:
-        return torch.softmax(torch.masked_fill(qk, ~mask, float("-inf")), dim=-1)
-    return torch.softmax(qk, dim=-1)
+    raise NotImplementedError
 
 
 def causal_attention(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
@@ -75,20 +60,7 @@ def causal_attention(q: Tensor, k: Tensor, v: Tensor) -> Tensor:
 
     Build the mask inside, from the lengths of q and k (assume they are equal).
     """
-    # print(q.shape)
-    # print(k.shape)
-    # print(v.shape)
-
-    T, D = q.shape[-2], q.shape[-1]
-    mask = torch.tril(torch.ones(T, T, dtype=torch.bool, device=q.device))
-
-    qk = einsum(q, k, "... t d, ... s d -> ... t s") / math.sqrt(D)
-    # print(qk.shape)
-    # print(mask.shape)
-
-    masked = qk.masked_fill(~mask, float("-inf"))
-    sm = masked.softmax(dim=-1)
-    return einsum(sm, v, "... t s, ... s d -> ... t d")
+    raise NotImplementedError
 
 
 def attention_with_padding(q: Tensor, k: Tensor, v: Tensor, pad_mask: Tensor) -> Tensor:
@@ -96,21 +68,7 @@ def attention_with_padding(q: Tensor, k: Tensor, v: Tensor, pad_mask: Tensor) ->
 
     q, k, v: (B, H, T, Dh), T == S.
     """
-    print(q.shape)
-    print(k.shape)
-    print(v.shape)
-    print(pad_mask.shape)
-
-    T, D = q.shape[-2], q.shape[-1]
-    mask = torch.tril(torch.ones(T, T, dtype=torch.bool, device=q.device))
-    mask_with_padding = mask * pad_mask[:, None, None, :]
-    print(mask.shape)
-    print(mask_with_padding.shape)
-
-    qk = einsum(q, k, "... t d, ... s d -> ... t s") / math.sqrt(D)
-    masked = qk.masked_fill(~mask_with_padding, float("-inf"))
-    sm = masked.softmax(dim=-1)
-    return einsum(sm, v, "... t s, ... s d -> ... t d")
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -129,17 +87,10 @@ class MultiHeadSelfAttention(nn.Module):
 
     def __init__(self, d_model: int, num_heads: int):
         super().__init__()
-        self.num_heads = num_heads
-        self.q_proj = nn.Linear(d_model, d_model, bias=False)
-        self.k_proj = nn.Linear(d_model, d_model, bias=False)
-        self.v_proj = nn.Linear(d_model, d_model, bias=False)
-        self.output_proj = nn.Linear(d_model, d_model, bias=False)
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        q = split_heads(self.q_proj(x), self.num_heads)
-        k = split_heads(self.k_proj(x), self.num_heads)
-        v = split_heads(self.v_proj(x), self.num_heads)
-        return self.output_proj(merge_heads(causal_attention(q, k, v)))
+        raise NotImplementedError
 
 
 class GroupedQueryAttention(nn.Module):
@@ -154,32 +105,10 @@ class GroupedQueryAttention(nn.Module):
 
     def __init__(self, d_model: int, num_heads: int, num_kv_heads: int):
         super().__init__()
-
-        assert d_model % num_heads == 0
-        assert num_heads % num_kv_heads == 0
-
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.num_kv_heads = num_kv_heads
-        self.head_dim = d_model // num_heads
-
-        self.q_proj = nn.Linear(d_model, num_heads * self.head_dim, bias=False)
-        self.k_proj = nn.Linear(d_model, num_kv_heads * self.head_dim, bias=False)
-        self.v_proj = nn.Linear(d_model, num_kv_heads * self.head_dim, bias=False)
-        self.output_proj = nn.Linear(num_heads * self.head_dim, d_model, bias=False)
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        B, T, _ = x.shape
-        groups = self.num_heads // self.num_kv_heads
-
-        q = split_heads(self.q_proj(x), self.num_heads)
-        k = self.k_proj(x).view(B, T, self.num_kv_heads, self.head_dim).transpose(1, 2)
-        v = self.v_proj(x).view(B, T, self.num_kv_heads, self.head_dim).transpose(1, 2)
-
-        k = k.repeat_interleave(groups, dim=1)
-        v = v.repeat_interleave(groups, dim=1)
-
-        return self.output_proj(merge_heads(causal_attention(q, k, v)))
+        raise NotImplementedError
 
 
 # ==========================================================================
@@ -192,7 +121,7 @@ def attention_matrix_bytes(batch: int, heads: int, seq_len: int, dtype: torch.dt
 
     Work out for yourself what a 32k context turns into - it will become clear what flash-attention is for.
     """
-    return batch * heads * (seq_len**2) * dtype.itemsize
+    raise NotImplementedError
 
 
 def attention_flops(batch: int, heads: int, seq_len: int, d_head: int) -> int:
@@ -200,7 +129,7 @@ def attention_flops(batch: int, heads: int, seq_len: int, d_head: int) -> int:
 
     Both multiplications: (T, Dh) x (Dh, T) and (T, T) x (T, Dh), for every head and every example.
     """
-    return 4 * batch * heads * (seq_len**2) * d_head
+    raise NotImplementedError
 
 
 # ==========================================================================

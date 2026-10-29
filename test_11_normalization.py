@@ -24,18 +24,12 @@ from torch import Tensor
 
 def layer_norm(x: Tensor, weight: Tensor, bias: Tensor, eps: float = 1e-5) -> Tensor:
     """LayerNorm along the last axis, without F.layer_norm. The variance is biased (denominator N)."""
-    # LayerNorm: (x - mean) / sqrt(var + eps) * gamma + beta, with the statistics over the last axis.
-    mean = x.mean(dim=-1, keepdim=True)
-    var = x.var(dim=-1, keepdim=True, unbiased=False)
-
-    return ((x - mean) / torch.sqrt(var + eps)) * weight + bias
+    raise NotImplementedError
 
 
 def rms_norm(x: Tensor, weight: Tensor, eps: float = 1e-5) -> Tensor:
     """RMSNorm along the last axis: x / sqrt(mean(x^2) + eps) * weight."""
-    # RMSNorm:   x / sqrt(mean(x^2) + eps) * gamma - without subtracting the mean and without a bias.
-
-    return x / torch.sqrt((x**2).mean(dim=-1, keepdim=True) + eps) * weight
+    raise NotImplementedError
 
 
 def rms_norm_upcast(x: Tensor, weight: Tensor, eps: float = 1e-5) -> Tensor:
@@ -44,12 +38,7 @@ def rms_norm_upcast(x: Tensor, weight: Tensor, eps: float = 1e-5) -> Tensor:
 
     This is exactly how RMSNorm is written in real repositories.
     """
-
-    dtype = x.dtype
-    x = x.to(torch.float32)
-    result = x / torch.sqrt((x**2).mean(dim=-1, keepdim=True) + eps) * weight
-
-    return result.to(dtype)
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -65,11 +54,10 @@ class RMSNorm(nn.Module):
 
     def __init__(self, d_model: int, eps: float = 1e-5):
         super().__init__()
-        self.weight = nn.Parameter(torch.ones(d_model))
-        self.eps = eps
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        return rms_norm(x, self.weight, eps=self.eps)
+        raise NotImplementedError
 
 
 class LayerNormModule(nn.Module):
@@ -77,12 +65,10 @@ class LayerNormModule(nn.Module):
 
     def __init__(self, d_model: int, eps: float = 1e-5):
         super().__init__()
-        self.weight = nn.Parameter(torch.ones(d_model))
-        self.bias = nn.Parameter(torch.zeros(d_model))
-        self.eps = eps
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        return layer_norm(x, self.weight, self.bias, self.eps)
+        raise NotImplementedError
 
 
 # ==========================================================================
@@ -92,7 +78,7 @@ class LayerNormModule(nn.Module):
 
 def post_norm_residual(x: Tensor, sublayer_out: Tensor, norm: nn.Module) -> Tensor:
     """The original transformer (2017): norm(x + sublayer(x))."""
-    return norm(x + sublayer_out)
+    raise NotImplementedError
 
 
 def pre_norm_residual(x: Tensor, sublayer: nn.Module, norm: nn.Module) -> Tensor:
@@ -101,7 +87,7 @@ def pre_norm_residual(x: Tensor, sublayer: nn.Module, norm: nn.Module) -> Tensor
     The difference is not cosmetic: in pre-norm the residual stream runs from the input to the output
     without a single normalization, so the gradient does not decay and the model trains without warmup crutches.
     """
-    return x + sublayer(norm(x))
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -114,8 +100,7 @@ def scale_invariance_gap(x: Tensor, c: float) -> Tensor:
 
     RMSNorm is invariant to the scale of the input - that is why it stabilizes training.
     """
-    w = torch.ones(x.shape[-1], dtype=x.dtype, device=x.device)
-    return (rms_norm(x, w) - rms_norm(c * x, w)).abs().max()
+    raise NotImplementedError
 
 
 def stats_after_layernorm(x: Tensor) -> tuple[Tensor, Tensor]:
@@ -124,8 +109,7 @@ def stats_after_layernorm(x: Tensor) -> tuple[Tensor, Tensor]:
 
     It should come out as roughly 0 and 1 - that is the definition of LayerNorm.
     """
-    ln = layer_norm(x, weight=torch.ones(x.shape[-1]), bias=torch.zeros(x.shape[-1]))
-    return ln.mean(dim=-1), ln.std(dim=-1, unbiased=False)
+    raise NotImplementedError
 
 
 # ==========================================================================

@@ -30,7 +30,7 @@ def scaled_token_embedding(table: Tensor, ids: Tensor) -> Tensor:
     """A lookup multiplied by sqrt(d_model) - this is what the original transformer does,
     so that the embeddings and the positional sinusoids are comparable in scale.
     """
-    return table[ids] * math.sqrt(table.shape[-1])
+    raise NotImplementedError
 
 
 def learned_positional(embed: Tensor, pos_table: Tensor, offset: int = 0) -> Tensor:
@@ -39,13 +39,7 @@ def learned_positional(embed: Tensor, pos_table: Tensor, offset: int = 0) -> Ten
 
     The offset is needed during generation: at a decoding step we have one token, but its position is not zero.
     """
-    # print(embed.shape)
-    # print((embed.view(-1, embed.shape[-1])).shape)
-
-    # print((pos_table + offset).shape)
-    # print(offset)
-
-    return embed + pos_table[offset : embed.shape[1] + offset]
+    raise NotImplementedError
 
 
 def sinusoidal_pe(seq_len: int, d_model: int) -> Tensor:
@@ -53,16 +47,7 @@ def sinusoidal_pe(seq_len: int, d_model: int) -> Tensor:
     PE[pos, 2i]   = sin(pos / 10000^(2i/d))
     PE[pos, 2i+1] = cos(pos / 10000^(2i/d))
     """
-    pos = torch.arange(0, seq_len).float().unsqueeze(1)
-    i_term = torch.arange(0, d_model, 2).float()
-    div_mod = torch.exp(i_term * (-math.log(10000) / d_model))
-
-    x = pos * div_mod
-
-    pe = torch.zeros(seq_len, d_model).float()
-    pe[:, 0::2] = torch.sin(x)
-    pe[:, 1::2] = torch.cos(x)
-    return pe
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -75,9 +60,7 @@ def rope_inv_freq(d_head: int, theta: float = 10000.0) -> Tensor:
 
     The first pair spins fast (frequency 1), the last one very slowly.
     """
-    i_term = torch.arange(d_head // 2).float()
-
-    return torch.exp(-2 * i_term * math.log(theta) / d_head)
+    raise NotImplementedError
 
 
 def rope_cos_sin(seq_len: int, d_head: int, theta: float = 10000.0, offset: int = 0) -> tuple[Tensor, Tensor]:
@@ -86,15 +69,7 @@ def rope_cos_sin(seq_len: int, d_head: int, theta: float = 10000.0, offset: int 
 
     In a real model this is computed once and kept as a buffer.
     """
-
-    def rope_inv_freq2(d_head: int, theta: float) -> Tensor:
-        i_term = torch.arange(d_head // 2).float()
-        return torch.exp(-2 * i_term * math.log(theta) / d_head)
-
-    inv_freqs = rope_inv_freq2(d_head=d_head, theta=theta)
-    pos = (torch.arange(seq_len) + offset).unsqueeze(1)
-
-    return (pos * inv_freqs).cos(), (pos * inv_freqs).sin()
+    raise NotImplementedError
 
 
 def apply_rope(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
@@ -106,14 +81,7 @@ def apply_rope(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
 
     The function must work both for (T, Dh) and for (B, H, T, Dh) - thanks to broadcasting.
     """
-    even = x[..., 0::2]
-    odd = x[..., 1::2]
-
-    result = torch.zeros_like(x)
-    result[..., 0::2] = even * cos - odd * sin
-    result[..., 1::2] = even * sin + odd * cos
-
-    return result
+    raise NotImplementedError
 
 
 def apply_rope_to_qk(q: Tensor, k: Tensor, theta: float = 10000.0, offset: int = 0) -> tuple[Tensor, Tensor]:
@@ -121,8 +89,7 @@ def apply_rope_to_qk(q: Tensor, k: Tensor, theta: float = 10000.0, offset: int =
 
     Note: RoPE is applied to q and k, but NOT to v.
     """
-    cos, sin = rope_cos_sin(seq_len=q.shape[-2], d_head=q.shape[-1], theta=theta, offset=offset)
-    return apply_rope(q, cos, sin), apply_rope(k, cos, sin)
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -135,22 +102,12 @@ def rope_dot_product(q: Tensor, k: Tensor, pos_q: int, pos_k: int, theta: float 
 
     This will be needed to check the relativity.
     """
-    d = q.shape[-1]
-    q_cos, q_sin = rope_cos_sin(1, d, theta=theta, offset=pos_q)
-    q_rope = apply_rope(q, q_cos, q_sin).squeeze(0)
-
-    k_cos, k_sin = rope_cos_sin(1, d, theta=theta, offset=pos_k)
-    k_rope = apply_rope(k, cos=k_cos, sin=k_sin).squeeze(0)
-
-    return torch.dot(q_rope, k_rope)
+    raise NotImplementedError
 
 
 def rope_norm_change(x: Tensor, pos: int, theta: float = 10000.0) -> Tensor:
     """By how much the rotation changes the norm of the vector. As expected - not at all: it is a pure rotation."""
-
-    cos, sin = rope_cos_sin(1, x.shape[-1], theta=theta, offset=pos)
-    roped = apply_rope(x, cos, sin)
-    return roped.norm() - x.norm()  # type: ignore
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -167,15 +124,10 @@ class RotaryEmbedding(nn.Module):
 
     def __init__(self, d_head: int, max_len: int, theta: float = 10000.0):
         super().__init__()
-        cos, sin = rope_cos_sin(max_len, d_head, theta)
-        self.register_buffer("cos_cached", cos, persistent=True)
-        self.register_buffer("sin_cached", sin, persistent=True)
+        raise NotImplementedError
 
     def forward(self, x: Tensor, offset: int = 0) -> Tensor:
-        T = x.shape[-2]
-        cos = self.cos_cached[offset : T + offset]
-        sin = self.sin_cached[offset : T + offset]
-        return apply_rope(x, cos, sin)  # type: ignore
+        raise NotImplementedError
 
 
 # ==========================================================================

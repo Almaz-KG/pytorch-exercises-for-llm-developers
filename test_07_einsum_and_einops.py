@@ -14,7 +14,7 @@ where einsum or einops is asked for. The whole point is to train exactly those.
 import pytest
 import torch
 from einops import rearrange, reduce, repeat
-from torch import Tensor, einsum
+from torch import Tensor
 
 # ==========================================================================
 # 7.1 einsum: warm-up
@@ -23,32 +23,32 @@ from torch import Tensor, einsum
 
 def es_trace(x: Tensor) -> Tensor:
     """The trace of a square matrix through einsum."""
-    return einsum("ii->", x)
+    raise NotImplementedError
 
 
 def es_diagonal(x: Tensor) -> Tensor:
     """The diagonal of a square matrix through einsum (without summing)."""
-    return einsum("ii->i", x)
+    raise NotImplementedError
 
 
 def es_transpose(x: Tensor) -> Tensor:
     """Transposing a matrix through einsum."""
-    return einsum("ij -> ji", x)
+    raise NotImplementedError
 
 
 def es_matmul(a: Tensor, b: Tensor) -> Tensor:
     """(M, K) @ (K, N) through einsum."""
-    return einsum("m k, k n -> m n", a, b)
+    raise NotImplementedError
 
 
 def es_outer(a: Tensor, b: Tensor) -> Tensor:
     """The outer product of (N,) and (M,) -> (N, M) through einsum."""
-    return einsum("n,m -> n m", a, b)
+    raise NotImplementedError
 
 
 def es_row_sums(x: Tensor) -> Tensor:
     """The row sums of a matrix through einsum."""
-    return einsum("ij -> i", x)
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -61,12 +61,12 @@ def es_attention_scores(q: Tensor, k: Tensor) -> Tensor:
 
     One einsum line instead of transpose + matmul.
     """
-    return einsum("b h t d, b h s d -> b h t s", q, k)
+    raise NotImplementedError
 
 
 def es_attention_output(weights: Tensor, v: Tensor) -> Tensor:
     """weights: (B, H, T, S), v: (B, H, S, Dh) -> (B, H, T, Dh)."""
-    return einsum("b h t s, b h s d -> b h t d", weights, v)
+    raise NotImplementedError
 
 
 def es_per_head_projection(x: Tensor, w: Tensor) -> Tensor:
@@ -74,7 +74,7 @@ def es_per_head_projection(x: Tensor, w: Tensor) -> Tensor:
 
     Every head has its own projection matrix - that is exactly the convenient way to think about MHA.
     """
-    return einsum("b t d, h d D -> b h t D", x, w)
+    raise NotImplementedError
 
 
 def es_weight_grad(x: Tensor, grad_out: Tensor) -> Tensor:
@@ -82,7 +82,7 @@ def es_weight_grad(x: Tensor, grad_out: Tensor) -> Tensor:
 
     The batch axis is summed over, which is why it is not in the output.
     """
-    return einsum("n i, n o -> o i", x, grad_out)
+    raise NotImplementedError
 
 
 def es_batched_bilinear(x: Tensor, W: Tensor, y: Tensor) -> Tensor:
@@ -90,7 +90,7 @@ def es_batched_bilinear(x: Tensor, W: Tensor, y: Tensor) -> Tensor:
 
     Careful: the batch is NOT summed over, everything else is.
     """
-    return einsum("B d, d k, B k -> B", x, W, y)
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -100,17 +100,17 @@ def es_batched_bilinear(x: Tensor, W: Tensor, y: Tensor) -> Tensor:
 
 def eo_split_heads(x: Tensor, num_heads: int) -> Tensor:
     """(B, T, (H Dh)) -> (B, H, T, Dh) in a single rearrange."""
-    return rearrange(x, "b t (h d) -> b h t d", h=num_heads)
+    raise NotImplementedError
 
 
 def eo_merge_heads(x: Tensor) -> Tensor:
     """(B, H, T, Dh) -> (B, T, (H Dh)) in a single rearrange."""
-    return rearrange(x, "b h t d -> b t (h d)")
+    raise NotImplementedError
 
 
 def eo_flatten_tokens(x: Tensor) -> Tensor:
     """(B, T, D) -> ((B T), D) in a single rearrange."""
-    return rearrange(x, "b t d -> (b t) d")
+    raise NotImplementedError
 
 
 def eo_split_qkv(qkv: Tensor, num_heads: int) -> Tensor:
@@ -118,7 +118,7 @@ def eo_split_qkv(qkv: Tensor, num_heads: int) -> Tensor:
 
     The order inside the parentheses matters: first q/k/v, inside that the heads, inside that the channel.
     """
-    return rearrange(qkv, "b t (h H d) -> h b H t d", h=3, H=num_heads)
+    raise NotImplementedError
 
 
 def eo_group_tokens(x: Tensor, group: int) -> Tensor:
@@ -126,7 +126,7 @@ def eo_group_tokens(x: Tensor, group: int) -> Tensor:
 
     This is how chunked attention and flash-attention-like schemes are done.
     """
-    return rearrange(x, "b (n g) d -> b n g d", g=group)
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -136,24 +136,24 @@ def eo_group_tokens(x: Tensor, group: int) -> Tensor:
 
 def eo_mean_pool(x: Tensor) -> Tensor:
     """(B, T, D) -> (B, D): the mean over time through reduce."""
-    return reduce(x, "b t d -> b d", "mean")
+    raise NotImplementedError
 
 
 def eo_max_pool_heads(x: Tensor) -> Tensor:
     """(B, H, T, Dh) -> (B, T, Dh): the maximum over the heads through reduce."""
-    return reduce(x, "b h t d -> b t d", "max")
+    raise NotImplementedError
 
 
 def eo_repeat_kv(kv: Tensor, num_groups: int) -> Tensor:
     """GQA through repeat: (B, H_kv, T, Dh) -> (B, (H_kv num_groups), T, Dh),
     where every kv head is repeated num_groups times in a row.
     """
-    return repeat(kv, "b h t d -> b (h n) t d", n=num_groups)
+    raise NotImplementedError
 
 
 def eo_broadcast_mask(mask: Tensor, num_heads: int) -> Tensor:
     """(B, T, S) -> (B, H, T, S) through repeat."""
-    return repeat(mask, "b t s -> b h t s", h=num_heads)
+    raise NotImplementedError
 
 
 # ==========================================================================

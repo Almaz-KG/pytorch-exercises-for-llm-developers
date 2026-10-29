@@ -20,8 +20,6 @@ import math
 import pytest
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from einops import rearrange
 from torch import Tensor
 
 # ==========================================================================
@@ -34,13 +32,10 @@ class RMSNorm(nn.Module):
 
     def __init__(self, d_model: int, eps: float = 1e-5):
         super().__init__()
-
-        self.d_model = d_model
-        self.eps = eps
-        self.weight = nn.Parameter(torch.ones(d_model))
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        return x / torch.sqrt((x**2).mean(dim=-1, keepdim=True) + self.eps) * self.weight
+        raise NotImplementedError
 
 
 class SwiGLU(nn.Module):
@@ -48,20 +43,10 @@ class SwiGLU(nn.Module):
 
     def __init__(self, d_model: int, d_ff: int):
         super().__init__()
-
-        self.d_model = d_model
-        self.d_ff = d_ff
-        self.w1 = nn.Linear(d_model, d_ff, bias=False)
-        self.w2 = nn.Linear(d_ff, d_model, bias=False)
-        self.w3 = nn.Linear(d_model, d_ff, bias=False)
-
-    def silu(self, x: Tensor) -> Tensor:
-        return x * x.sigmoid()
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        silu_act = self.silu(self.w1(x))
-        xw3 = self.w3(x)
-        return self.w2(silu_act * xw3)
+        raise NotImplementedError
 
 
 class CausalSelfAttention(nn.Module):
@@ -71,28 +56,10 @@ class CausalSelfAttention(nn.Module):
 
     def __init__(self, d_model: int, num_heads: int):
         super().__init__()
-
-        self.num_heads = num_heads
-        self.q_proj = nn.Linear(d_model, d_model, bias=False)
-        self.k_proj = nn.Linear(d_model, d_model, bias=False)
-        self.v_proj = nn.Linear(d_model, d_model, bias=False)
-
-        self.output_proj = nn.Linear(d_model, d_model, bias=False)
-
-    def split_heads(self, proj: Tensor, num_heads: int) -> Tensor:
-        return rearrange(proj, "b t (h d) -> b h t d", h=num_heads)
-
-    def merge_heads(self, proj: Tensor) -> Tensor:
-        return rearrange(proj, "b h t d -> b t (h d)")
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        q = self.split_heads(self.q_proj(x), num_heads=self.num_heads)
-        k = self.split_heads(self.k_proj(x), num_heads=self.num_heads)
-        v = self.split_heads(self.v_proj(x), num_heads=self.num_heads)
-
-        sda = F.scaled_dot_product_attention(q, k, v, is_causal=True)
-
-        return self.output_proj(self.merge_heads(sda))
+        raise NotImplementedError
 
 
 # ==========================================================================
@@ -109,14 +76,10 @@ class TransformerBlock(nn.Module):
 
     def __init__(self, d_model: int, num_heads: int, d_ff: int):
         super().__init__()
-        self.ln1 = RMSNorm(d_model, d_model)
-        self.attn = CausalSelfAttention(d_model, num_heads)
-        self.ln2 = RMSNorm(d_model, d_model)
-        self.ffn = SwiGLU(d_model, d_ff)
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        x = x + self.attn(self.ln1(x))
-        return x + self.ffn(self.ln2(x))
+        raise NotImplementedError
 
 
 # ==========================================================================
@@ -138,26 +101,10 @@ class TransformerLM(nn.Module):
 
     def __init__(self, vocab_size: int, d_model: int, num_heads: int, d_ff: int, num_layers: int):
         super().__init__()
-        self.token_embeddings = nn.Embedding(vocab_size, d_model)
-        self.layers = nn.ModuleList(
-            [TransformerBlock(d_model=d_model, num_heads=num_heads, d_ff=d_ff) for _ in range(num_layers)]
-        )
-        self.ln_final = RMSNorm(d_model)
-        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
-        self.apply(self._init)
-
-    @staticmethod
-    def _init(module: nn.Module) -> None:
-        if isinstance(module, nn.Linear | nn.Embedding):
-            nn.init.normal_(module.weight, mean=0.0, std=0.02)
-            if isinstance(module, nn.Linear) and module.bias is not None:
-                nn.init.zeros_(module.bias)
+        raise NotImplementedError
 
     def forward(self, ids: Tensor) -> Tensor:
-        x = self.token_embeddings(ids)
-        for layer in self.layers:
-            x = layer(x)
-        return self.lm_head(self.ln_final(x))
+        raise NotImplementedError
 
 
 # ==========================================================================
@@ -171,17 +118,14 @@ def count_lm_params(vocab_size: int, d_model: int, d_ff: int, num_layers: int, t
     We count: the embeddings + num_layers * (4 * d^2 of attention + 3 * d * d_ff of SwiGLU) + lm_head.
     Normalizations and biases are ignored. With tied_embeddings=True lm_head is not counted separately.
     """
-    embeddings = vocab_size * d_model
-    layers = num_layers * (4 * d_model * d_model + 3 * d_model * d_ff)
-    lm_head = 0 if tied_embeddings else vocab_size * d_model
-    return embeddings + layers + lm_head
+    raise NotImplementedError
 
 
 def activation_memory_bytes(batch: int, seq_len: int, d_model: int, num_layers: int, dtype: torch.dtype) -> int:
     """A rough estimate of the memory for the activations of the residual stream: one tensor (B, T, D)
     per layer. Reality is several times worse, but this formula gives the order of magnitude.
     """
-    return batch * seq_len * d_model * num_layers * dtype.itemsize
+    raise NotImplementedError
 
 
 # ==========================================================================
