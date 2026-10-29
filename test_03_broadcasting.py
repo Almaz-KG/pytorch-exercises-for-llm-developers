@@ -23,14 +23,25 @@ def broadcast_shape(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
 
     Implement the rule manually (without torch.broadcast_shapes) - this is an exercise in understanding.
     """
-    raise NotImplementedError
+    result: list[int] = []
+
+    n = max(len(a), len(b))
+
+    for i in range(1, n + 1):
+        ia = a[-i] if i <= len(a) else 1
+        ib = b[-i] if i <= len(b) else 1
+
+        if ia != ib and ia != 1 and ib != 1:
+            raise ValueError("Ooops")
+        result.append(max(ia, ib))
+    return tuple(reversed(result))
 
 
 def explain_trap() -> tuple[int, ...]:
     """The classic trap: a (3, 1) tensor plus a (3,) tensor.
     Return the shape of the result. Many expect (3,) or (3, 1) and end up with a bug in the loss.
     """
-    raise NotImplementedError
+    return 3, 3
 
 
 # ==========================================================================
@@ -40,7 +51,7 @@ def explain_trap() -> tuple[int, ...]:
 
 def add_bias(x: Tensor, bias: Tensor) -> Tensor:
     """x: (B, T, D), bias: (D,) -> (B, T, D)."""
-    raise NotImplementedError
+    return x + bias
 
 
 def scale_per_head(x: Tensor, scales: Tensor) -> Tensor:
@@ -48,7 +59,7 @@ def scale_per_head(x: Tensor, scales: Tensor) -> Tensor:
 
     Hint: fit the shape of scales so that it aligns from the right: (1, H, 1, 1).
     """
-    raise NotImplementedError
+    return x * scales[None, :, None, None]
 
 
 def normalize_last_dim(x: Tensor) -> Tensor:
@@ -56,7 +67,7 @@ def normalize_last_dim(x: Tensor) -> Tensor:
 
     This is where keepdim=True lives: without it the shapes will not align.
     """
-    raise NotImplementedError
+    return x - x.mean(dim=-1, keepdim=True)
 
 
 def weighted_sum(weights: Tensor, values: Tensor) -> Tensor:
@@ -64,7 +75,7 @@ def weighted_sum(weights: Tensor, values: Tensor) -> Tensor:
 
     This is attention in miniature: weights on the tokens, a weighted sum of their representations.
     """
-    raise NotImplementedError
+    return (weights[:, :, None] * values).sum(dim=1)
 
 
 # ==========================================================================
@@ -74,7 +85,7 @@ def weighted_sum(weights: Tensor, values: Tensor) -> Tensor:
 
 def outer_product(a: Tensor, b: Tensor) -> Tensor:
     """a: (N,), b: (M,) -> (N, M), out[i, j] = a[i] * b[j]. Broadcasting only, no torch.outer."""
-    raise NotImplementedError
+    return a[:, None] * b[None, :]
 
 
 def pairwise_sq_dist(a: Tensor, b: Tensor) -> Tensor:
@@ -82,7 +93,7 @@ def pairwise_sq_dist(a: Tensor, b: Tensor) -> Tensor:
 
     Through broadcasting: (N, 1, D) - (1, M, D) -> (N, M, D), then a sum over D.
     """
-    raise NotImplementedError
+    return (a[:, None, :] - b[None, :]).pow(2).sum(dim=-1)
 
 
 def one_hot_by_comparison(ids: Tensor, vocab_size: int) -> Tensor:
@@ -90,7 +101,7 @@ def one_hot_by_comparison(ids: Tensor, vocab_size: int) -> Tensor:
 
     Through a comparison against arange by broadcasting, without F.one_hot.
     """
-    raise NotImplementedError
+    return (ids[..., None] == torch.arange(vocab_size)).float()
 
 
 # ==========================================================================
@@ -103,12 +114,12 @@ def causal_mask(seq_len: int) -> Tensor:
 
     Build it by comparing two arange tensors of different shape, without torch.tril.
     """
-    raise NotImplementedError
+    return torch.arange(seq_len)[:, None] >= torch.arange(seq_len)[None, :]
 
 
 def relative_positions(q_len: int, k_len: int) -> Tensor:
     """(q_len, k_len) int64, out[i, j] = i - j. The basis of relative position bias and ALiBi."""
-    raise NotImplementedError
+    return torch.arange(q_len)[:, None] - torch.arange(k_len)[None, :]
 
 
 def alibi_bias(slopes: Tensor, seq_len: int) -> Tensor:
@@ -117,7 +128,8 @@ def alibi_bias(slopes: Tensor, seq_len: int) -> Tensor:
     bias[h, i, j] = -slopes[h] * (i - j) for j <= i, and 0 (does not matter) above the diagonal;
     here, for simplicity, compute the formula for all j, without zeroing anything out.
     """
-    raise NotImplementedError
+    mask = torch.arange(seq_len)[:, None] - torch.arange(seq_len)[None, :]
+    return -slopes[:, None, None] * (mask)
 
 
 def apply_additive_mask(scores: Tensor, mask: Tensor) -> Tensor:
@@ -126,7 +138,7 @@ def apply_additive_mask(scores: Tensor, mask: Tensor) -> Tensor:
 
     No loops: the mask has to spread across the batch and the heads on its own.
     """
-    raise NotImplementedError
+    return scores.masked_fill(~mask[None, None, :, :], float("-inf"))
 
 
 def key_padding_mask_apply(scores: Tensor, pad_mask: Tensor) -> Tensor:
@@ -135,7 +147,7 @@ def key_padding_mask_apply(scores: Tensor, pad_mask: Tensor) -> Tensor:
 
     Careful with the axes: pad_mask refers to the keys, that is to the LAST axis of scores.
     """
-    raise NotImplementedError
+    return scores.masked_fill(~pad_mask[:, None, None, :], value=float("-inf"))
 
 
 # ==========================================================================
