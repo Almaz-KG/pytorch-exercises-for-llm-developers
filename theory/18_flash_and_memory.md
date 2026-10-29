@@ -331,7 +331,7 @@ A backward pass costs about twice a forward pass, so a training step is about th
 ```python
 from torch.utils.checkpoint import checkpoint
 
-y = checkpoint(fn, *inputs, use_reentrant=False)      # y equals fn(*inputs); fn's intermediates are not saved
+y = checkpoint(fn, *inputs, use_reentrant=False)  # y equals fn(*inputs); fn's intermediates are not saved
 ```
 
 `fn` can be any callable, a module included, and its result is what `checkpoint` returns.

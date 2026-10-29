@@ -73,11 +73,11 @@ def entropy(probs: Tensor) -> Tensor:
 
 
 def l2_normalize(x: Tensor, eps: float = 1e-8) -> Tensor:
-    return x / x.norm(dim=-1, keepdim=True).clamp(min=eps)
+    return x / x.norm(dim=-1, keepdim=True).clamp(min=eps)  # type: ignore
 
 
 def global_grad_norm(tensors: list[Tensor]) -> Tensor:
-    return torch.sqrt(sum(t.pow(2).sum() for t in tensors))
+    return torch.sqrt(sum(t.pow(2).sum() for t in tensors))  # type: ignore
 
 
 def token_frequencies(ids: Tensor, vocab_size: int) -> Tensor:
