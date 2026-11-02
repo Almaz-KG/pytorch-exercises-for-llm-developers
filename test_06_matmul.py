@@ -9,6 +9,9 @@ What has to be kept in mind:
 This is the very layer where 99% of LLM training time is born.
 """
 
+import math
+from itertools import zip_longest
+
 import pytest
 import torch
 from torch import Tensor
@@ -20,24 +23,37 @@ from torch import Tensor
 
 def matvec(A: Tensor, x: Tensor) -> Tensor:
     """A: (M, K), x: (K,) -> (M,)."""
-    raise NotImplementedError
+    return A @ x
 
 
 def matmul_shape(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[int, ...]:
     """Predict the shape of torch.matmul(a, b) from the shapes (both with >= 2 axes),
     taking the broadcasting of the leading axes into account. Incompatibility - ValueError.
     """
-    raise NotImplementedError
+
+    batch_a, mat_row_a, mat_col_a = a[:-2], a[-2], a[-1]
+    batch_b, mat_row_b, mat_col_b = b[:-2], b[-2], b[-1]
+
+    if mat_col_a != mat_row_b:
+        raise ValueError("Matrices are incompatibile")
+
+    result: list[int] = []
+
+    for aa, bb in zip_longest(reversed(batch_a), reversed(batch_b), fillvalue=1):
+        if aa != bb and aa != 1 and bb != 1:
+            raise ValueError("Matrices are incompatible")
+        result.append(max(aa, bb))
+    return tuple(reversed(result)) + (mat_row_a, mat_col_b)
 
 
 def batched_matmul(a: Tensor, b: Tensor) -> Tensor:
     """a: (B, H, T, Dh), b: (B, H, Dh, S) -> (B, H, T, S). In one call, without loops over the heads."""
-    raise NotImplementedError
+    return a @ b
 
 
 def gram_matrix(x: Tensor) -> Tensor:
     """x: (N, D) -> (N, N) the matrix of pairwise dot products."""
-    raise NotImplementedError
+    return x @ x.T
 
 
 # ==========================================================================
@@ -50,7 +66,9 @@ def linear_forward(x: Tensor, weight: Tensor, bias: Tensor | None = None) -> Ten
 
     No reshaping of the batch is needed - matmul sorts the leading axes out by itself.
     """
-    raise NotImplementedError
+    if bias is not None:
+        return x @ weight.T + bias
+    return x @ weight.T
 
 
 def linear_backward(grad_out: Tensor, x: Tensor, weight: Tensor) -> tuple[Tensor, Tensor, Tensor]:
@@ -64,7 +82,10 @@ def linear_backward(grad_out: Tensor, x: Tensor, weight: Tensor) -> tuple[Tensor
       grad_W = grad_out^T @ x
       grad_b = the sum of grad_out over the batch
     """
-    raise NotImplementedError
+    grad_x = grad_out @ weight
+    grad_W = grad_out.T @ x
+    grad_b = grad_out.sum(dim=0)
+    return grad_x, grad_W, grad_b
 
 
 def lora_delta(x: Tensor, A: Tensor, B: Tensor, alpha: float, rank: int) -> Tensor:
@@ -72,7 +93,7 @@ def lora_delta(x: Tensor, A: Tensor, B: Tensor, alpha: float, rank: int) -> Tens
 
     And a question of understanding along the way: why is it cheaper to compute (x @ A) @ B than x @ (A @ B).
     """
-    raise NotImplementedError
+    return (x @ A @ B) * (alpha / rank)
 
 
 # ==========================================================================
@@ -85,12 +106,12 @@ def attention_scores(q: Tensor, k: Tensor) -> Tensor:
 
     Only matmul and transpose - no einsum, this is an exercise in shapes.
     """
-    raise NotImplementedError
+    return q @ k.transpose(-2, -1) / math.sqrt(q.shape[-1])
 
 
 def attention_output(weights: Tensor, v: Tensor) -> Tensor:
     """weights: (B, H, T, S), v: (B, H, S, Dh) -> (B, H, T, Dh)."""
-    raise NotImplementedError
+    return weights @ v
 
 
 # ==========================================================================
@@ -100,7 +121,7 @@ def attention_output(weights: Tensor, v: Tensor) -> Tensor:
 
 def matmul_flops(m: int, k: int, n: int) -> int:
     """The FLOPs for (m, k) @ (k, n). Count a multiply and an add as one flop each: 2*m*n*k."""
-    raise NotImplementedError
+    return 2 * m * k * n
 
 
 def cheaper_order(m: int, k: int, n: int, p: int) -> str:
@@ -110,7 +131,14 @@ def cheaper_order(m: int, k: int, n: int, p: int) -> str:
     This is not an abstraction: it is exactly how one decides whether to compute (x@A)@B or x@(A@B) in LoRA,
     and in which order to contract attention on a very long context.
     """
-    raise NotImplementedError
+    left = matmul_flops(m, k, n) + matmul_flops(m, n, p)
+    righ = matmul_flops(k, n, p) + matmul_flops(k, p, m)
+
+    if left > righ:
+        return "right"
+    if left < righ:
+        return "left"
+    return "equal"
 
 
 def transformer_block_params(d_model: int, d_ff: int, num_heads: int) -> int:
@@ -120,7 +148,7 @@ def transformer_block_params(d_model: int, d_ff: int, num_heads: int) -> int:
 
     num_heads does not affect the number of parameters - that too is part of the understanding check.
     """
-    raise NotImplementedError
+    return 4 * d_model * d_model + 2 * d_model * d_ff
 
 
 # ==========================================================================
@@ -133,7 +161,7 @@ def matmul_accumulate_fp32(a: Tensor, b: Tensor) -> Tensor:
 
     This is what a real GPU kernel does: low precision inputs, a high precision accumulator.
     """
-    raise NotImplementedError
+    return a.float() @ b.float()
 
 
 # ==========================================================================
