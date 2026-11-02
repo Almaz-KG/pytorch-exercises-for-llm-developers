@@ -23,6 +23,9 @@ docs = [
 # `docs` is a default group so that `uv run mkdocs serve` works straight after `uv sync`.
 default-groups = ["dev", "docs"]
 
+[tool.pyright]
+typeCheckingMode = "standard"
+
 [tool.pytest.ini_options]
 testpaths = ["."]
 norecursedirs = ["templates", "attempts", "solutions", "site", ".venv", "__pycache__"]

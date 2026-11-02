@@ -46,7 +46,7 @@ def grads_accumulate(x: Tensor) -> tuple[Tensor, Tensor]:
     raise NotImplementedError
 
 
-def stop_gradient(a: Tensor, b: Tensor) -> tuple[Tensor, Tensor]:
+def stop_gradient(a: Tensor, b: Tensor) -> tuple[Tensor, Tensor | None]:
     """a, b are leaves with requires_grad=True. Compute y = sum(a * b), but in such a way
     that the gradient does NOT flow into b. Return (a.grad, b.grad) - the second must be None.
     """
@@ -122,7 +122,7 @@ class SquareFunction(torch.autograd.Function):
         raise NotImplementedError
 
     @staticmethod
-    def backward(ctx, grad_output: Tensor) -> Tensor:
+    def backward(ctx, grad_output: Tensor) -> Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
         raise NotImplementedError
 
 
@@ -139,7 +139,7 @@ class STEQuantize(torch.autograd.Function):
         raise NotImplementedError
 
     @staticmethod
-    def backward(ctx, grad_output: Tensor) -> Tensor:
+    def backward(ctx, grad_output: Tensor) -> Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
         raise NotImplementedError
 
 
@@ -288,7 +288,7 @@ def test_grad_norm_after_backward():
     assert isinstance(norm, float)
     assert norm > 0
 
-    expected = torch.cat([p.grad.flatten() for p in model.parameters()]).norm().item()
+    expected = torch.cat([p.grad.flatten() for p in model.parameters()]).norm().item()  # pyright: ignore[reportOptionalMemberAccess]
     assert abs(norm - expected) < 1e-6
 
 

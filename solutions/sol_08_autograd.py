@@ -10,6 +10,7 @@ from torch import Tensor
 def grad_of_sum_of_squares(x: Tensor) -> Tensor:
     x = x.detach().clone().requires_grad_(True)
     (x**2).sum().backward()
+    assert x.grad is not None
     return x.grad
 
 
@@ -22,13 +23,15 @@ def grad_functional(x: Tensor) -> Tensor:
 def grads_accumulate(x: Tensor) -> tuple[Tensor, Tensor]:
     y = (x**2).sum()
     y.backward(retain_graph=True)
+    assert x.grad is not None
     first = x.grad.clone()
     y.backward()
     return first, x.grad.clone()
 
 
-def stop_gradient(a: Tensor, b: Tensor) -> tuple[Tensor, Tensor]:
+def stop_gradient(a: Tensor, b: Tensor) -> tuple[Tensor, Tensor | None]:
     (a * b.detach()).sum().backward()
+    assert a.grad is not None
     return a.grad, b.grad
 
 
@@ -75,7 +78,7 @@ class SquareFunction(torch.autograd.Function):
         return x * x
 
     @staticmethod
-    def backward(ctx, grad_output: Tensor) -> Tensor:
+    def backward(ctx, grad_output: Tensor) -> Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
         (x,) = ctx.saved_tensors
         return 2 * x * grad_output
 
@@ -86,13 +89,14 @@ class STEQuantize(torch.autograd.Function):
         return torch.round(x)
 
     @staticmethod
-    def backward(ctx, grad_output: Tensor) -> Tensor:
+    def backward(ctx, grad_output: Tensor) -> Tensor:  # pyright: ignore[reportIncompatibleMethodOverride]
         return grad_output
 
 
 def embedding_grad(table_size: tuple[int, int], ids: Tensor) -> Tensor:
     table = torch.randn(*table_size, requires_grad=True)
     table[ids].sum().backward()
+    assert table.grad is not None
     return table.grad
 
 
@@ -108,5 +112,5 @@ def grad_norm_after_backward(model: nn.Module, x: Tensor, target: Tensor) -> flo
     loss = torch.nn.functional.mse_loss(model(x), target)
     model.zero_grad(set_to_none=True)
     loss.backward()
-    total = sum(p.grad.pow(2).sum() for p in model.parameters() if p.grad is not None)
+    total = torch.stack([p.grad.pow(2).sum() for p in model.parameters() if p.grad is not None]).sum()
     return float(total.sqrt().item())
