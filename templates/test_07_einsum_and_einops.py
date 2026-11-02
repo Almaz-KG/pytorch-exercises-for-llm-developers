@@ -13,7 +13,7 @@ where einsum or einops is asked for. The whole point is to train exactly those.
 
 import pytest
 import torch
-from einops import rearrange, reduce, repeat
+from einops import rearrange, reduce, repeat  # type: ignore
 from torch import Tensor
 
 # ==========================================================================
@@ -220,7 +220,7 @@ def test_es_weight_grad():
     w = torch.randn(7, 4, requires_grad=True)
     out = torch.nn.functional.linear(x, w)
     g = torch.randn_like(out)
-    out.backward(g)
+    out.backward(g)  # type: ignore
     torch.testing.assert_close(es_weight_grad(x.detach(), g), w.grad, atol=1e-5, rtol=1e-5)
 
 
@@ -304,6 +304,6 @@ def test_eo_broadcast_mask():
 
 @pytest.mark.depends_on("eo_split_heads", "eo_merge_heads")
 @pytest.mark.parametrize("num_heads", [1, 2, 4])
-def test_eo_heads_property(num_heads):
+def test_eo_heads_property(num_heads: int):
     x = torch.randn(3, 6, 8)
     torch.testing.assert_close(eo_merge_heads(eo_split_heads(x, num_heads)), x)

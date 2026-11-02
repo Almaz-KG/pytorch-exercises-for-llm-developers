@@ -13,7 +13,7 @@ where einsum or einops is asked for. The whole point is to train exactly those.
 
 import pytest
 import torch
-from einops import rearrange, reduce, repeat
+from einops import rearrange, reduce, repeat  # type: ignore
 from torch import Tensor
 
 # ==========================================================================
@@ -23,32 +23,32 @@ from torch import Tensor
 
 def es_trace(x: Tensor) -> Tensor:
     """The trace of a square matrix through einsum."""
-    raise NotImplementedError
+    return torch.einsum("ii->", x)
 
 
 def es_diagonal(x: Tensor) -> Tensor:
     """The diagonal of a square matrix through einsum (without summing)."""
-    raise NotImplementedError
+    return torch.einsum("ii -> i", x)
 
 
 def es_transpose(x: Tensor) -> Tensor:
     """Transposing a matrix through einsum."""
-    raise NotImplementedError
+    return torch.einsum("ij->ji", x)
 
 
 def es_matmul(a: Tensor, b: Tensor) -> Tensor:
     """(M, K) @ (K, N) through einsum."""
-    raise NotImplementedError
+    return torch.einsum("mk,kn -> mn", a, b)
 
 
 def es_outer(a: Tensor, b: Tensor) -> Tensor:
     """The outer product of (N,) and (M,) -> (N, M) through einsum."""
-    raise NotImplementedError
+    return torch.einsum("i,j->ij", a, b)
 
 
 def es_row_sums(x: Tensor) -> Tensor:
     """The row sums of a matrix through einsum."""
-    raise NotImplementedError
+    return torch.einsum("ij->i", x)
 
 
 # ==========================================================================
@@ -61,12 +61,12 @@ def es_attention_scores(q: Tensor, k: Tensor) -> Tensor:
 
     One einsum line instead of transpose + matmul.
     """
-    raise NotImplementedError
+    return torch.einsum("...td,...sd->...ts", q, k)
 
 
 def es_attention_output(weights: Tensor, v: Tensor) -> Tensor:
     """weights: (B, H, T, S), v: (B, H, S, Dh) -> (B, H, T, Dh)."""
-    raise NotImplementedError
+    return torch.einsum("...ts,...sd->...td", weights, v)
 
 
 def es_per_head_projection(x: Tensor, w: Tensor) -> Tensor:
@@ -74,7 +74,7 @@ def es_per_head_projection(x: Tensor, w: Tensor) -> Tensor:
 
     Every head has its own projection matrix - that is exactly the convenient way to think about MHA.
     """
-    raise NotImplementedError
+    return torch.einsum("btd,hdr->bhtr", x, w)
 
 
 def es_weight_grad(x: Tensor, grad_out: Tensor) -> Tensor:
@@ -82,7 +82,7 @@ def es_weight_grad(x: Tensor, grad_out: Tensor) -> Tensor:
 
     The batch axis is summed over, which is why it is not in the output.
     """
-    raise NotImplementedError
+    return torch.einsum("ni,no->oi", x, grad_out)
 
 
 def es_batched_bilinear(x: Tensor, W: Tensor, y: Tensor) -> Tensor:
@@ -90,7 +90,7 @@ def es_batched_bilinear(x: Tensor, W: Tensor, y: Tensor) -> Tensor:
 
     Careful: the batch is NOT summed over, everything else is.
     """
-    raise NotImplementedError
+    return torch.einsum("bd,dr,br->b", x, W, y)
 
 
 # ==========================================================================
@@ -100,17 +100,17 @@ def es_batched_bilinear(x: Tensor, W: Tensor, y: Tensor) -> Tensor:
 
 def eo_split_heads(x: Tensor, num_heads: int) -> Tensor:
     """(B, T, (H Dh)) -> (B, H, T, Dh) in a single rearrange."""
-    raise NotImplementedError
+    return rearrange(x, "b t (h d) -> b h t d", h=num_heads)
 
 
 def eo_merge_heads(x: Tensor) -> Tensor:
     """(B, H, T, Dh) -> (B, T, (H Dh)) in a single rearrange."""
-    raise NotImplementedError
+    return rearrange(x, "b h t d -> b t (h d)")
 
 
 def eo_flatten_tokens(x: Tensor) -> Tensor:
     """(B, T, D) -> ((B T), D) in a single rearrange."""
-    raise NotImplementedError
+    return rearrange(x, "b t d -> (b t) d")
 
 
 def eo_split_qkv(qkv: Tensor, num_heads: int) -> Tensor:
@@ -118,7 +118,7 @@ def eo_split_qkv(qkv: Tensor, num_heads: int) -> Tensor:
 
     The order inside the parentheses matters: first q/k/v, inside that the heads, inside that the channel.
     """
-    raise NotImplementedError
+    return rearrange(qkv, "b t (g h d) -> g b h t d", h=num_heads, g=3)
 
 
 def eo_group_tokens(x: Tensor, group: int) -> Tensor:
@@ -126,7 +126,7 @@ def eo_group_tokens(x: Tensor, group: int) -> Tensor:
 
     This is how chunked attention and flash-attention-like schemes are done.
     """
-    raise NotImplementedError
+    return rearrange(x, "b (t g) d -> b t g d", g=group)
 
 
 # ==========================================================================
@@ -136,24 +136,24 @@ def eo_group_tokens(x: Tensor, group: int) -> Tensor:
 
 def eo_mean_pool(x: Tensor) -> Tensor:
     """(B, T, D) -> (B, D): the mean over time through reduce."""
-    raise NotImplementedError
+    return reduce(x, "b t d -> b d", "mean")
 
 
 def eo_max_pool_heads(x: Tensor) -> Tensor:
     """(B, H, T, Dh) -> (B, T, Dh): the maximum over the heads through reduce."""
-    raise NotImplementedError
+    return reduce(x, "b h t d -> b t d", "max")
 
 
 def eo_repeat_kv(kv: Tensor, num_groups: int) -> Tensor:
     """GQA through repeat: (B, H_kv, T, Dh) -> (B, (H_kv num_groups), T, Dh),
     where every kv head is repeated num_groups times in a row.
     """
-    raise NotImplementedError
+    return repeat(kv, "b h t d -> b (h g) t d", g=num_groups)
 
 
 def eo_broadcast_mask(mask: Tensor, num_heads: int) -> Tensor:
     """(B, T, S) -> (B, H, T, S) through repeat."""
-    raise NotImplementedError
+    return repeat(mask, "b t s -> b h t s", h=num_heads)
 
 
 # ==========================================================================
@@ -220,7 +220,7 @@ def test_es_weight_grad():
     w = torch.randn(7, 4, requires_grad=True)
     out = torch.nn.functional.linear(x, w)
     g = torch.randn_like(out)
-    out.backward(g)
+    out.backward(g)  # type: ignore
     torch.testing.assert_close(es_weight_grad(x.detach(), g), w.grad, atol=1e-5, rtol=1e-5)
 
 
@@ -304,6 +304,6 @@ def test_eo_broadcast_mask():
 
 @pytest.mark.depends_on("eo_split_heads", "eo_merge_heads")
 @pytest.mark.parametrize("num_heads", [1, 2, 4])
-def test_eo_heads_property(num_heads):
+def test_eo_heads_property(num_heads: int):
     x = torch.randn(3, 6, 8)
     torch.testing.assert_close(eo_merge_heads(eo_split_heads(x, num_heads)), x)
