@@ -190,7 +190,7 @@ def capture_activations(model: nn.Sequential, x: Tensor) -> dict[str, Tensor]:
 def test_my_linear_matches_functional():
     layer = MyLinear(4, 6)
     x = torch.randn(2, 3, 4)
-    torch.testing.assert_close(layer(x), F.linear(x, layer.weight, layer.bias))
+    torch.testing.assert_close(layer(x), F.linear(x, layer.weight, layer.bias))  # type: ignore
     assert layer(x).shape == (2, 3, 6)
     assert isinstance(layer.weight, nn.Parameter)
     assert layer.weight.shape == (6, 4)
@@ -202,7 +202,7 @@ def test_my_linear_no_bias():
     assert layer.bias is None
     assert set(layer.state_dict().keys()) == {"weight"}
     x = torch.randn(5, 4)
-    torch.testing.assert_close(layer(x), x @ layer.weight.T)
+    torch.testing.assert_close(layer(x), x @ layer.weight.T)  # type: ignore
 
 
 def test_my_embedding():
@@ -210,7 +210,7 @@ def test_my_embedding():
     ids = torch.tensor([[1, 2], [3, 3]])
     out = emb(ids)
     assert out.shape == (2, 2, 4)
-    torch.testing.assert_close(out, emb.weight[ids])
+    torch.testing.assert_close(out, emb.weight[ids])  # type: ignore
     assert sum(p.numel() for p in emb.parameters()) == 40
 
 
@@ -234,7 +234,7 @@ def test_module_list_registers_parameters():
     assert len(list(stack.named_parameters())) == 6
     x = torch.randn(2, 4)
     expected = x
-    for layer in stack.layers:
+    for layer in stack.layers:  # type: ignore
         expected = F.linear(expected, layer.weight, layer.bias)
     out = stack(x)
     assert out.shape == (2, 4)
@@ -307,7 +307,7 @@ def test_tie_weights():
     emb = MyEmbedding(10, 4)
     head = MyLinear(4, 10, bias=False)
     tie_weights(emb, head)
-    assert emb.weight.data_ptr() == head.weight.data_ptr()
+    assert emb.weight.data_ptr() == head.weight.data_ptr()  # type: ignore
 
     model = nn.Sequential(emb, head)
     unique = {p.data_ptr() for p in model.parameters()}

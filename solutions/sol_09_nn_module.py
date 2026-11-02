@@ -38,7 +38,7 @@ class CausalSelfAttentionSkeleton(nn.Module):
         self.register_buffer("mask", idx[:, None] >= idx[None, :], persistent=True)
 
     def forward(self, seq_len: int) -> Tensor:
-        return self.mask[:seq_len, :seq_len]
+        return self.mask[:seq_len, :seq_len]  # type: ignore
 
 
 class BlockStack(nn.Module):
@@ -90,7 +90,7 @@ def save_load_roundtrip(model: nn.Module) -> nn.Module:
     buf = io.BytesIO()
     torch.save(model.state_dict(), buf)
     buf.seek(0)
-    fresh = MyLinear(model.weight.shape[1], model.weight.shape[0], bias=model.bias is not None)
+    fresh = MyLinear(model.weight.shape[1], model.weight.shape[0], bias=model.bias is not None)  # type: ignore
     fresh.load_state_dict(torch.load(buf, weights_only=True))
     return fresh
 
