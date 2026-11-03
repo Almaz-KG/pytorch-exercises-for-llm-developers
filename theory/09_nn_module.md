@@ -294,6 +294,21 @@ GPT-2's fix is to shrink only the layers that write into the stream: the last pr
 Their `std` is divided by `sqrt(2L)`, which divides each addition's variance by `2L`, so `2L` of them add up to about `s` again, however deep the model is.
 Every other layer keeps the base `std`.
 
+**Finding layers by name.**
+`apply` hands `fn` the module alone, and a type check cannot tell `output_proj` from `q_proj`: both are `nn.Linear`.
+What tells them apart is the name, and `named_modules()` gives you the full dotted path of every submodule.
+The layer's own name is the last piece of that path:
+
+```python
+>>> net = nn.ModuleDict({"enc": nn.ModuleDict({"head": nn.Linear(2, 2)})})
+>>> [name for name, _ in net.named_modules()]
+['', 'enc', 'enc.head']
+>>> "enc.head".rsplit(".", 1)[-1]
+'head'
+```
+
+Compare that last piece, not the whole path with `endswith`: a layer called `w2` should match, and one called `lw2` should not.
+
 ### 9.4 state_dict
 
 A trained model is, as far as the computer is concerned, nothing but its numbers.
@@ -353,10 +368,13 @@ It saves memory: for a 50k vocabulary and `D = 768` each table is 38M numbers, w
 And it encodes a reasonable belief, that the vector a token reads in as and the direction that predicts it should be related.
 Most small and medium models tie; some very large ones do not.
 
-What you assign must be the `nn.Parameter` itself.
-Its `.data` is a plain tensor, and by the rule at the top of this file a plain tensor assigned to a module is not registered, so the head would silently lose its weight as a parameter.
+What you assign must be the `nn.Parameter` object itself.
+Assigning its `.data`, a plain tensor, to a name that already holds a parameter fails loudly with a `TypeError`.
+The quiet mistake is wrapping it again, `nn.Parameter(emb.weight.data)`: the new parameter shares the same memory, but it is a second `Parameter` object.
+`parameters()` then reports both, the optimizer keeps two sets of state for them, and the tie survives only until something replaces one of the tensors.
 
-You can check whether two parameters are really the same storage with `t.data_ptr()`, the memory address of a tensor's first element: tied tensors report the same address.
+`t.data_ptr()`, the memory address of a tensor's first element, is equal for tied tensors, but it is equal after that mistake too.
+The real check is object identity: `head.weight is emb.weight`.
 
 ### 9.5 Modes and hooks
 
@@ -453,7 +471,8 @@ Activation checkpointing, quantization observers and interpretability tools all 
 | `model.children()` / `named_children()` | direct children only |
 | `p.requires_grad` | whether `p` is trainable |
 | `t.numel()`, `t.element_size()` | number of elements, bytes per element |
-| `t.data_ptr()` | memory address of the first element, equal for tied tensors |
+| `t.data_ptr()` | memory address of the first element, equal for tensors sharing memory |
+| `a is b` | whether two names hold the very same object, the check for a real tie |
 
 ### Initializing
 
@@ -464,6 +483,8 @@ Activation checkpointing, quantization observers and interpretability tools all 
 | `nn.init.zeros_(t)` / `nn.init.ones_(t)` | in-place constants |
 | `model.apply(fn)` | call `fn` on every submodule, the root last; returns `model` |
 | `isinstance(m, nn.Linear)` | pick out one kind of layer |
+| `model.named_modules()` | `(dotted_path, module)` for every submodule, the root first as `""` |
+| `path.rsplit(".", 1)[-1]` | the last piece of a dotted path, the layer's own name |
 | `math.sqrt(x)` / `x ** 0.5` | square root of a Python number |
 
 ### Persisting
@@ -477,7 +498,6 @@ Activation checkpointing, quantization observers and interpretability tools all 
 | `buf.seek(0)` | rewind an in-memory file before reading it |
 | `torch.load(path_or_file, weights_only=True)` | read it back |
 | `str.removeprefix(p)` | strip `p` if the string starts with it |
-| `layer.weight.shape` | `(out_features, in_features)` for a linear layer |
 
 ### Runtime
 
@@ -504,8 +524,8 @@ Activation checkpointing, quantization observers and interpretability tools all 
   Copy it if you want a snapshot.
 - `torch.load` on a `BytesIO` without `seek(0)` reads from the end and fails.
 - A checkpoint from a DDP or `torch.compile` wrapped model has prefixed keys and fails `strict=True`.
-- Tying with `head.weight = emb.weight.data` assigns a plain tensor and unregisters the head's weight.
-  Assign the `Parameter` itself.
+- Tying with `head.weight = nn.Parameter(emb.weight.data)` shares memory but creates a second parameter.
+  Assign the `Parameter` itself, and check the tie with `is`, not with `data_ptr()`.
 - `model.eval()` does not switch off autograd; evaluation also needs `torch.no_grad()`.
 - A forward hook that returns a value replaces the module's output.
 - A hook handle you never remove keeps firing and keeps memory alive.
@@ -522,7 +542,7 @@ Without looking anything up you can:
 - [ ] read a dotted parameter name like `blocks.3.attn.q_proj.weight` and say where it lives in the model
 - [ ] write a linear layer from scratch with an optional bias that stays out of the `state_dict`
 - [ ] initialize every `nn.Linear` in a model with one call, using a truncated normal with the right bounds
-- [ ] derive the `1 / sqrt(2 * n_layers)` residual scaling from how variances add up
+- [ ] derive the `1 / sqrt(2 * n_layers)` residual scaling from how variances add up, and apply it only to the layers named `output_proj` and `w2`
 - [ ] save a model to an in-memory buffer and load it into a new one
 - [ ] tie an embedding to an output head and check that the tie is real
 - [ ] say exactly what `model.eval()` changes, and what it does not

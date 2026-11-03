@@ -1,6 +1,7 @@
 """Reference solutions for topic 09."""
 
 import io
+import math
 
 import torch
 import torch.nn as nn
@@ -31,14 +32,16 @@ class MyEmbedding(nn.Module):
         return self.weight[ids]
 
 
-class CausalSelfAttentionSkeleton(nn.Module):
+class CausalMask(nn.Module):
+    mask: Tensor
+
     def __init__(self, max_len: int):
         super().__init__()
         idx = torch.arange(max_len)
         self.register_buffer("mask", idx[:, None] >= idx[None, :], persistent=True)
 
     def forward(self, seq_len: int) -> Tensor:
-        return self.mask[:seq_len, :seq_len]  # type: ignore
+        return self.mask[:seq_len, :seq_len]
 
 
 class BlockStack(nn.Module):
@@ -82,15 +85,18 @@ def init_all_linears_(model: nn.Module, std: float) -> nn.Module:
     return model
 
 
-def scaled_residual_std(base_std: float, n_layers: int) -> float:
-    return base_std / (2 * n_layers) ** 0.5
+def init_residual_projections_(model: nn.Module, base_std: float, n_layers: int) -> nn.Module:
+    std = base_std / math.sqrt(2 * n_layers)
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear) and name.rsplit(".", 1)[-1] in ("output_proj", "w2"):
+            init_linear_(module, std)
+    return model
 
 
-def save_load_roundtrip(model: nn.Module) -> nn.Module:
+def save_load_roundtrip(model: nn.Module, fresh: nn.Module) -> nn.Module:
     buf = io.BytesIO()
     torch.save(model.state_dict(), buf)
     buf.seek(0)
-    fresh = MyLinear(model.weight.shape[1], model.weight.shape[0], bias=model.bias is not None)  # type: ignore
     fresh.load_state_dict(torch.load(buf, weights_only=True))
     return fresh
 
@@ -99,7 +105,7 @@ def strip_prefix(state_dict: dict[str, Tensor], prefix: str) -> dict[str, Tensor
     return {k.removeprefix(prefix): v for k, v in state_dict.items()}
 
 
-def tie_weights(embedding: MyEmbedding, head: MyLinear) -> None:
+def tie_weights(embedding: nn.Embedding, head: nn.Linear) -> None:
     head.weight = embedding.weight
 
 
