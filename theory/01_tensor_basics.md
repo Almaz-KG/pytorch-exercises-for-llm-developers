@@ -217,7 +217,7 @@ bfloat16 keeps float32's exponent range and gives up mantissa bits instead, so i
 Training turned out to tolerate the lost precision far better than the overflows, which is why every large model today trains in bfloat16.
 
 **Why the memory arithmetic matters early.**
-A 7B parameter model in bfloat16 is `7e9 * 2` bytes, so 14 GB of weights before a single activation exists.
+A 7B parameter model in bfloat16 is $7 \times 10^9 \times 2$ bytes, so 14 GB of weights before a single activation exists.
 Training it also needs gradients, usually in the same dtype, plus optimizer state, which for Adam is two more numbers per parameter in float32.
 That is where the rule of thumb "training needs roughly ten to twenty times the weights in memory" comes from, and topic 16 does the arithmetic properly.
 

@@ -35,13 +35,13 @@ Writing `-1` rather than `2` makes the same function work for `(T, D)` and `(B, 
 
 ### 4.1 Means, variances, RMS
 
-`x.var(dim, correction=...)` defaults to the **unbiased** estimator, dividing by `N - 1`.
-LayerNorm uses the **biased** one, dividing by `N`, which is `correction=0` (or the older `unbiased=False`).
+`x.var(dim, correction=...)` defaults to the **unbiased** estimator, dividing by $N - 1$.
+LayerNorm uses the **biased** one, dividing by $N$, which is `correction=0` (or the older `unbiased=False`).
 Getting it wrong gives an answer close enough to pass an eyeball check and fails `assert_close`.
 
 The biased variance is `((x - x.mean(dim, keepdim=True)) ** 2).mean(dim, keepdim=True)`, which is worth being able to write directly.
 
-RMS is `sqrt(mean(x^2))`, with no mean subtraction at all.
+RMS is $\sqrt{\operatorname{mean}(x^2)}$, with no mean subtraction at all.
 That difference is the entire distinction between LayerNorm and RMSNorm, and it is why RMSNorm is cheaper: one pass instead of two, and no centering.
 
 ### 4.2 Reductions with a mask
@@ -80,28 +80,31 @@ Because softmax is monotone, the argmax of the logits and the argmax of the prob
 
 ### 4.4 logsumexp and entropy
 
-`log(sum(exp(x)))` appears in cross-entropy, in the softmax denominator and in flash attention.
+$\log \sum_i e^{x_i}$ appears in cross-entropy, in the softmax denominator and in flash attention.
 Computed naively it overflows: `exp(1000.0)` is `inf` in float32, and logits of that magnitude are not unusual in an untrained model.
 
 The stable form subtracts the maximum first:
 
 ```
 m = x.max(dim, keepdim=True).values
-logsumexp(x) = m + log(sum(exp(x - m)))
+```
+
+```math
+\operatorname{logsumexp}(x) = m + \log \sum_i e^{x_i - m}
 ```
 
 This is exact, not an approximation.
-`sum_i exp(x_i) = exp(m) * sum_i exp(x_i - m)`, and taking the log turns the factor into the additive `m`.
-Every exponent is now at most `exp(0) == 1`, so nothing overflows, and the largest term is exactly 1, so the total cannot underflow to zero either.
+$\sum_i e^{x_i} = e^{m} \sum_i e^{x_i - m}$, and taking the log turns the factor into the additive $m$.
+Every exponent is now at most $e^{0} = 1$, so nothing overflows, and the largest term is exactly 1, so the total cannot underflow to zero either.
 Remember to drop the kept axis at the end if the signature asks for the reduced shape.
 
-**Entropy** in nats is `-sum(p * log(p))` over the last axis.
+**Entropy** in nats is $-\sum_i p_i \log p_i$ over the last axis.
 The problem is `p == 0`, where `log(0)` is `-inf` and `0 * -inf` is NaN, even though the mathematical limit is 0.
 Three clean fixes: `torch.where(p > 0, p * p.log(), zeros)` so the bad term is never multiplied, `torch.xlogy(p, p)` which is defined to return 0 when the first argument is 0, or `p.clamp(min=1e-12).log()`.
 
 ### 4.5 Norms
 
-The L2 norm of a vector is `sqrt(sum(x^2))`, and `torch.linalg.vector_norm(x, ord=2, dim=..., keepdim=...)` is the modern call.
+The L2 norm of a vector is $\sqrt{\sum_i x_i^2}$, and `torch.linalg.vector_norm(x, ord=2, dim=..., keepdim=...)` is the modern call.
 `x.norm()` still exists and is deprecated.
 
 **L2 normalization** divides each vector by its own norm, with an `eps` in the denominator so a zero vector does not produce NaN.
@@ -150,7 +153,7 @@ The overload depends on the second argument's type, so prefer `amax` and `maximu
 | Call | Result |
 | --- | --- |
 | `torch.logsumexp(x, dim, keepdim=False)` | the stable form, built in |
-| `torch.xlogy(a, b)` | `a * log(b)`, returning 0 where `a == 0` |
+| `torch.xlogy(a, b)` | $a \log b$, returning 0 where $a = 0$ |
 | `x.clamp(min=eps)` | floor before a log |
 | `torch.finfo(dtype).min` / `.max` / `.eps` / `.tiny` | dtype limits |
 
@@ -179,7 +182,7 @@ tensor([1.0013e+03, 6.9315e-01])
 
 ## Traps
 
-- `x.var()` divides by `N - 1` by default; normalization layers want `N`.
+- `x.var()` divides by $N - 1$ by default; normalization layers want $N$.
 - `x.max(dim)` returns a tuple, so `x.max(-1) + 1` raises a confusing error.
   Use `.values`, or `amax`.
 - `x.mean()` on an int64 tensor raises; cast first.

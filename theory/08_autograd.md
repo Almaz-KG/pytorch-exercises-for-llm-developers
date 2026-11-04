@@ -33,32 +33,32 @@ This topic walks through what it does, and then has you write a backward pass by
 If you have not touched calculus in a while, this is all you need for this topic.
 
 The derivative of a function at a point tells you how fast the output changes when you move the input a little.
-For `f(x) = x^2` the derivative is `2x`.
-At `x = 3` it is `6`, which means that moving `x` from `3` to `3.001` moves `f` by about `0.006`.
+For $f(x) = x^2$ the derivative is $2x$.
+At $x = 3$ it is $6$, which means that moving $x$ from $3$ to $3.001$ moves $f$ by about $0.006$.
 
 A few derivatives you will meet in this file:
 
 | Function | Derivative |
 | --- | --- |
-| `c * x` (a constant times x) | `c` |
-| `x^2` | `2x` |
-| `x^3` | `3x^2` |
-| `sin(x)` | `cos(x)` |
-| `exp(x)` | `exp(x)` |
-| `round(x)` | `0` almost everywhere, and undefined at the jumps |
+| $c \cdot x$ (a constant times x) | $c$ |
+| $x^2$ | $2x$ |
+| $x^3$ | $3x^2$ |
+| $\sin(x)$ | $\cos(x)$ |
+| $\exp(x)$ | $\exp(x)$ |
+| $\operatorname{round}(x)$ | $0$ almost everywhere, and undefined at the jumps |
 
 When a function has many inputs, you take one derivative per input, holding the others still.
 These are called partial derivatives.
-For `f(a, b) = a * b`, the derivative with respect to `a` is `b`, and the derivative with respect to `b` is `a`.
+For $f(a, b) = a \cdot b$, the derivative with respect to $a$ is $b$, and the derivative with respect to $b$ is $a$.
 
 When a computation is a chain of steps, the derivatives multiply.
 This is the chain rule, and it is the only idea autograd really relies on.
-Take `x = 2`, then `u = 3 * x` (so `u = 6`), then `y = u^2` (so `y = 36`).
-How much does `y` change per unit change in `x`?
-Step one says `u` moves 3 times as fast as `x`.
-Step two says `y` moves `2u = 12` times as fast as `u`.
-So `y` moves `3 * 12 = 36` times as fast as `x`.
-You walked the chain backwards, from `y` to `x`, multiplying the local derivative of each step.
+Take $x = 2$, then $u = 3 \cdot x$ (so $u = 6$), then $y = u^2$ (so $y = 36$).
+How much does $y$ change per unit change in $x$?
+Step one says $u$ moves 3 times as fast as $x$.
+Step two says $y$ moves $2u = 12$ times as fast as $u$.
+So $y$ moves $3 \cdot 12 = 36$ times as fast as $x$.
+You walked the chain backwards, from $y$ to $x$, multiplying the local derivative of each step.
 That walk is exactly what PyTorch's `backward()` does.
 
 ### What the graph is
@@ -206,42 +206,41 @@ This also saves a lot of memory, because PyTorch no longer keeps intermediate va
 
 **Second derivatives.**
 A second derivative is the derivative of the derivative.
-For `f(x) = sin(x)` the first derivative is `cos(x)` and the second is `-sin(x)`.
+For $f(x) = \sin(x)$ the first derivative is $\cos(x)$ and the second is $-\sin(x)$.
 
 By default, PyTorch computes the gradient without recording that computation, so the gradient you get back has no graph and cannot be differentiated again.
 Passing `create_graph=True` to `torch.autograd.grad` (or to `backward`) tells PyTorch to record the gradient computation too.
 The gradient you get back then has its own `grad_fn`, and you can call `torch.autograd.grad` on it a second time.
 
 The second call has the same rule as any other: the thing you differentiate must be a single number.
-When the function works element by element, like `sin` or `x^3`, each element's derivative depends only on its own input.
+When the function works element by element, like $\sin$ or $x^3$, each element's derivative depends only on its own input.
 So summing the first gradient and differentiating that sum gives you every element's second derivative at once.
 
 **The Jacobian and the vector-Jacobian product.**
 So far every output has been a single number.
-Now take a function with several inputs and several outputs, say `f(x1, x2) = (x1 * x2, x1 + x2)`.
+Now take a function with several inputs and several outputs, say $f(x_1, x_2) = (x_1 \cdot x_2,\ x_1 + x_2)$.
 There are now four derivatives: each output with respect to each input.
-Arrange them in a table where row `i` is output `i` and column `j` is input `j`:
+Arrange them in a table where row $i$ is output $i$ and column $j$ is input $j$:
 
-```
-J = | d(x1*x2)/dx1   d(x1*x2)/dx2 |   =   | x2   x1 |
-    | d(x1+x2)/dx1   d(x1+x2)/dx2 |       | 1    1  |
+```math
+J = \begin{bmatrix} \dfrac{\partial (x_1 x_2)}{\partial x_1} & \dfrac{\partial (x_1 x_2)}{\partial x_2} \\[1em] \dfrac{\partial (x_1 + x_2)}{\partial x_1} & \dfrac{\partial (x_1 + x_2)}{\partial x_2} \end{bmatrix} = \begin{bmatrix} x_2 & x_1 \\ 1 & 1 \end{bmatrix}
 ```
 
 That table is called the **Jacobian**.
-For a function with `n` inputs and `m` outputs it has `m * n` entries, which for a real network is far too many to ever build.
+For a function with $n$ inputs and $m$ outputs it has $m \cdot n$ entries, which for a real network is far too many to ever build.
 
 PyTorch never builds it.
-Instead, `backward()` needs one extra piece of information: a vector `v` with one number per output, saying how much you care about each output.
-It then computes `v^T J`, the weighted sum of the Jacobian's rows, which has one number per input.
+Instead, `backward()` needs one extra piece of information: a vector $v$ with one number per output, saying how much you care about each output.
+It then computes $v^\top J$, the weighted sum of the Jacobian's rows, which has one number per input.
 That is called the **vector-Jacobian product**, or VJP.
 
-At `x1 = 2, x2 = 5` with `v = (1, 10)`, the VJP is `1 * (5, 2) + 10 * (1, 1) = (15, 12)`.
+At $x_1 = 2, x_2 = 5$ with $v = (1, 10)$, the VJP is $1 \cdot (5, 2) + 10 \cdot (1, 1) = (15, 12)$.
 
 You pass `v` as the `gradient` argument: `y.backward(gradient=v)`, where `v` has the same shape as `y`.
 With `torch.autograd.grad`, the same thing is called `grad_outputs`.
 
 This also explains the rule from 8.1.
-When `y` is a single number, the Jacobian has one row, and a plain `y.backward()` is just a VJP with `v = 1`.
+When `y` is a single number, the Jacobian has one row, and a plain `y.backward()` is just a VJP with $v = 1$.
 Every backward pass in PyTorch is a VJP.
 
 **Checking a gradient by brute force.**
@@ -249,13 +248,13 @@ How do you know an analytic gradient is right?
 You compare it with a numeric one, computed straight from the definition of the derivative.
 Move one input a little up, move it a little down, and see how much the output changed:
 
-```
-derivative ≈ (f(x + eps) - f(x - eps)) / (2 * eps)
+```math
+\text{derivative} \approx \frac{f(x + \text{eps}) - f(x - \text{eps})}{2 \cdot \text{eps}}
 ```
 
-For `f(x) = x^2` at `x = 3` with `eps = 0.01`, that is `(9.0601 - 8.9401) / 0.02 = 6.0`, which matches `2x = 6`.
+For $f(x) = x^2$ at $x = 3$ with $\text{eps} = 0.01$, that is $(9.0601 - 8.9401) / 0.02 = 6.0$, which matches $2x = 6$.
 
-For a function of many inputs, you repeat this once per input element: nudge only element `i`, leave the others alone, and the result is element `i` of the gradient.
+For a function of many inputs, you repeat this once per input element: nudge only element $i$, leave the others alone, and the result is element $i$ of the gradient.
 A plain Python loop over the elements is fine here, because this is a debugging tool, not training code.
 A few practical points:
 
@@ -263,7 +262,7 @@ A few practical points:
 - If `x` has more than one dimension, it is easiest to loop over a flattened view (`reshape(-1)`) and give the result the shape of `x` at the end.
 - `f` returns a one-element tensor; `.item()` turns it into a Python float.
 
-Why `eps` both up and down, instead of only `(f(x + eps) - f(x)) / eps`?
+Why `eps` both up and down, instead of only $(f(x + \text{eps}) - f(x)) / \text{eps}$?
 The symmetric version is much more accurate for the same `eps`.
 And why not make `eps` tiny?
 Because floating-point numbers have limited precision, and subtracting two almost-equal numbers loses most of it.
@@ -271,36 +270,36 @@ Because floating-point numbers have limited precision, and subtracting two almos
 
 **The softmax derivative.**
 Softmax turns a row of arbitrary scores into probabilities: all positive, summing to 1.
-For scores `x_1, ..., x_n`:
+For scores $x_1, \dots, x_n$:
 
-```
-p_i = exp(x_i) / S        where S = exp(x_1) + ... + exp(x_n)
+```math
+p_i = \frac{e^{x_i}}{S} \qquad \text{where } S = e^{x_1} + \dots + e^{x_n}
 ```
 
-Bigger scores get bigger probabilities, and every probability depends on every score through `S`.
+Bigger scores get bigger probabilities, and every probability depends on every score through $S$.
 You will see softmax constantly from topic 10 on.
 
 Its derivative is worth working out once, slowly.
-Take the derivative of `p_i` with respect to one score `x_j`.
+Take the derivative of $p_i$ with respect to one score $x_j$.
 Two cases:
 
-When `j = i`, both the top `exp(x_i)` and the bottom `S` depend on `x_i`.
-Using the quotient rule, `d p_i / d x_i = (exp(x_i) * S - exp(x_i) * exp(x_i)) / S^2`, which simplifies to `p_i - p_i * p_i`.
+When $j = i$, both the top $e^{x_i}$ and the bottom $S$ depend on $x_i$.
+Using the quotient rule, $\frac{\partial p_i}{\partial x_i} = \frac{e^{x_i} \cdot S - e^{x_i} \cdot e^{x_i}}{S^2}$, which simplifies to $p_i - p_i \cdot p_i$.
 
-When `j ≠ i`, only `S` depends on `x_j`.
-So `d p_i / d x_j = -exp(x_i) * exp(x_j) / S^2`, which is `-p_i * p_j`.
+When $j \ne i$, only $S$ depends on $x_j$.
+So $\frac{\partial p_i}{\partial x_j} = -\frac{e^{x_i} \cdot e^{x_j}}{S^2}$, which is $-p_i \cdot p_j$.
 
-Both cases fit one formula, using `delta_ij` to mean 1 when `i = j` and 0 otherwise:
+Both cases fit one formula, using $\delta_{ij}$ to mean 1 when $i = j$ and 0 otherwise:
 
-```
-d p_i / d x_j = p_i * (delta_ij - p_j)
+```math
+\frac{\partial p_i}{\partial x_j} = p_i \cdot (\delta_{ij} - p_j)
 ```
 
 That is the softmax Jacobian.
-Now do what `backward()` does: take the incoming gradient `g` (one number per output `p_i`) and compute the VJP, that is, for each input `j` sum `g_i * J_ij` over all `i`.
-Plug in the formula and split the sum into the `delta` part and the rest.
-The `delta` part keeps only the term `i = j`.
-The rest contains a sum over `i` of `g_i * p_i`, which is the same number for every `j`.
+Now do what `backward()` does: take the incoming gradient $g$ (one number per output $p_i$) and compute the VJP, that is, for each input $j$ sum $g_i \cdot J_{ij}$ over all $i$.
+Plug in the formula and split the sum into the $\delta$ part and the rest.
+The $\delta$ part keeps only the term $i = j$.
+The rest contains a sum over $i$ of $g_i \cdot p_i$, which is the same number for every $j$.
 Do that algebra on paper before you write any code, and check the result against the formula in the stub's docstring.
 
 In code, softmax runs along the last axis, so that shared sum is a reduction over the last axis, kept with `keepdim=True` so it broadcasts back against the rows (topics 03 and 04).
@@ -308,7 +307,7 @@ In code, softmax runs along the last axis, so that shared sum is a reduction ove
 The result has an intuitive reading.
 Softmax ignores a constant added to all its scores, because that constant cancels out between the top and the bottom.
 So the gradient can never push all the scores up together.
-Subtracting the probability-weighted average of `g` is exactly what removes that "all together" direction.
+Subtracting the probability-weighted average of $g$ is exactly what removes that "all together" direction.
 The same expression shows up again in the backward pass of attention in topic 19.
 
 ### 8.3 Custom autograd functions
@@ -316,8 +315,8 @@ The same expression shows up again in the backward pass of attention in topic 19
 Sometimes you want to decide the backward pass yourself.
 `torch.autograd.Function` lets you write an operation as a pair: a `forward` that computes the result, and a `backward` that receives the gradient arriving from later steps and returns the gradient for each input.
 
-Here is the shape of one, for `y = exp(x)`.
-Its derivative is `exp(x)` again, which is the output itself, so it saves the output instead of the input:
+Here is the shape of one, for $y = \exp(x)$.
+Its derivative is $\exp(x)$ again, which is the output itself, so it saves the output instead of the input:
 
 ```python
 class MyExp(torch.autograd.Function):
@@ -357,12 +356,12 @@ The second is to give an operation a gradient it does not really have.
 
 **The straight-through estimator.**
 Some operations, such as rounding, are flat almost everywhere and jump at a few points.
-The derivative of `round(x)` is zero almost everywhere.
+The derivative of $\operatorname{round}(x)$ is zero almost everywhere.
 If you put rounding in the middle of a network, the zero gradient stops everything before it from learning.
 
 The straight-through estimator, or STE, is a deliberate cheat.
 In `forward` you really do round.
-In `backward` you pretend the operation was `y = x`, whose derivative is 1, so the incoming gradient passes through unchanged.
+In `backward` you pretend the operation was $y = x$, whose derivative is 1, so the incoming gradient passes through unchanged.
 It is not the true gradient of anything.
 It works well enough in practice, and the alternative is no learning at all.
 It is used in quantization-aware training, where the model learns to cope with the rounding it will meet when it runs in low precision, and in VQ-VAE models that pick an entry from a discrete codebook.
@@ -410,7 +409,7 @@ That is the L2 norm from topic 04, applied to all the parameters at once as if t
 If it explodes or drops to zero during training, something is wrong.
 Topic 16 uses the same number to clip gradients that get too large.
 
-The loss for that stub is the mean squared error: the average of `(prediction - target)^2` over all elements.
+The loss for that stub is the mean squared error: the average of $(\text{prediction} - \text{target})^2$ over all elements.
 PyTorch has it as `torch.nn.functional.mse_loss(prediction, target)`.
 A one-element tensor turns into a Python float with `.item()`.
 
@@ -490,7 +489,7 @@ Without looking anything up you can:
 - [ ] say what `backward()` does to an existing `.grad`, and why training loops clear it
 - [ ] name three ways to stop a gradient and how they differ
 - [ ] explain what the `gradient=` argument of `backward()` means, using the word Jacobian
-- [ ] derive the softmax Jacobian `p_i (delta_ij - p_j)` on paper and turn it into the VJP
+- [ ] derive the softmax Jacobian $p_i (\delta_{ij} - p_j)$ on paper and turn it into the VJP
 - [ ] write the skeleton of a `torch.autograd.Function`, including how many values `backward` returns
 - [ ] explain the straight-through estimator in two sentences, including why it is not a real gradient
 - [ ] say what the gradient of an embedding table looks like after summing a lookup

@@ -48,7 +48,7 @@ Its size, not the weights, decides how many users fit on a GPU at once, and grou
 ### A refresher: `-inf` is how a token is removed
 
 Topic 10 built the softmax, and topic 14 used the one property of it that this whole topic relies on.
-`exp(-inf) = 0`, so a logit of `-inf` gets probability exactly 0, and the surviving tokens share the whole 1 among themselves in the same proportions as before:
+$\exp(-\infty) = 0$, so a logit of `-inf` gets probability exactly 0, and the surviving tokens share the whole 1 among themselves in the same proportions as before:
 
 ```python
 >>> torch.tensor([2.0, float("-inf"), 1.0, float("-inf")]).softmax(-1)
@@ -203,9 +203,11 @@ The other route is `gather` with the inverse permutation, `i.argsort(-1)`, which
 
 Every token that already appears in the generated sequence gets its logit pushed down:
 
-```
-logit / penalty     if logit > 0
-logit * penalty     if logit < 0
+```math
+\begin{cases}
+\text{logit} / \text{penalty} & \text{if logit} > 0 \\
+\text{logit} \cdot \text{penalty} & \text{if logit} < 0
+\end{cases}
 ```
 
 with `penalty > 1`; a logit of exactly 0 stays 0 either way.
@@ -276,7 +278,7 @@ The defaults `top_k=0` and `top_p=1.0` mean both filters are off.
 
 **The problem.**
 Generating with the naive loop from 17.3, step `t` runs the model over the whole prefix of `t` tokens, and only the last position's logits are used.
-Attention over `t` tokens costs on the order of `t²` per layer, so a whole generation of `T` tokens costs on the order of `T³`.
+Attention over `t` tokens costs on the order of $t^2$ per layer, so a whole generation of `T` tokens costs on the order of $T^3$.
 Almost all of it is recomputation.
 Because attention is causal (topic 14), position `i` never looks at anything after it, so its keys and values, and indeed its whole column of activations, are the same on every step after it first appeared.
 
@@ -295,7 +297,7 @@ scores          (B, H, 1, S)       one query against every key
 out             (B, H, 1, Dh)  ->  merged and projected back to (B, 1, D)
 ```
 
-Per step, the attention cost drops from `t²` to `t`, and the whole generation from cubic to quadratic.
+Per step, the attention cost drops from $t^2$ to $t$, and the whole generation from cubic to quadratic.
 Everything else in the model (projections, FFN, norms) also runs on one token instead of `t`.
 
 **What is not cached.**
@@ -337,7 +339,7 @@ For this exercise `cat` is the right tool: the copying costs time, not correctne
 
 This is the multi-head causal self-attention of topics 14 and 15, with one new argument.
 The four projections are `q_proj`, `k_proj`, `v_proj`, `output_proj`, each `nn.Linear(D, D, bias=False)`; the test checks `named_parameters()` against exactly those four names.
-The head split cuts `D` as `(H, Dh)` and then moves the head axis in front of time, the order from topic 14; the test builds its reference with `unflatten(-1, (H, Dh)).transpose(1, 2)`, and with the scale `1 / sqrt(Dh)` that `F.scaled_dot_product_attention` uses by default.
+The head split cuts `D` as `(H, Dh)` and then moves the head axis in front of time, the order from topic 14; the test builds its reference with `unflatten(-1, (H, Dh)).transpose(1, 2)`, and with the scale $1 / \sqrt{d_{\text{head}}}$ that `F.scaled_dot_product_attention` uses by default.
 
 `forward(x, cache=None)`:
 
@@ -352,7 +354,7 @@ Which mask is needed depends on the call:
 | --- | --- | --- | --- |
 | no cache, or prefill into an empty cache | `T` | `S = T` | the ordinary lower-triangular causal mask |
 | decode, one token | 1 | `S` | none: the new token is the latest position and may see every key, including itself |
-| a chunk of `T > 1` tokens into a non-empty cache | `T` | `S > T` | causal with an offset: query `i` sits at absolute position `S - T + i` |
+| a chunk of `T > 1` tokens into a non-empty cache | `T` | `S > T` | causal with an offset: query $i$ sits at absolute position $S - T + i$ |
 
 The tests exercise the first two rows: a full pass, six one-token steps from an empty cache, and a prefill of 3 positions followed by two one-token steps.
 The third row is the general case, and topic 14 built its table by comparing `arange(S - T, S)` against `arange(S)`.
@@ -382,8 +384,8 @@ When they disagree, the suspects in order are: a mask on the one-token steps (or
 
 The cache stores, for every layer, a key and a value per KV head, per position, per sequence in the batch, each `Dh` numbers long:
 
-```
-bytes = 2 * B * L * H_kv * T * Dh * bytes_per_element
+```math
+\text{bytes} = 2 \cdot B \cdot L \cdot H_{\text{kv}} \cdot T \cdot d_{\text{head}} \cdot \text{bytes\_per\_element}
 ```
 
 The `2` is `k` and `v`.
@@ -391,7 +393,7 @@ The `2` is `k` and `v`.
 `H_kv` is the number of **key/value** heads: with grouped-query attention it is smaller than the number of query heads, and the cache shrinks by exactly their ratio.
 
 A worked example: a 70B-class model with `L = 80`, `Dh = 128`, a single sequence of `T = 8192` tokens in bfloat16.
-With full multi-head attention, `H_kv = 64`, the cache is `2 * 1 * 80 * 64 * 8192 * 128 * 2 = 21,474,836,480` bytes, about 21.5 GB, for one user.
+With full multi-head attention, `H_kv = 64`, the cache is $2 \cdot 1 \cdot 80 \cdot 64 \cdot 8192 \cdot 128 \cdot 2 = 21{,}474{,}836{,}480$ bytes, about 21.5 GB, for one user.
 With `H_kv = 8`, it is 2.7 GB.
 That one line is the entire argument for GQA.
 

@@ -15,7 +15,7 @@ Once you see the model as a stream of vectors that every layer reads from and ad
 
 Second, an assembled model has failure modes that none of its parts has on its own.
 Everything can have the right shape while the residual is missing, a norm is shared by accident, or the initialization is off by a factor of fifty.
-So this topic also teaches the checks that catch that: the loss of an untrained model must be `log(V)`, a model must be able to memorize one batch, and changing a later token must never change an earlier prediction.
+So this topic also teaches the checks that catch that: the loss of an untrained model must be $\log V$, a model must be able to memorize one batch, and changing a later token must never change an earlier prediction.
 
 The three bricks at the top of the exercise, RMSNorm, SwiGLU and attention, are deliberately written once more from scratch.
 The point of the repository is that a transformer block comes out of your hands without thinking, and repetition is how that happens.
@@ -38,7 +38,7 @@ The point of the repository is that a transformer block comes out of your hands 
 
 You built each of these before; here is what each one does in one line.
 
-- **RMSNorm** (topic 11): divides every vector by its root mean square, then multiplies by a learned per-channel `weight` that starts at 1: `x / sqrt(mean(x²) + eps) * weight`, with the mean over the last axis.
+- **RMSNorm** (topic 11): divides every vector by its root mean square, then multiplies by a learned per-channel `weight` that starts at 1: $x / \sqrt{\operatorname{mean}(x^2) + \varepsilon} \cdot \text{weight}$, with the mean over the last axis.
 - **SwiGLU** (topic 12): the feed-forward network, `w2(silu(w1(x)) * w3(x))`, three bias-free linear maps; `w1` and `w3` go from `D` up to `d_ff`, `w2` comes back down to `D`.
 - **Causal multi-head self-attention** (topic 14): projections `q_proj`, `k_proj`, `v_proj`, a head split, scaled dot-product attention under a causal mask, a head merge, `output_proj`.
 - **Embedding** (topic 13): a `(V, D)` table; looking up `(B, T)` ids gives `(B, T, D)` vectors.
@@ -78,7 +78,7 @@ x = x + ffn(ln2(x))      # read a normalized copy, transform each position on it
 Three consequences follow, and each of them is something you would otherwise have to memorize.
 
 **A deep model can train.**
-The derivative of `x + f(x)` with respect to `x` is `1 + f'(x)`: the gradient always has a direct path back through the `+`, untouched by any sublayer (topic 08).
+The derivative of $x + f(x)$ with respect to $x$ is $1 + f'(x)$: the gradient always has a direct path back through the `+`, untouched by any sublayer (topic 08).
 So a signal from the loss reaches layer 0 of a 100-layer model as easily as layer 99.
 Without the `x +`, every layer multiplies the gradient by its own derivative on the way back, and a deep stack trains badly or not at all.
 
@@ -111,7 +111,7 @@ One parameter, `weight`, of shape `(D,)`, initialized to ones, and nothing else 
 The test compares against `x * rsqrt(mean(x²) + eps) * weight` with `eps = 1e-5`, `eps` inside the square root.
 
 **SwiGLU.**
-Three `nn.Linear` layers without biases, named `w1`, `w2`, `w3`, so its parameters are `3 * D * d_ff`.
+Three `nn.Linear` layers without biases, named `w1`, `w2`, `w3`, so its parameters are $3 \cdot D \cdot d_{\text{ff}}$.
 `w1` and `w3` are `D -> d_ff`, `w2` is `d_ff -> D`.
 The test uses an odd `d_ff = 21` to make sure nothing assumes a round number.
 
@@ -165,19 +165,19 @@ Building one block and putting the same object into the list `L` times gives `L`
 Construct a new block for each position, for example inside a list comprehension.
 
 **Initialization matters here specifically.**
-The exercise asks for `N(0, 0.02)`, a normal distribution with mean 0 and standard deviation 0.02, on the embedding table and on every linear weight.
+The exercise asks for $\mathcal{N}(0, 0.02)$, a normal distribution with mean 0 and standard deviation 0.02, on the embedding table and on every linear weight.
 The norm weights stay at their initial ones.
 The usual way is `model.apply(fn)`, which calls `fn` once on every module in the tree, and inside `fn` an `isinstance` check picks out the `nn.Linear` and `nn.Embedding` modules and calls `nn.init.normal_` on their weights (topic 09).
 This has to happen after the submodules exist, so at the end of `__init__`.
 
 The reason is the next test.
 
-#### The `log(V)` check
+#### The $\log V$ check
 
-Before training, the model knows nothing, so the best it can honestly do is spread its prediction evenly: probability `1/V` for every token.
-Cross-entropy then gives `-log(1/V) = log(V)` (topic 10).
+Before training, the model knows nothing, so the best it can honestly do is spread its prediction evenly: probability $1/V$ for every token.
+Cross-entropy then gives $-\log(1/V) = \log V$ (topic 10).
 
-| `V` | `log(V)` |
+| `V` | $\log V$ |
 | --- | --- |
 | 512 | 6.24 |
 | 10000 | 9.21 |
@@ -190,18 +190,18 @@ For `D = 64` that gives:
 
 | Initialization of `lm_head` | std of the logits | initial loss above `log(V)` by about |
 | --- | --- | --- |
-| `N(0, 0.02)` | 0.16 | 0.01 |
-| `nn.Linear` default (uniform, std about `1/sqrt(3D)` = 0.072) | 0.58 | 0.17 |
+| $\mathcal{N}(0, 0.02)$ | 0.16 | 0.01 |
+| `nn.Linear` default (uniform, std about $1/\sqrt{3D} = 0.072$) | 0.58 | 0.17 |
 
-The excess is roughly half the variance of the logits, `std² / 2`.
-The test requires the initial loss within 0.1 of `log(V)`, and a separate test checks the standard deviation of every embedding and linear weight directly.
-`nn.Embedding`'s default initialization is `N(0, 1)`, fifty times larger than asked, so leaving the defaults in place is caught there.
+The excess is roughly half the variance of the logits, $\text{std}^2 / 2$.
+The test requires the initial loss within 0.1 of $\log V$, and a separate test checks the standard deviation of every embedding and linear weight directly.
+`nn.Embedding`'s default initialization is $\mathcal{N}(0, 1)$, fifty times larger than asked, so leaving the defaults in place is caught there.
 
 The check is worth running on every real model you build, because each way of failing it points somewhere specific:
 
-- loss noticeably **above** `log(V)`: the initialization is too large, or the head is badly scaled;
-- loss noticeably **below** `log(V)` before any training: the model can see the answer, which almost always means a broken causal mask or inputs and targets not shifted by one;
-- loss **at** `log(V)`: the plumbing is right.
+- loss noticeably **above** $\log V$: the initialization is too large, or the head is badly scaled;
+- loss noticeably **below** $\log V$ before any training: the model can see the answer, which almost always means a broken causal mask or inputs and targets not shifted by one;
+- loss **at** $\log V$: the plumbing is right.
 
 #### Two more checks on the whole model
 
@@ -218,36 +218,37 @@ A model that cannot even memorize its training batch has a broken gradient path,
 
 **Parameter count**, ignoring the norm weights:
 
+```math
+\begin{aligned}
+\text{embeddings} &: \quad V \cdot D \\
+\text{per layer} &: \quad 4 \cdot D^2 && \text{attention: } q, k, v, \text{output} \\
+&\phantom{:} \quad + 3 \cdot D \cdot d_{\text{ff}} && \text{SwiGLU: } w_1, w_2, w_3 \\
+\text{lm\_head} &: \quad V \cdot D && \text{(0 if tied to the embeddings)} \\[1ex]
+\text{total} &= V D + L \cdot (4 D^2 + 3 D \, d_{\text{ff}}) + (0 \text{ if tied else } V D)
+\end{aligned}
 ```
-embeddings:      V * D
-per layer:       4 * D²             attention: q, k, v, output
-               + 3 * D * d_ff       SwiGLU: w1, w2, w3
-lm_head:         V * D              (0 if tied to the embeddings)
 
-total = V*D + L * (4*D² + 3*D*d_ff) + (0 if tied else V*D)
-```
-
-`num_heads` appears nowhere: splitting `D` into heads reinterprets the same `D x D` matrices, it does not add any (topic 14).
+`num_heads` appears nowhere: splitting `D` into heads reinterprets the same $D \times D$ matrices, it does not add any (topic 14).
 The test checks the formula on a GPT-2-small-sized model with a SwiGLU FFN: `V = 50257`, `D = 768`, `d_ff = 3072`, `L = 12`, about 152M parameters tied.
 A second test builds a real model and compares the formula with `sum(p.numel() for p in model.parameters())`: the only difference must be the norm weights, `D` per norm, two norms per layer plus `ln_final`.
 
-With the conventional `d_ff = 8/3 * D` (topic 12), the per-layer term is `4D² + 8D² = 12D²`, the familiar rule of thumb that a transformer has about `12 * L * D²` non-embedding parameters.
+With the conventional $d_{\text{ff}} = \frac{8}{3} D$ (topic 12), the per-layer term is $4D^2 + 8D^2 = 12D^2$, the familiar rule of thumb that a transformer has about $12 \cdot L \cdot D^2$ non-embedding parameters.
 
 **Where the parameters are.**
 The embedding and head terms grow with `V` and not with depth.
 For a small model with a big vocabulary, they dominate: with `L = 6`, `D = 512`, `V = 50257`, the embedding table alone is 25.7M parameters against 18.9M in all six layers together.
-At 70B parameters the same `V * D` is a rounding error.
+At 70B parameters the same $V \cdot D$ is a rounding error.
 
 That is also the argument about **weight tying**, using the embedding table as `lm_head`'s weight too.
-Tied, the two terms cost `V * D` instead of `2 * V * D`, which is a large saving for a small model.
+Tied, the two terms cost $V \cdot D$ instead of $2 \cdot V \cdot D$, which is a large saving for a small model.
 At large scale the saving is negligible and the input and output roles of a token genuinely differ, so several large models do not tie.
 
 **Activation memory.**
 To compute gradients, the backward pass needs the activations of the forward pass.
 The residual stream alone is one `(B, T, D)` tensor per layer, and all `L` of them are alive at the same time:
 
-```
-bytes ≈ B * T * D * L * bytes_per_element
+```math
+\text{bytes} \approx B \cdot T \cdot D \cdot L \cdot \text{bytes\_per\_element}
 ```
 
 For `B = 8`, `T = 2048`, `D = 4096`, `L = 32` in bf16, that is 4.3 GB.
@@ -329,11 +330,11 @@ torch.Size([2, 8])
 - Missing `ln_final` in a pre-norm model.
 - Normalizing after the sublayer instead of before it.
 - Dropping the `x +` in a residual line, or feeding the FFN the block's original input instead of the updated stream.
-- Leaving the default initialization: `nn.Embedding` starts at `N(0, 1)` and `nn.Linear` at a uniform with std `1/sqrt(3 * d_in)`, neither of which is `N(0, 0.02)`.
+- Leaving the default initialization: `nn.Embedding` starts at $\mathcal{N}(0, 1)$ and `nn.Linear` at a uniform with std $1/\sqrt{3 \cdot d_{\text{in}}}$, neither of which is $\mathcal{N}(0, 0.02)$.
 - Initializing before the submodules exist; `apply` must run at the end of `__init__`.
 - A bias anywhere, including `lm_head`.
 - Counting heads in the parameter formula.
-- An initial loss below `log(V)` means a leak, not a good model.
+- An initial loss below $\log V$ means a leak, not a good model.
 
 ## Ready when
 

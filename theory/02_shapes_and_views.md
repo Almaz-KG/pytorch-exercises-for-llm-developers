@@ -73,7 +73,7 @@ The inverse is the mirror image:
 
 After that transpose the tensor is not contiguous, which is exactly where `view` fails and `reshape` or `contiguous()` is required.
 
-`transpose(-2, -1)` on `(B, H, T, Dh)` gives `(B, H, Dh, T)`, the `K^T` of the attention score computation.
+`transpose(-2, -1)` on `(B, H, T, Dh)` gives `(B, H, Dh, T)`, the $K^\top$ of the attention score computation.
 Negative indices mean the same code works for `(T, Dh)` and `(B, H, T, Dh)` alike.
 
 ### 2.3 Joining and cutting

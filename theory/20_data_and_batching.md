@@ -82,8 +82,8 @@ The target slice ends one token later, and that last token must exist.
 
 Therefore the largest valid start index is
 
-```
-max_start = num_tokens - context_length - 1
+```math
+\text{max\_start} = \text{num\_tokens} - \text{context\_length} - 1
 ```
 
 inclusive.
@@ -123,8 +123,8 @@ The tests that pass `None` only check shapes and bounds, so either choice passes
 **Steps per epoch.**
 One optimizer step consumes `batch_size * context_length` tokens, so seeing every token once takes
 
-```
-steps = num_tokens // (batch_size * context_length)
+```math
+\text{steps} = \left\lfloor \frac{\text{num\_tokens}}{\text{batch\_size} \cdot \text{context\_length}} \right\rfloor
 ```
 
 rounding down: an incomplete final batch is not taken.

@@ -49,12 +49,14 @@ It is a constant source of transposed-weight bugs when writing layers by hand, s
 Leading axes need no special handling: `x` of `(B, T, in)` against `weight.T` of `(in, out)` broadcasts to `(B, T, out)`.
 
 The backward pass is three formulas.
-With `y = x W^T`, `x` of `(N, in)`, `W` of `(out, in)`, `y` and `grad_out` of `(N, out)`:
+With $y = x W^\top$, `x` of `(N, in)`, `W` of `(out, in)`, `y` and `grad_out` of `(N, out)`:
 
-```
-grad_x = grad_out @ W                 (N, out) @ (out, in) -> (N, in)
-grad_W = grad_out^T @ x               (out, N) @ (N, in)   -> (out, in)
-grad_b = grad_out.sum(0)              (N, out)             -> (out,)
+```math
+\begin{aligned}
+\text{grad\_x} &= \text{grad\_out} \, W && \texttt{(N, out) @ (out, in) -> (N, in)} \\
+\text{grad\_W} &= \text{grad\_out}^\top x && \texttt{(out, N) @ (N, in) -> (out, in)} \\
+\text{grad\_b} &= \textstyle\sum_{n} \text{grad\_out}_{n} && \texttt{(N, out) -> (out,)}
+\end{aligned}
 ```
 
 The mnemonic that removes the need to remember them: **each gradient has the shape of the thing it is a gradient of**, and there is exactly one way to contract the available tensors into that shape.
@@ -72,31 +74,33 @@ weights = softmax(scores, dim=-1)
 out     = weights @ v                             (B,H,T,S) @ (B,H,S,Dh) -> (B,H,T,Dh)
 ```
 
-The scale is `1 / sqrt(Dh)`, the head dimension, never `d_model`.
+The scale is $1 / \sqrt{d_{\text{head}}}$, the head dimension, never `d_model`.
 The reason is variance.
-If `q` and `k` have unit-variance independent entries, their dot product over `Dh` terms has variance `Dh`, so the scores grow like `sqrt(Dh)`, the softmax saturates into a near one-hot distribution and the gradients vanish.
-Dividing by `sqrt(Dh)` restores unit variance regardless of head size.
+If `q` and `k` have unit-variance independent entries, their dot product over `Dh` terms has variance $d_{\text{head}}$, so the scores grow like $\sqrt{d_{\text{head}}}$, the softmax saturates into a near one-hot distribution and the gradients vanish.
+Dividing by $\sqrt{d_{\text{head}}}$ restores unit variance regardless of head size.
 
 The softmax is over the **last** axis, the keys, so each query's weights sum to 1 across the keys it can see.
 
 ### 6.4 The arithmetic of cost
 
-One `(m, k) @ (k, n)` matmul does `m * n * k` multiplies and `m * n * k` adds, so by the standard convention it costs **`2 * m * n * k` FLOPs**.
+One `(m, k) @ (k, n)` matmul does $m n k$ multiplies and $m n k$ adds, so by the standard convention it costs **$2mnk$ FLOPs**.
 Everyone in the field uses this convention, including the scaling-law papers, so use it too.
 
 **Associativity changes the cost, not the answer.**
 For `A (m,k) @ B (k,n) @ C (n,p)`:
 
-```
-(A@B)@C  costs  2mnk + 2mpn
-A@(B@C)  costs  2knp + 2mkp
+```math
+\begin{aligned}
+(AB)C &\quad \text{costs} \quad 2mnk + 2mpn \\
+A(BC) &\quad \text{costs} \quad 2knp + 2mkp
+\end{aligned}
 ```
 
 This is precisely why **LoRA** computes `(x @ A) @ B` and not `x @ (A @ B)`.
-With `x` of `(N, in)`, `A` of `(in, r)`, `B` of `(r, out)` and `r` tiny, the left association costs `2*N*r*in + 2*N*out*r`, linear in `r`.
-The right association first builds the full `(in, out)` matrix at a cost of `2*in*r*out` and then does a full-size matmul, throwing away the entire point of the low rank.
+With `x` of `(N, in)`, `A` of `(in, r)`, `B` of `(r, out)` and $r$ tiny, the left association costs $2 N r \cdot \text{in} + 2 N \cdot \text{out} \cdot r$, linear in $r$.
+The right association first builds the full `(in, out)` matrix at a cost of $2 \cdot \text{in} \cdot r \cdot \text{out}$ and then does a full-size matmul, throwing away the entire point of the low rank.
 
-The LoRA update is `delta = (x @ A) @ B * (alpha / r)`.
+The LoRA update is $\delta = (x A) B \cdot (\alpha / r)$.
 
 **Parameter counts** for one pre-norm transformer block, ignoring biases and norms:
 
@@ -106,7 +110,7 @@ FFN:        2 * d_model * d_ff     w1, w2          (ungated)
             3 * d_model * d_ff     w1, w2, w3      (gated, SwiGLU)
 ```
 
-With the usual `d_ff = 4 * d_model` for an ungated FFN, a block is `12 * d_model^2`, and a whole model is roughly `12 * L * d_model^2` plus embeddings.
+With the usual $d_{\text{ff}} = 4 d_{\text{model}}$ for an ungated FFN, a block is $12 d_{\text{model}}^2$, and a whole model is roughly $12 L d_{\text{model}}^2$ plus embeddings.
 
 The number of heads does **not** appear in that count.
 Heads are a reshape of the same `d_model` channels, so `H` changes how the projections are interpreted, not how many parameters they contain.
@@ -175,7 +179,7 @@ torch.Size([2, 3, 7])
 - `bmm` refuses anything but 3-D and does not broadcast batch axes.
 - Scaling attention by `1/sqrt(d_model)` instead of `1/sqrt(d_head)` is a real bug that still trains, just worse.
 - Computing LoRA as `x @ (A @ B)` gives the right numbers and destroys the efficiency.
-- Counting FLOPs as `m*n*k` instead of `2*m*n*k` puts you a factor of two off every published number.
+- Counting FLOPs as $mnk$ instead of $2mnk$ puts you a factor of two off every published number.
 - `matmul` on two bfloat16 tensors returns bfloat16; the float32 accumulation inside the kernel is invisible from Python, so reproducing it requires casting the inputs yourself.
 - Head count does not change parameter count.
 
@@ -194,10 +198,10 @@ Without looking anything up you can:
 
 
 
-**Why `alpha / r` is in the LoRA formula at all.**
+**Why $\alpha / r$ is in the LoRA formula at all.**
 The scaling exists so that changing the rank does not change the effective magnitude of the update.
-Without it, doubling `r` roughly doubles the size of the correction and you have to retune the learning rate every time you touch the rank.
-With it, `alpha` is the knob you tune and `r` is the capacity you choose, independently.
+Without it, doubling $r$ roughly doubles the size of the correction and you have to retune the learning rate every time you touch the rank.
+With it, $\alpha$ is the knob you tune and $r$ is the capacity you choose, independently.
 
 **TF32, and why two machines disagree.**
 `torch.backends.cuda.matmul.allow_tf32` controls whether float32 matmuls on Ampere and later silently run in TF32, which has float32's range but only 10 mantissa bits.
@@ -205,8 +209,8 @@ It is on by default for convolutions and has flipped defaults for matmuls across
 When the same float32 code gives slightly different numbers on two GPUs, or between CPU and GPU, this flag is the usual reason.
 
 **Where the 12 comes from.**
-`12 * L * d_model^2` is the parameter count people quote for a transformer, and it is worth being able to rebuild: `4 * d_model^2` of attention plus `2 * d_model * d_ff` of FFN, with `d_ff = 4 * d_model`, is `4 + 8 = 12`.
-A model using SwiGLU has three FFN matrices instead of two and usually shrinks `d_ff` to `8/3 * d_model` to keep the same total, which is why odd numbers like 11008 appear in real configs.
+$12 L d_{\text{model}}^2$ is the parameter count people quote for a transformer, and it is worth being able to rebuild: $4 d_{\text{model}}^2$ of attention plus $2 d_{\text{model}} d_{\text{ff}}$ of FFN, with $d_{\text{ff}} = 4 d_{\text{model}}$, is $4 + 8 = 12$.
+A model using SwiGLU has three FFN matrices instead of two and usually shrinks $d_{\text{ff}}$ to $\frac{8}{3} d_{\text{model}}$ to keep the same total, which is why odd numbers like 11008 appear in real configs.
 Topic 12 does that arithmetic.
 
 ## Going deeper

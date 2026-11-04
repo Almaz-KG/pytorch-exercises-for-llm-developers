@@ -91,3 +91,22 @@
   border-top: none;
   margin-top: 0;
 }
+
+/* Display math from ```math fences. KaTeX puts its own 1em margin inside
+   the arithmatex block, which doubles the gap; keep one, and let a long
+   formula scroll sideways on a phone instead of widening the page. */
+.md-typeset div.arithmatex {
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.md-typeset div.arithmatex .katex-display {
+  margin: 0;
+}
+
+/* auto-render wraps the block in an inline <span>; a block inside an inline
+   box gets an empty line box above and below it, about 22px of dead space each. */
+.md-typeset div.arithmatex > span {
+  display: block;
+}

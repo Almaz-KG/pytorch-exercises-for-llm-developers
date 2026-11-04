@@ -39,7 +39,7 @@ Why RMSNorm replaced LayerNorm, and why "pre-norm" replaced "post-norm", is also
 All three are summaries of a list of numbers, and topic 04 computed them as reductions.
 Take the list `[1, 2, 3, 4]`.
 
-The **mean** is the average: `(1 + 2 + 3 + 4) / 4 = 2.5`.
+The **mean** is the average: $(1 + 2 + 3 + 4) / 4 = 2.5$.
 It says where the numbers sit.
 
 The **variance** is the average squared distance from the mean.
@@ -48,7 +48,7 @@ It says how spread out the numbers are.
 The **standard deviation** is its square root, `1.118`, back in the same units as the numbers.
 
 The **root mean square**, RMS, skips the mean entirely: square every number, average, take the square root.
-`(1 + 4 + 9 + 16) / 4 = 7.5`, and `sqrt(7.5) = 2.739`.
+$(1 + 4 + 9 + 16) / 4 = 7.5$, and $\sqrt{7.5} = 2.739$.
 It says how large the numbers are, measured from zero rather than from their average.
 When the mean happens to be 0, RMS and standard deviation are the same thing.
 
@@ -74,14 +74,16 @@ The same applies to `x.std()`.
 
 **LayerNorm** works on one token's vector at a time, along the last axis:
 
-```
-mu    = mean of x                              over the last axis
-var   = mean of (x - mu)^2                     biased, divided by D
-y     = (x - mu) / sqrt(var + eps) * weight + bias
+```math
+\begin{aligned}
+\mu &= \text{mean of } x \qquad \text{over the last axis} \\
+\operatorname{var} &= \text{mean of } (x - \mu)^2 \qquad \text{biased, divided by } D \\
+y &= \frac{x - \mu}{\sqrt{\operatorname{var} + \varepsilon}} \cdot \text{weight} + \text{bias}
+\end{aligned}
 ```
 
 Read the last line in two halves.
-`(x - mu) / sqrt(var + eps)` is the normalization itself: subtract the mean so the vector is centered on zero, then divide by the standard deviation so its spread is 1.
+$(x - \mu) / \sqrt{\operatorname{var} + \varepsilon}$ is the normalization itself: subtract the mean so the vector is centered on zero, then divide by the standard deviation so its spread is 1.
 `* weight + bias` then lets the model undo some of that if it wants: `weight` and `bias` are learned, one number per channel, both of shape `(D,)`.
 
 On `[1, 2, 3, 4]`: subtract 2.5 to get `[-1.5, -0.5, 0.5, 1.5]`, divide by 1.118 to get `[-1.342, -0.447, 0.447, 1.342]`.
@@ -89,9 +91,11 @@ That has mean 0 and standard deviation 1, whatever the input looked like.
 
 **RMSNorm** is LayerNorm with two pieces removed:
 
-```
-rms   = sqrt(mean of x^2 + eps)                over the last axis
-y     = x / rms * weight
+```math
+\begin{aligned}
+\operatorname{rms} &= \sqrt{\text{mean of } x^2 + \varepsilon} \qquad \text{over the last axis} \\
+y &= x / \operatorname{rms} \cdot \text{weight}
+\end{aligned}
 ```
 
 No mean is subtracted, and there is no `bias`.
@@ -122,12 +126,12 @@ It is also why LayerNorm behaves identically at batch size 1 and needs no stored
 `eps` is a small number, `1e-5` here, added to protect against dividing by zero.
 A vector of all zeros has variance 0 and RMS 0, and without `eps` that is `0 / 0 = nan`; the tests check that an all-zero input comes out finite.
 
-It goes **inside** the square root: `sqrt(var + eps)`, never `sqrt(var) + eps`.
-The two agree when `var` is large and disagree exactly when `eps` matters.
-With `var = 1e-8`, `sqrt(var + eps)` is about `0.0032`, while `sqrt(var) + eps` is about `0.00011`, thirty times smaller, so the output would be thirty times larger.
+It goes **inside** the square root: $\sqrt{\operatorname{var} + \varepsilon}$, never $\sqrt{\operatorname{var}} + \varepsilon$.
+The two agree when $\operatorname{var}$ is large and disagree exactly when $\varepsilon$ matters.
+With $\operatorname{var} = 10^{-8}$, $\sqrt{\operatorname{var} + \varepsilon}$ is about $0.0032$, while $\sqrt{\operatorname{var}} + \varepsilon$ is about $0.00011$, thirty times smaller, so the output would be thirty times larger.
 
 **`rsqrt`.**
-`torch.rsqrt(t)` computes `1 / sqrt(t)` in one operation, so dividing by a square root can be written as multiplying by an `rsqrt`.
+`torch.rsqrt(t)` computes $1 / \sqrt{t}$ in one operation, so dividing by a square root can be written as multiplying by an `rsqrt`.
 Real implementations do that, because multiplication is cheaper than division.
 The two spellings agree to float32 rounding.
 
@@ -200,21 +204,21 @@ There are no buffers in either module.
 
 **The residual connection.**
 Every block in a transformer has the same outline: run a sublayer, then **add** its result back onto its input.
-`x + sublayer(...)` is called a residual connection.
+$x + \operatorname{sublayer}(\dots)$ is called a residual connection.
 It means each block only has to learn a correction to the vector, not rebuild the vector from scratch, and the running sum of all those corrections is the residual stream.
 
 The question is where the normalization goes in that outline, and there are two answers.
 
 **Post-norm**, the original 2017 transformer, normalizes **after** adding:
 
-```
-x = norm(x + sublayer(x))
+```math
+x = \operatorname{norm}(x + \operatorname{sublayer}(x))
 ```
 
 **Pre-norm**, used by almost everything since about 2019, normalizes only **what goes into the sublayer**, and adds onto the raw stream:
 
-```
-x = x + sublayer(norm(x))
+```math
+x = x + \operatorname{sublayer}(\operatorname{norm}(x))
 ```
 
 They look like a reshuffle of the same three pieces.
@@ -226,7 +230,7 @@ Each block reads a normalized copy, computes something, and adds that onto the s
 So from the input of the network to its output there is a path that passes through nothing but additions.
 
 That path matters on the backward pass.
-The derivative of `x + something` with respect to `x` includes a plain 1 (topic 08), so the gradient travels back along the stream unchanged, and it arrives at layer 1 with the same size it had at layer 48.
+The derivative of $x + \text{something}$ with respect to $x$ includes a plain 1 (topic 08), so the gradient travels back along the stream unchanged, and it arrives at layer 1 with the same size it had at layer 48.
 Deep pre-norm models train stably from scratch.
 
 In post-norm, every addition is immediately followed by a normalization, so the stream itself gets rescaled at every block, and so does the gradient on its way back.
@@ -236,14 +240,14 @@ Pre-norm can train with little or no warmup; large models keep a short one anywa
 
 **A quick test of which one you wrote.**
 Imagine a sublayer that outputs all zeros.
-Pre-norm then returns `x` unchanged, exactly, because the stream is never touched.
-Post-norm returns `norm(x)`, which is different.
+Pre-norm then returns $x$ unchanged, exactly, because the stream is never touched.
+Post-norm returns $\operatorname{norm}(x)$, which is different.
 The exercise has a test for exactly this.
 
 **The extra norm at the end.**
 Because the pre-norm stream is never normalized, the vector reaching the end of the model may have any size.
 So a pre-norm model adds one last normalization after the final block, before the output layer: `ln_final` in this repository.
-A model with `L` blocks therefore has `2L + 1` norms: two per block, one before attention and one before the feed-forward network, plus the final one.
+A model with $L$ blocks therefore has $2L + 1$ norms: two per block, one before attention and one before the feed-forward network, plus the final one.
 
 **The two stubs take different arguments.**
 Read the signatures in 11.3 carefully.
@@ -253,17 +257,17 @@ The pre-norm function receives the sublayer **module** itself, because it has to
 ### 11.4 Properties worth feeling
 
 **RMSNorm ignores scale.**
-Multiply the input by any positive number `c`.
-Every value gets `c` times bigger, the RMS gets `c` times bigger, and the division cancels them:
+Multiply the input by any positive number $c$.
+Every value gets $c$ times bigger, the RMS gets $c$ times bigger, and the division cancels them:
 
-```
-rms_norm(c * x) == rms_norm(x)        for c > 0
+```math
+\operatorname{rms\_norm}(c x) = \operatorname{rms\_norm}(x) \qquad \text{for } c > 0
 ```
 
 That is the stabilizing guarantee from the start of this file, in one line: however large the previous layer's output was, the next layer sees the same thing.
 It also means the vector's **direction** carries all the information and its length carries none.
 
-`eps` breaks the identity slightly, since it is added to `c^2 * mean(x^2)` and not scaled with it, so the measured difference is small but not exactly zero.
+`eps` breaks the identity slightly, since it is added to $c^2 \cdot \operatorname{mean}(x^2)$ and not scaled with it, so the measured difference is small but not exactly zero.
 "Measured difference" means the same thing as in topic 10: subtract the two outputs, take the absolute value, take the largest entry.
 `weight` should be all ones for this, and `torch.ones` needs the right length, `x.shape[-1]`, to broadcast.
 
@@ -297,7 +301,7 @@ RMSNorm's output has an RMS of 1 but, in general, a nonzero mean, which is the o
 | `x.std(-1, correction=0)` | biased standard deviation |
 | `torch.var_mean(x, -1, correction=0, keepdim=True)` | `(var, mean)` in one pass |
 | `x.pow(2)` / `x ** 2` / `x.square()` | elementwise square |
-| `torch.sqrt(t)` / `torch.rsqrt(t)` | square root / `1 / sqrt(t)` in one op |
+| `torch.sqrt(t)` / `torch.rsqrt(t)` | square root / $1 / \sqrt{t}$ in one op |
 | `x.dtype`, `x.to(dtype)`, `x.float()` | read the dtype, convert, convert to float32 |
 | `torch.ones(n)` / `torch.zeros(n)` | starting values for `weight` and `bias`; also take `dtype=` |
 | `nn.Parameter(t)` | a learned tensor, registered on assignment (topic 09) |
@@ -331,7 +335,7 @@ tensor([[0.3651, 0.7303, 1.0954, 1.4606]])
 
 - `x.var()` and `x.std()` default to dividing by `D - 1`.
   Normalization divides by `D`: pass `correction=0`.
-- `sqrt(var) + eps` is not `sqrt(var + eps)`.
+- $\sqrt{\operatorname{var}} + \varepsilon$ is not $\sqrt{\operatorname{var} + \varepsilon}$.
 - Without `eps`, an all-zero vector gives `0 / 0 = nan`.
 - Forgetting `keepdim=True` breaks the broadcast in the subtraction or the division.
 - Reducing over a fixed axis number instead of `-1` breaks the same function for inputs of other ranks.

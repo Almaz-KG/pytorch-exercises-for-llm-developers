@@ -77,6 +77,10 @@ Shapes are written as tuples of single letters, and the letters mean the same th
 `(B, T, D) -> (B, T, H, Dh)` means a function taking the first shape and returning the second.
 `...` in a shape means "any number of leading axes", which is how most of these functions are written.
 
+Mathematics is written in LaTeX: `$...$` inline, and a fenced block tagged `math` for a formula on its own line.
+Those are the two forms both GitHub and the site render, so avoid `$$...$$` and `\(...\)`.
+Code stays in backticks: `torch.exp(x)` is an API call, $e^{x}$ is the function it computes.
+
 ## Two ways to read it
 
 These are plain Markdown files, so they render on GitHub and in any editor.

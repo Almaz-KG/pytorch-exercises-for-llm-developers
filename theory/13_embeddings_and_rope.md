@@ -51,28 +51,30 @@ So position has to be put into the numbers somehow, either into the token vector
 ### A refresher on sine, cosine and rotation
 
 Picture a point on a circle of radius 1, starting at the rightmost point and moving counter-clockwise.
-After it has turned through an angle `a` (measured in radians, where a full turn is `2 * pi ≈ 6.28`), its coordinates are `(cos a, sin a)`.
+After it has turned through an angle $a$ (measured in radians, where a full turn is $2\pi \approx 6.28$), its coordinates are $(\cos a, \sin a)$.
 That is all sine and cosine are: the two coordinates of a point going around a circle.
 
 Three facts follow from that picture:
 
-- `cos(0) = 1` and `sin(0) = 0`: no turn, still at the start.
-- `cos(a)^2 + sin(a)^2 = 1` for every `a`: the point is always on the circle.
-- Both repeat every full turn: `sin(a + 2 * pi) = sin(a)`.
+- $\cos 0 = 1$ and $\sin 0 = 0$: no turn, still at the start.
+- $\cos^2 a + \sin^2 a = 1$ for every $a$: the point is always on the circle.
+- Both repeat every full turn: $\sin(a + 2\pi) = \sin a$.
 
 **Rotating a 2-D vector.**
-To turn a vector `(x, y)` by an angle `a` around the origin, keeping its length:
+To turn a vector $(x, y)$ by an angle $a$ around the origin, keeping its length:
 
-```
-x_new = x * cos(a) - y * sin(a)
-y_new = x * sin(a) + y * cos(a)
+```math
+\begin{aligned}
+x_{\text{new}} &= x \cos a - y \sin a \\
+y_{\text{new}} &= x \sin a + y \cos a
+\end{aligned}
 ```
 
-Check it on `(1, 0)` turned by a quarter turn, `a = pi / 2`: `cos = 0`, `sin = 1`, so the result is `(0, 1)`, pointing straight up.
+Check it on $(1, 0)$ turned by a quarter turn, $a = \pi / 2$: $\cos = 0$, $\sin = 1$, so the result is $(0, 1)$, pointing straight up.
 
 **A rotation keeps lengths, and keeps angles between vectors.**
 Turn two vectors by the same angle and the angle between them does not change, nor do their lengths.
-And the dot product of two vectors is `|q| * |k| * cos(angle between them)`, built from exactly those things.
+And the dot product of two vectors is $\lvert q \rvert \cdot \lvert k \rvert \cdot \cos(\text{angle between them})$, built from exactly those things.
 So rotating both vectors by the same angle leaves their dot product unchanged.
 This one observation is the whole reason RoPE works, and 13.3 comes back to it.
 
@@ -82,11 +84,11 @@ This one observation is the whole reason RoPE works, and 13.3 comes back to it.
 An embedding table is a `(V, D)` tensor with one row per token id, and looking up ids is indexing, exactly as in topic 05: ids of shape `(B, T)` give vectors of shape `(B, T, D)`.
 The rows start out random and are learned like any other weight, so that tokens used in similar ways end up with similar vectors.
 
-**The `sqrt(D)` scaling.**
-The original 2017 transformer multiplied every looked-up embedding by `sqrt(D)`, where `D` is the width of the table, its last axis.
+**The $\sqrt{D}$ scaling.**
+The original 2017 transformer multiplied every looked-up embedding by $\sqrt{D}$, where `D` is the width of the table, its last axis.
 The reason was a size mismatch.
 The embedding table was initialized with small numbers, giving vectors whose length is around 1.
-The sinusoidal position vectors added to them have entries between -1 and 1, so their length is around `sqrt(D / 2)`, much bigger for a wide model.
+The sinusoidal position vectors added to them have entries between -1 and 1, so their length is around $\sqrt{D / 2}$, much bigger for a wide model.
 Without the scaling, the position signal would drown out the token signal.
 Models that use RoPE add nothing to the embeddings, so they generally skip this.
 
@@ -109,21 +111,23 @@ Topic 17 depends on getting it right.
 **Sinusoidal positions.**
 The 2017 transformer computed its position vectors instead of learning them:
 
-```
-PE[pos, 2i]   = sin(pos / 10000^(2i/D))
-PE[pos, 2i+1] = cos(pos / 10000^(2i/D))
+```math
+\begin{aligned}
+\text{PE}[\text{pos}, 2i] &= \sin\left(\text{pos} / 10000^{2i/D}\right) \\
+\text{PE}[\text{pos}, 2i+1] &= \cos\left(\text{pos} / 10000^{2i/D}\right)
+\end{aligned}
 ```
 
 Read it in pairs of channels.
-Channel pair `i` (channels `2i` and `2i + 1`) holds the `(sin, cos)` coordinates of a point going around a circle, at angle `pos * f_i`, where `f_i = 10000^(-2i/D)` is that pair's own speed, or frequency.
+Channel pair $i$ (channels $2i$ and $2i + 1$) holds the $(\sin, \cos)$ coordinates of a point going around a circle, at angle $\text{pos} \cdot f_i$, where $f_i = 10000^{-2i/D}$ is that pair's own speed, or frequency.
 Each pair is a clock hand turning at a different speed as the position increases.
 
 The speeds form a **geometric series**: each pair is slower than the one before by the same factor.
 For `D = 8` the four frequencies are `1, 0.1, 0.01, 0.001`.
-The first pair makes a full turn every `2 * pi ≈ 6.3` positions; the last one needs about `6283`.
+The first pair makes a full turn every $2\pi \approx 6.3$ positions; the last one needs about `6283`.
 Fast hands tell nearby positions apart, slow hands tell distant ones apart, and together they identify every position without repeating, like the second, minute and hour hands of a clock.
 
-The `2i` in the exponent is the index of the **even** channel of the pair: `0, 2, 4, ...`.
+The $2i$ in the exponent is the index of the **even** channel of the pair: `0, 2, 4, ...`.
 `torch.arange(0, D, 2)` produces exactly those.
 
 Two sanity checks.
@@ -142,7 +146,7 @@ By the property from the refresher, the comparison between two rotated vectors t
 A rotation is a 2-D thing, so the head vector of width `Dh` (which must be even) is cut into `Dh / 2` pairs, and each pair is rotated as a little 2-D vector on its own.
 
 **Which channels form a pair.**
-In this repository, and in CS336, the pairs are **adjacent** channels: `(x0, x1), (x2, x3), (x4, x5), ...`.
+In this repository, and in CS336, the pairs are **adjacent** channels: $(x_0, x_1), (x_2, x_3), (x_4, x_5), \dots$.
 This is called the interleaved convention.
 
 The other common convention cuts the vector into a first and a second half and pairs `x[i]` with `x[i + Dh/2]`.
@@ -153,11 +157,11 @@ When moving weights between codebases, check this first.
 **Frequencies.**
 Each pair gets its own speed, with the same geometric spread as the sinusoids:
 
-```
-inv_freq[i] = theta^(-2i / Dh)          for i = 0, 1, ..., Dh/2 - 1,   theta = 10000
+```math
+\text{inv\_freq}[i] = \theta^{-2i / d_{\text{head}}} \qquad \text{for } i = 0, 1, \dots, d_{\text{head}}/2 - 1, \quad \theta = 10000
 ```
 
-Pair 0 has speed 1 and turns fastest, the last pair has a speed close to `1 / theta` and barely moves.
+Pair 0 has speed 1 and turns fastest, the last pair has a speed close to $1 / \theta$ and barely moves.
 They must **decrease** along the pairs; if the last pair spins fastest, a sign is wrong.
 The name `inv_freq`, inverse frequency, is historical: it is the number you multiply the position by to get the angle.
 
@@ -188,9 +192,11 @@ At position 0 the cosines are all 1 and the sines all 0: no rotation at all.
 **Applying the rotation.**
 For every pair, call its first channel "even" and its second "odd", and apply the 2-D rotation from the refresher, with the pair's own angle:
 
-```
-out_even = x_even * cos - x_odd * sin
-out_odd  = x_even * sin + x_odd * cos
+```math
+\begin{aligned}
+\text{out}_{\text{even}} &= x_{\text{even}} \cdot \cos - x_{\text{odd}} \cdot \sin \\
+\text{out}_{\text{odd}} &= x_{\text{even}} \cdot \sin + x_{\text{odd}} \cdot \cos
+\end{aligned}
 ```
 
 All pairs at all positions can be done at once.
@@ -241,17 +247,17 @@ Real implementations convert the cache slice to the input's dtype first, with `c
 
 **Only the difference matters.**
 Take one channel pair, and think of the query's pair and the key's pair as two arrows in the plane.
-The query sits at position `m`, so its arrow is turned by `m * w`; the key at position `n` is turned by `n * w`.
+The query sits at position $m$, so its arrow is turned by $m w$; the key at position $n$ is turned by $n w$.
 
 Their dot product depends only on their lengths and on the angle between them.
 Rotations do not change lengths.
-And the angle between them changes by `m * w - n * w = (m - n) * w`: only the difference of the positions survives.
+And the angle between them changes by $m w - n w = (m - n)\, w$: only the difference of the positions survives.
 
-The full dot product of two head vectors is the sum of the dot products of their pairs, and every pair obeys the same argument with its own `w`.
-So the whole score between a query at `m` and a key at `n` depends on `m - n` and nothing else.
+The full dot product of two head vectors is the sum of the dot products of their pairs, and every pair obeys the same argument with its own $w$.
+So the whole score between a query at $m$ and a key at $n$ depends on $m - n$ and nothing else.
 Positions `(5, 3)`, `(10, 8)` and `(101, 99)` all give the same score, and `(5, 0)` gives a different one.
 
-On a single pair with `w = 0.5`:
+On a single pair with $w = 0.5$:
 
 ```
 q = (1, 2),  k = (3, -1)
@@ -261,7 +267,7 @@ q at 3, k at 1:                          -5.35
 q at 10, k at 8:                         -5.35     same distance, same score
 ```
 
-The original paper writes this with complex numbers, where turning by an angle is multiplying by `exp(i * angle)`; the picture above is the same argument without them.
+The original paper writes this with complex numbers, where turning by an angle is multiplying by $\exp(i \cdot \text{angle})$; the picture above is the same argument without them.
 
 **Why that is so valuable.**
 
@@ -281,14 +287,14 @@ Its one cost is that it is applied inside every attention layer rather than once
 Far beyond it, the fast pairs have turned through angle combinations the model never saw, and quality drops.
 The standard fixes all change the frequencies rather than the weights.
 Position interpolation divides the positions by a factor, so 32k tokens use the angles 4k used to.
-NTK-aware scaling raises `theta`, which slows the slow pairs more than the fast ones.
+NTK-aware scaling raises $\theta$, which slows the slow pairs more than the fast ones.
 YaRN combines the two with a per-frequency ramp.
 All three need only a short fine-tune, sometimes none, which is how context windows grew from 4k to 128k so fast in 2023.
 
 **A rotation keeps lengths.**
-`|rotated x| == |x|` at every position.
+$\lvert \text{rotated } x \rvert = \lvert x \rvert$ at every position.
 That is the cheapest test of whether your rotation really is one: if the length changes, you have a stretch or a shear, which nearly always means the pairing or a sign is wrong.
-`cos^2 + sin^2 == 1` across the whole cache tests the same thing from the cache's side.
+$\cos^2 + \sin^2 = 1$ across the whole cache tests the same thing from the cache's side.
 `torch.linalg.vector_norm(x, dim=-1)`, or `x.norm(dim=-1)`, gives the length.
 
 **One vector at one position.**
@@ -367,7 +373,7 @@ tensor([[0.0000, 0.0000],
 - The caches are buffers, not parameters, and in this exercise they must be persistent.
 - A float32 cache times a bfloat16 input promotes the output to float32.
 - If a rotated vector's length changes, the rotation is wrong; check that before debugging anything downstream.
-- The `sqrt(D)` uses the width of the table, its last axis, not the vocabulary size.
+- The $\sqrt{D}$ uses the width of the table, its last axis, not the vocabulary size.
 - `d_head` must be even.
 
 ## Ready when
@@ -388,6 +394,6 @@ Without looking anything up you can:
 ## Going deeper
 
 - [RoFormer](https://arxiv.org/abs/2104.09864), Su et al., the RoPE paper; section 3.4 is the relative-position proof with complex numbers.
-- [Attention Is All You Need](https://arxiv.org/abs/1706.03762), section 3.5, for the original sinusoids and the `sqrt(d_model)` scaling.
+- [Attention Is All You Need](https://arxiv.org/abs/1706.03762), section 3.5, for the original sinusoids and the $\sqrt{d_{\text{model}}}$ scaling.
 - [Rotary Embeddings: A Relative Revolution](https://blog.eleuther.ai/rotary-embeddings/), EleutherAI's blog post, the friendliest walk-through of RoPE with pictures.
 - [YaRN](https://arxiv.org/abs/2309.00071) for what people do to RoPE when they want a longer context than they trained on.

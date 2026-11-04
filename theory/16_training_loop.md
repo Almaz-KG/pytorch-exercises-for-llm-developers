@@ -28,8 +28,8 @@ Those three numbers are what you reason with before you launch anything.
 | gradient | `p.grad`, a tensor of the same shape as `p`, filled by `loss.backward()` |
 | optimizer step | one update of every parameter from its current gradient |
 | learning rate, `lr` | the scalar that sets how large a step is |
-| EMA | exponential moving average: `avg = beta * avg + (1 - beta) * new`, a running mean that forgets old values at rate `beta` |
-| moment | Adam's per-parameter running statistics: `m`, an EMA of the gradient, and `v`, an EMA of the squared gradient |
+| EMA | exponential moving average: $\text{avg} = \beta \cdot \text{avg} + (1 - \beta) \cdot \text{new}$, a running mean that forgets old values at rate $\beta$ |
+| moment | Adam's per-parameter running statistics: $m$, an EMA of the gradient, and $v$, an EMA of the squared gradient |
 | weight decay | shrinking every weight a little toward zero on every step, a regularizer |
 | schedule | the learning rate as a function of the step number |
 | global gradient norm | the L2 norm of all gradients of the model flattened into one long vector |
@@ -93,8 +93,8 @@ Putting it right before `backward` keeps the reads and writes of `.grad` togethe
 
 Plain stochastic gradient descent moves every parameter a small step against its gradient:
 
-```
-p <- p - lr * p.grad
+```math
+p \leftarrow p - \operatorname{lr} \cdot \texttt{p.grad}
 ```
 
 The arrow matters: the update must change the parameter tensor itself, the object the model and the optimizer hold, not compute a new tensor and bind it to a local name.
@@ -104,52 +104,54 @@ The test checks both: the values change, and afterwards the parameter still `req
 
 #### AdamW, the formula
 
-One AdamW step for one parameter tensor `p`, with gradient `g`, moments `m` and `v`, and step number `t`:
+One AdamW step for one parameter tensor $p$, with gradient $g$, moments $m$ and $v$, and step number $t$:
 
-```
-m     = b1 * m + (1 - b1) * g              first moment: an EMA of the gradient
-v     = b2 * v + (1 - b2) * g²             second moment: an EMA of the squared gradient, elementwise
-m_hat = m / (1 - b1^t)                     bias correction
-v_hat = v / (1 - b2^t)
-p     = p - lr * wd * p                    decoupled weight decay, on the p from before this step
-p     = p - lr * m_hat / (sqrt(v_hat) + eps)
+```math
+\begin{aligned}
+m &= \beta_1 m + (1 - \beta_1)\, g && \text{first moment: an EMA of the gradient} \\
+v &= \beta_2 v + (1 - \beta_2)\, g^2 && \text{second moment: an EMA of the squared gradient, elementwise} \\
+\hat{m} &= m / (1 - \beta_1^t) && \text{bias correction} \\
+\hat{v} &= v / (1 - \beta_2^t) \\
+p &= p - \operatorname{lr} \cdot \text{wd} \cdot p && \text{decoupled weight decay, on the } p \text{ from before this step} \\
+p &= p - \operatorname{lr} \cdot \hat{m} / \left(\sqrt{\hat{v}} + \varepsilon\right)
+\end{aligned}
 ```
 
-with `t` counting from **1**, `m` and `v` starting as zeros of `p`'s shape, and every operation elementwise.
-The defaults are `b1, b2 = 0.9, 0.999`, `eps = 1e-8`, and in this exercise `wd = 0.01`, which is also `torch.optim.AdamW`'s default.
+with $t$ counting from **1**, $m$ and $v$ starting as zeros of $p$'s shape, and every operation elementwise.
+The defaults are $\beta_1, \beta_2 = 0.9, 0.999$, $\varepsilon = 10^{-8}$, and in this exercise $\text{wd} = 0.01$, which is also `torch.optim.AdamW`'s default.
 
 Five things to understand rather than memorize.
 
 **Why two moments.**
-`m` is a smoothed direction, which damps the noise of stochastic gradients.
-`v` is a smoothed magnitude, and dividing by `sqrt(v_hat)` makes the step size roughly invariant to the scale of the gradient, per parameter entry.
+$m$ is a smoothed direction, which damps the noise of stochastic gradients.
+$v$ is a smoothed magnitude, and dividing by $\sqrt{\hat{v}}$ makes the step size roughly invariant to the scale of the gradient, per parameter entry.
 Every entry gets an individually adapted step size, which is why Adam works on transformers, where gradient scales differ by orders of magnitude between the embeddings and the last layer.
 
 **Why the bias correction.**
-`m` and `v` start at zero, so early on they are biased toward zero: after one step with `b1 = 0.9`, `m` is only `0.1 * g` rather than `g`.
-Dividing by `1 - b1^t` corrects exactly that, and the correction decays to 1 as `t` grows.
-The consequence worth feeling: on step 1, `m_hat = g` and `v_hat = g²`, so the update is `lr * g / |g|`, a step of size `lr` in every entry, whatever the size of the gradient.
+$m$ and $v$ start at zero, so early on they are biased toward zero: after one step with $\beta_1 = 0.9$, $m$ is only $0.1 \cdot g$ rather than $g$.
+Dividing by $1 - \beta_1^t$ corrects exactly that, and the correction decays to 1 as $t$ grows.
+The consequence worth feeling: on step 1, $\hat{m} = g$ and $\hat{v} = g^2$, so the update is $\operatorname{lr} \cdot g / \lvert g \rvert$, a step of size $\operatorname{lr}$ in every entry, whatever the size of the gradient.
 Without the correction the first few hundred steps are far too small, which is a slow silent start rather than a crash.
-With `t` starting at 0, `1 - b^0 = 0` and the correction divides by zero.
+With $t$ starting at 0, $1 - \beta^0 = 0$ and the correction divides by zero.
 
 **Why `eps` is where it is.**
-It is added to `sqrt(v_hat)`, after the square root, not inside it.
+It is added to $\sqrt{\hat{v}}$, after the square root, not inside it.
 It only matters for entries whose gradients are tiny, where it keeps the denominator away from zero.
-Inside the square root it would act on the scale of `eps` instead of `sqrt(eps)`, and for gradients around `1e-4` the step comes out about 30% smaller than PyTorch's.
+Inside the square root it would act on the scale of $\varepsilon$ instead of $\sqrt{\varepsilon}$, and for gradients around `1e-4` the step comes out about 30% smaller than PyTorch's.
 
 **Why decoupled weight decay is the "W" in AdamW.**
-The older approach, L2 regularization, added `wd * p` to the gradient before the moments were computed, so the decay then got divided by `sqrt(v_hat)` along with everything else.
+The older approach, L2 regularization, added $\text{wd} \cdot p$ to the gradient before the moments were computed, so the decay then got divided by $\sqrt{\hat{v}}$ along with everything else.
 Parameters with large gradients therefore got less decay, which is backwards.
-AdamW instead shrinks `p` by the factor `1 - lr * wd` as a separate step, untouched by the moments, so every weight decays at the same relative rate.
-The gradient `g` that enters the moments is the plain gradient of the loss.
-The test for this sets the gradient to zero: the moments and the Adam term are then zero, and the weight must still shrink by exactly `lr * wd`.
-The decay is scaled by `lr`, so it also follows the learning rate schedule.
+AdamW instead shrinks $p$ by the factor $1 - \operatorname{lr} \cdot \text{wd}$ as a separate step, untouched by the moments, so every weight decays at the same relative rate.
+The gradient $g$ that enters the moments is the plain gradient of the loss.
+The test for this sets the gradient to zero: the moments and the Adam term are then zero, and the weight must still shrink by exactly $\operatorname{lr} \cdot \text{wd}$.
+The decay is scaled by $\operatorname{lr}$, so it also follows the learning rate schedule.
 
-**Why the order of the two `p` lines matters.**
+**Why the order of the two $p$ lines matters.**
 PyTorch applies the decay to the weights as they were before the step, then subtracts the Adam term.
-The Adam term does not depend on `p`, so that is the same as computing both terms from the old `p` and subtracting them together.
-Applying the decay to the already-updated `p` instead shrinks the Adam term as well, an extra `lr * wd * update` per step.
-With `lr = 0.1` and `wd = 0.01` that is about `1e-4` per step, a hundred times the `1e-6` tolerance of the comparison against `torch.optim.AdamW`.
+The Adam term does not depend on $p$, so that is the same as computing both terms from the old $p$ and subtracting them together.
+Applying the decay to the already-updated $p$ instead shrinks the Adam term as well, an extra $\operatorname{lr} \cdot \text{wd} \cdot \text{update}$ per step.
+With $\operatorname{lr} = 0.1$ and $\text{wd} = 0.01$ that is about `1e-4` per step, a hundred times the `1e-6` tolerance of the comparison against `torch.optim.AdamW`.
 
 #### `adamw_step`: the functional form
 
@@ -229,22 +231,26 @@ The exercise decays every parameter uniformly, including the bias of the `nn.Lin
 
 The schedule is a pure function from the step number to a learning rate, in three phases:
 
-```
-step < warmup_steps:                    lr = lr_max * step / warmup_steps             linear warmup from 0
-warmup_steps <= step <= cosine_steps:   lr = lr_min + 0.5 * (1 + cos(pi * progress)) * (lr_max - lr_min)
-step > cosine_steps:                    lr = lr_min                                   constant tail
-
-progress = (step - warmup_steps) / (cosine_steps - warmup_steps)
+```math
+\begin{aligned}
+&\text{step} < \text{warmup\_steps} \text{, linear warmup from 0:} \\
+&\qquad \operatorname{lr} = \operatorname{lr}_{\max} \cdot \text{step} / \text{warmup\_steps} \\[1ex]
+&\text{warmup\_steps} \le \text{step} \le \text{cosine\_steps} \text{:} \\
+&\qquad \operatorname{lr} = \operatorname{lr}_{\min} + 0.5 \cdot \left(1 + \cos(\pi \cdot \text{progress})\right) \cdot (\operatorname{lr}_{\max} - \operatorname{lr}_{\min}) \\[1ex]
+&\text{step} > \text{cosine\_steps} \text{, constant tail:} \\
+&\qquad \operatorname{lr} = \operatorname{lr}_{\min} \\[2ex]
+&\text{progress} = \frac{\text{step} - \text{warmup\_steps}}{\text{cosine\_steps} - \text{warmup\_steps}}
+\end{aligned}
 ```
 
 `cosine_steps` is the **step number at which the cosine ends**, counted from 0 like `step` itself, not the length of the cosine phase.
 With `warmup_steps = 4` and `cosine_steps = 20`, the cosine runs over steps 4 to 20, sixteen steps long.
 
-`progress` runs from 0 to 1 across the cosine phase, and the factor `0.5 * (1 + cos(pi * progress))` runs from 1 down to 0 along half a cosine wave:
+`progress` runs from 0 to 1 across the cosine phase, and the factor $0.5 \cdot (1 + \cos(\pi \cdot \text{progress}))$ runs from 1 down to 0 along half a cosine wave:
 
 | `progress` | 0 | 0.25 | 0.5 | 0.75 | 1 |
 | --- | --- | --- | --- | --- | --- |
-| `0.5 * (1 + cos(pi * progress))` | 1 | 0.854 | 0.5 | 0.146 | 0 |
+| $0.5 \cdot (1 + \cos(\pi \cdot \text{progress}))$ | 1 | 0.854 | 0.5 | 0.146 | 0 |
 
 So the learning rate is exactly halfway between `lr_max` and `lr_min` in the middle of the cosine phase, falls fastest there, and flattens at both ends.
 
@@ -277,8 +283,11 @@ Applying it is one line per step: write the value into `group["lr"]` for every g
 
 ### 16.3 Gradient clipping
 
+```math
+\text{total} = \sqrt{\sum_{\text{every parameter } p} \; \sum_{\text{every entry } k} \texttt{p.grad}[k]^2}
 ```
-total = sqrt(sum over every parameter p, over every entry, of p.grad²)
+
+```
 if total > max_norm:
     multiply every gradient by max_norm / (total + eps)
 return total, measured before any rescaling
@@ -329,8 +338,8 @@ Because `backward` adds into `.grad`, the gradients of all micro-batches pile up
 The loss you are targeting is the mean over the whole batch.
 For `N` micro-batches of equal size, the mean of the whole batch equals the mean of the micro-batch means:
 
-```
-mean over the batch = (1/N) * (mean_1 + mean_2 + ... + mean_N)
+```math
+\text{mean over the batch} = \frac{1}{N} \left(\text{mean}_1 + \text{mean}_2 + \dots + \text{mean}_N\right)
 ```
 
 and since the gradient is linear, the same holds for gradients.
@@ -343,7 +352,7 @@ Accumulating the raw micro-batch losses gives the sum of the means, which is `N`
 ```
 
 Without the division the gradient is `N` times too large, so the effective learning rate is `N` times what you configured.
-With Adam the damage is partly hidden, since dividing by `sqrt(v_hat)` cancels most of a constant factor.
+With Adam the damage is partly hidden, since dividing by $\sqrt{\hat{v}}$ cancels most of a constant factor.
 But clipping sees the inflated norm and clips steps it should have left alone, and with SGD the run is simply wrong.
 Nothing crashes and the loss still falls, so the bug survives until someone compares against a real large batch, which is exactly what the test does.
 
@@ -376,18 +385,18 @@ Accumulation gives exactly the gradient of the large batch, but it does not save
 
 Training a model with `N` parameters on `D` tokens costs approximately
 
-```
-FLOPs = 6 * N * D
+```math
+\text{FLOPs} = 6 \cdot N \cdot D
 ```
 
-The forward pass is about `2ND`: each parameter takes part in one multiply-accumulate per token, and the `2` is the multiply plus the add.
-The backward pass is about twice the forward, `4ND`, because for every weight matrix it computes two products of the same size as the forward one: the gradient with respect to the layer's input, to pass further back, and the gradient with respect to the weights.
+The forward pass is about $2ND$: each parameter takes part in one multiply-accumulate per token, and the $2$ is the multiply plus the add.
+The backward pass is about twice the forward, $4ND$, because for every weight matrix it computes two products of the same size as the forward one: the gradient with respect to the layer's input, to pass further back, and the gradient with respect to the weights.
 
-The rule ignores attention's `T²` term, which is a correction rather than the main story below roughly 8k context (topic 14).
+The rule ignores attention's $T^2$ term, which is a correction rather than the main story below roughly 8k context (topic 14).
 The `N` and `D` in it are counts, not this repository's shape letters.
 
-A neutral example: a 125M-parameter model on 2.5B tokens costs `6 * 125e6 * 2.5e9 = 1.875e18` FLOPs.
-At an effective `1e14` FLOP/s, which is a realistic fraction of a modern GPU's peak, that is 18750 seconds, about 5.2 hours.
+A neutral example: a 125M-parameter model on 2.5B tokens costs $6 \cdot 125 \times 10^6 \cdot 2.5 \times 10^9 = 1.875 \times 10^{18}$ FLOPs.
+At an effective $10^{14}$ FLOP/s, which is a realistic fraction of a modern GPU's peak, that is 18750 seconds, about 5.2 hours.
 
 #### Chinchilla
 
@@ -405,8 +414,8 @@ Ratios of 100 to 1000 are now normal, and "undertrained" in the Chinchilla sense
 
 The number of tokens behind one optimizer step is
 
-```
-tokens per step = batch_size * seq_len * grad_accum
+```math
+\text{tokens per step} = \text{batch\_size} \cdot \text{seq\_len} \cdot \text{grad\_accum}
 ```
 
 because each of the `grad_accum` micro-batches holds `batch_size` sequences of `seq_len` tokens.
@@ -492,9 +501,9 @@ tensor([0.1000])
 tensor([0.1000])
 ```
 
-After bias correction, the first step has magnitude `lr` no matter how large or small the gradient was.
+After bias correction, the first step has magnitude $\operatorname{lr}$ no matter how large or small the gradient was.
 
-Where the eps goes, for a gradient entry around `1e-4`, with the same one-step `v_hat = g²`:
+Where the eps goes, for a gradient entry around `1e-4`, with the same one-step $\hat{v} = g^2$:
 
 ```python
 >>> g = torch.tensor([1e-4]); v_hat = g * g
@@ -534,8 +543,8 @@ Where the eps goes, for a gradient entry around `1e-4`, with the same one-step `
 Without looking anything up you can:
 
 - [ ] write the AdamW update from memory, bias correction and decoupled decay included, in the order PyTorch applies them
-- [ ] explain what each moment is for and why dividing by `sqrt(v_hat)` helps
-- [ ] say why Adam's first step has size `lr` whatever the gradient
+- [ ] explain what each moment is for and why dividing by $\sqrt{\hat{v}}$ helps
+- [ ] say why Adam's first step has size $\operatorname{lr}$ whatever the gradient
 - [ ] say why weight decay must be decoupled from the adaptive scaling
 - [ ] write a `torch.optim.Optimizer` subclass with `param_groups`, lazily initialized `state` and a closure
 - [ ] write the three-phase learning rate schedule and check every boundary, including the degenerate ones

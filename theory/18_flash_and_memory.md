@@ -47,15 +47,17 @@ What makes it hard is that each one has an exact invariant, and a version that i
 
 Topic 10 built both, and everything here is a rearrangement of them.
 
-`exp` overflows quickly: in float32 `exp(89)` is already `inf`.
+`exp` overflows quickly: in float32 $\exp(89)$ is already `inf`.
 The fix is that subtracting the same constant from every entry of a row changes nothing, so you subtract the row's maximum `m` first:
 
-```
-softmax(x)_i  = exp(x_i - m) / sum_j exp(x_j - m)
-logsumexp(x)  = m + log(sum_j exp(x_j - m))
+```math
+\begin{aligned}
+\operatorname{softmax}(x)_i &= \frac{\exp(x_i - m)}{\sum_j \exp(x_j - m)} \\
+\operatorname{logsumexp}(x) &= m + \log\Big(\sum_j \exp(x_j - m)\Big)
+\end{aligned}
 ```
 
-After the subtraction the largest exponent is `exp(0) = 1` and every other one is at most 1, so nothing can overflow, and the sum is at least 1, so the `log` is safe.
+After the subtraction the largest exponent is $\exp(0) = 1$ and every other one is at most 1, so nothing can overflow, and the sum is at least 1, so the `log` is safe.
 
 The catch is that this needs the maximum **before** any exponential is taken.
 That means two passes over the row, and it means holding the whole row.
@@ -87,20 +89,22 @@ NaN appears only when a row has seen nothing but `-inf` so far and is asked to c
 The online version of the softmax carries two running statistics per row instead of the whole row:
 
 - `m`, the maximum seen so far;
-- `l`, the sum of `exp(x - m)` over everything seen so far, **relative to the current `m`**.
+- `l`, the sum of $\exp(x - m)$ over everything seen so far, **relative to the current `m`**.
 
 Start with `m = -inf` and `l = 0`, which stand for "nothing seen yet".
 When a new block of scores arrives, the maximum may go up, and every exponential already summed into `l` was taken relative to the old maximum.
 Fixing that takes a single multiplication:
 
-```
-m_new = max(m_prev, max(block))
-l_new = l_prev * exp(m_prev - m_new) + sum(exp(block - m_new))
+```math
+\begin{aligned}
+m_{\text{new}} &= \max\big(m_{\text{prev}}, \max(\text{block})\big) \\
+l_{\text{new}} &= l_{\text{prev}} \cdot \exp(m_{\text{prev}} - m_{\text{new}}) + \sum \exp(\text{block} - m_{\text{new}})
+\end{aligned}
 ```
 
-The factor `exp(m_prev - m_new)` is at most 1, and it moves the old sum from the old reference point to the new one.
-It is exact, because `exp(a - m_old) * exp(m_old - m_new) = exp(a - m_new)` for every `a` already summed.
-When the block does not raise the maximum, `m_new = m_prev`, the factor is `exp(0) = 1`, and the update is a plain addition.
+The factor $\exp(m_{\text{prev}} - m_{\text{new}})$ is at most 1, and it moves the old sum from the old reference point to the new one.
+It is exact, because $\exp(a - m_{\text{old}}) \cdot \exp(m_{\text{old}} - m_{\text{new}}) = \exp(a - m_{\text{new}})$ for every $a$ already summed.
+When the block does not raise the maximum, $m_{\text{new}} = m_{\text{prev}}$, the factor is $\exp(0) = 1$, and the update is a plain addition.
 
 **One row by hand.**
 Take the row `[1, 3, 0.5, 4, 2, -1, 0, 2.5]` in blocks of 3:
@@ -111,8 +115,8 @@ Take the row `[1, 3, 0.5, 4, 2, -1, 0, 2.5]` in blocks of 3:
 | 2 | `[4, 2, -1]` | 4 | `1.2174 * e^-1 + e^0 + e^-2 + e^-5` = 1.5899 |
 | 3 | `[0, 2.5]` | 4 | `1.5899 * e^0 + e^-4 + e^-1.5` = 1.8314 |
 
-At the end, `m + log(l) = 4 + log(1.8314) = 4.6051`, which is `torch.logsumexp` of the whole row to the last printed digit.
-The first block also shows why `-inf` and `0` are the right starting values: the correction `exp(-inf - 3)` is 0, and multiplying the starting `l = 0` by it leaves 0.
+At the end, $m + \log(l) = 4 + \log(1.8314) = 4.6051$, which is `torch.logsumexp` of the whole row to the last printed digit.
+The first block also shows why `-inf` and `0` are the right starting values: the correction $\exp(-\infty - 3)$ is 0, and multiplying the starting `l = 0` by it leaves 0.
 
 **Why this is exact and not an approximation.**
 Nothing is dropped or truncated, the rescaling is an identity, and every exponent is at most zero, so nothing overflows on the way.
@@ -127,12 +131,14 @@ Blocks may have different widths; nothing in the update depends on `Sb`.
 **What the update gives you at the end.**
 Once every block has gone through, `m` is the true row maximum and `l` the true sum relative to it, so:
 
-```
-logsumexp(x) = m + log(l)                  (..., 1)
-softmax(x)_i = exp(x_i - m) / l
+```math
+\begin{aligned}
+\operatorname{logsumexp}(x) &= m + \log(l) \qquad (\dots, 1) \\
+\operatorname{softmax}(x)_i &= \exp(x_i - m) / l
+\end{aligned}
 ```
 
-The second line still needs every `x_i`, and the statistics are only final after the last block.
+The second line still needs every $x_i$, and the statistics are only final after the last block.
 So `chunked_softmax` takes **two passes** over the blocks: the first carries `(m, l)` through all of them, the second goes back over each block, turns it into probabilities with the final statistics, and the blocks are joined back along the last axis.
 Its working memory beyond the input and output is one block plus two numbers per row, and the test asks for the same answer as `x.softmax(-1)` within float32 tolerance, including on rows near 5000 that a naive `exp` would turn into `inf`.
 
@@ -158,13 +164,13 @@ Writing a loop over blocks as Python is allowed in this file: the loop is over b
 
 Attention for one query is a softmax-weighted average of the value vectors:
 
-```
-out = sum_j (exp(s_j - m) / l) * v_j        where s_j = q . k_j / sqrt(Dh)
+```math
+\text{out} = \sum_j \frac{\exp(s_j - m)}{l} \, v_j \qquad \text{where } s_j = \frac{q \cdot k_j}{\sqrt{d_{\text{head}}}}
 ```
 
 Flash attention applies the online softmax to this and adds one thing: an **output accumulator**, rescaled together with `l`.
-Carry, per query row, the unnormalized sum `o = sum_j exp(s_j - m) * v_j` alongside `m` and `l`.
-Every term in `o` was weighted relative to the current `m`, exactly like every term in `l`, so when `m` goes up, `o` takes the same correction factor `exp(m_old - m_new)`.
+Carry, per query row, the unnormalized sum $o = \sum_j \exp(s_j - m) \, v_j$ alongside `m` and `l`.
+Every term in `o` was weighted relative to the current `m`, exactly like every term in `l`, so when `m` goes up, `o` takes the same correction factor $\exp(m_{\text{old}} - m_{\text{new}})$.
 Dividing `o` by `l` once, after the last key block, gives the normalized output.
 
 The `(T, S)` score matrix never exists in full.
@@ -192,21 +198,21 @@ The outer loop is over query blocks because each query row's result depends only
 The finished blocks are written into a preallocated output (`torch.empty_like(q)` and slice assignment) or collected and joined with `torch.cat` along the query axis.
 The tests check the forward pass only, so either way is fine.
 
-The scale is `1 / sqrt(Dh)`, with `Dh` the last axis of `q`, as in topic 14; the reference `F.scaled_dot_product_attention` uses exactly that.
+The scale is $1 / \sqrt{d_{\text{head}}}$, with `Dh` the last axis of `q`, as in topic 14; the reference `F.scaled_dot_product_attention` uses exactly that.
 Leading axes `(B, H)` need no special handling: `@` treats them as batch axes, and slicing a block means slicing the second-to-last axis, `q[..., i : i + block, :]`.
 
 **Large scores.**
-One test fills `q` and `k` with 30, so every score is `30 * 30 * 8 / sqrt(8)`, about 2546.
-`exp(2546)` is `inf` in any float format, and a version that exponentiates before subtracting the running maximum returns NaN.
-With the online rule every exponent is `s - m_new <= 0`, so the scores can be any size.
+One test fills `q` and `k` with 30, so every score is $30 \cdot 30 \cdot 8 / \sqrt{8}$, about 2546.
+$\exp(2546)$ is `inf` in any float format, and a version that exponentiates before subtracting the running maximum returns NaN.
+With the online rule every exponent is $s - m_{\text{new}} \le 0$, so the scores can be any size.
 All scores equal means a uniform softmax, so the expected output is the plain mean of the value vectors.
 
 #### The causal mask, tile by tile
 
-With `causal=True`, query `i` may see key `j` only when `j <= i`, as in topic 14.
-Inside a tile, `i` and `j` are **absolute** positions, not positions within the tile.
-A tile covering query rows `[i0, i1)` and key columns `[j0, j1)` builds its mask from `arange(i0, i1)` and `arange(j0, j1)`, compared by broadcasting exactly as in topic 14.
-A neutral tile, rows 2 to 4 and columns 3 to 5, with `True` marking the **forbidden** entries `j > i`:
+With `causal=True`, query $i$ may see key $j$ only when $j \le i$, as in topic 14.
+Inside a tile, $i$ and $j$ are **absolute** positions, not positions within the tile.
+A tile covering query rows $[i_0, i_1)$ and key columns $[j_0, j_1)$ builds its mask from `arange(i0, i1)` and `arange(j0, j1)`, compared by broadcasting exactly as in topic 14.
+A neutral tile, rows 2 to 4 and columns 3 to 5, with `True` marking the **forbidden** entries $j > i$:
 
 ```python
 >>> rows = torch.arange(2, 5)[:, None]
@@ -225,13 +231,13 @@ Each tile is one of three kinds:
 - crossing the diagonal: some entries masked;
 - entirely above it, every key in the future of every row: fully masked.
 
-A tile is fully masked when its first key comes after its last query, `j0 > i1 - 1`.
+A tile is fully masked when its first key comes after its last query, $j_0 > i_1 - 1$.
 Those tiles contribute nothing, so they can be **skipped** without computing them at all.
 For `T == S` that is almost half of all tiles, and it is where a causal flash kernel gets close to a 2x speedup over the non-causal one.
 
 **Where the NaN of the docstring comes from.**
-Folding a fully masked tile into a row that has already seen at least one visible key is harmless: `rowmax(s)` is `-inf`, `m_new` stays the old finite `m`, the correction is `exp(0) = 1`, and `p = exp(-inf - m)` is 0.
-The NaN appears when a row meets a fully masked tile while its `m` is still `-inf`, because then `m_new` is `-inf` too and both `exp(m - m_new)` and `exp(s - m_new)` are `exp(-inf - (-inf))`.
+Folding a fully masked tile into a row that has already seen at least one visible key is harmless: `rowmax(s)` is `-inf`, `m_new` stays the old finite `m`, the correction is $\exp(0) = 1$, and $p = \exp(-\infty - m)$ is 0.
+The NaN appears when a row meets a fully masked tile while its `m` is still `-inf`, because then `m_new` is `-inf` too and both $\exp(m - m_{\text{new}})$ and $\exp(s - m_{\text{new}})$ are $\exp(-\infty - (-\infty))$.
 Whether that can happen depends on the order of the loop, which is fragile; skipping fully masked tiles removes the possibility instead of relying on the order.
 The same hazard sits inside `online_softmax_update` itself: called on a row that is all `-inf` with `m_prev = -inf`, it returns NaN, and it is the caller's job never to do that.
 
@@ -252,28 +258,28 @@ The real kernel wins for a reason the Python version cannot show.
 
 On a GPU, attention is limited by memory traffic, not by arithmetic.
 The naive version writes the whole score matrix out to the GPU's main memory (HBM), reads it back for the softmax, writes the weights, reads them back for the matmul with `v`.
-That traffic is `O(T²)` and it dominates the runtime.
+That traffic is $O(T^2)$ and it dominates the runtime.
 A flash kernel keeps each tile in on-chip SRAM, roughly an order of magnitude faster to access but only a few hundred kilobytes in size, and never writes the scores anywhere.
 The extra arithmetic of the rescaling is cheap next to the traffic it saves.
 
-Memory drops from `O(T²)` to `O(T)`: per query row, `(m, l)` and the output.
+Memory drops from $O(T^2)$ to $O(T)$: per query row, `(m, l)` and the output.
 The backward pass recomputes each tile from `q`, `k`, `v` and the saved `m` and `l` instead of storing the scores, which is the same compute-for-memory trade as 18.4.
 
 ### 18.3 Cross-entropy without materializing the logits
 
 **The size of the problem.**
 `lm_head` turns `N` hidden vectors into `(N, V)` logits.
-At `N = 8192` tokens and `V = 128256` (Llama 3) in float32 that is `8192 * 128256 * 4` bytes, about 4.2 GB, and the backward pass needs a tensor of the same size again for the gradient of the logits.
+At `N = 8192` tokens and `V = 128256` (Llama 3) in float32 that is $8192 \cdot 128256 \cdot 4$ bytes, about 4.2 GB, and the backward pass needs a tensor of the same size again for the gradient of the logits.
 On a large-vocabulary model it is the biggest tensor in the whole step, bigger than any layer's activations.
 
 **The decomposition.**
 From topic 10, the loss of one token is
 
-```
-loss_n = logsumexp(logits_n) - logits_n[target_n]        logits_n = weight @ hidden_n,  shape (V,)
+```math
+\text{loss}_n = \operatorname{logsumexp}(\text{logits}_n) - \text{logits}_n[\text{target}_n] \qquad \text{logits}_n = \text{weight} \cdot \text{hidden}_n, \ \text{shape } (V,)
 ```
 
-and the mean loss is `sum_n loss_n / N`.
+and the mean loss is $\sum_n \text{loss}_n / N$.
 Every term depends on its own row of `hidden` only, so the rows can be processed in groups: take rows `[i, i + chunk)` of `hidden`, `(chunk, D)`, multiply by `weight.T`, `(D, V)`, to get that group's `(chunk, V)` logits, reduce them to that group's sum of losses, and go on to the next group.
 `weight` is `(V, D)`, the `nn.Linear` layout of `lm_head` (topic 09), so the logits of a chunk are `hidden_chunk @ weight.T`, the same expression the test uses for its reference.
 `targets` is sliced with the same bounds as `hidden`.
@@ -284,7 +290,7 @@ The per-group reduction is any of the loss formulations from topic 10.
 **The averaging.**
 Divide the total by `N`, once, at the end.
 The test uses `N = 20` in chunks of 7, so the chunks are 7, 7 and 6 rows.
-Averaging the per-chunk means gives `(m1 + m2 + m3) / 3`, which weighs each of the 6 tokens in the last chunk more than each of the 14 others: wrong whenever the chunks differ in size.
+Averaging the per-chunk means gives $(m_1 + m_2 + m_3) / 3$, which weighs each of the 6 tokens in the last chunk more than each of the 14 others: wrong whenever the chunks differ in size.
 This is the same trap as the gradient-accumulation division in topic 16.
 
 **The gradients.**
@@ -307,7 +313,7 @@ The test checks the value and the gradients, not the memory, so the plain chunke
 
 **Chunked logsumexp.**
 `chunked_logsumexp` reduces `(N, V)` to `(N,)` along the last axis, and it chunks the **vocabulary**, the columns, not the rows.
-It is the first pass of 18.1 with the final `m + log(l)` from the formula above, squeezed from `(N, 1)` to `(N,)`.
+It is the first pass of 18.1 with the final $m + \log(l)$ from the formula above, squeezed from `(N, 1)` to `(N,)`.
 It is the piece a loss kernel needs when even one row of logits is too wide to hold, the opposite case from chunking over tokens.
 
 ### 18.4 Gradient checkpointing
@@ -315,8 +321,8 @@ It is the piece a loss kernel needs when even one row of logits is too wide to h
 **What autograd saves.**
 To compute gradients, the backward pass needs values from the forward pass, and autograd keeps them as **saved tensors** attached to the graph.
 Each operation saves only what its own derivative needs.
-`y = x @ w` saves `x` and `w`, because `dy/dw` needs `x` and `dy/dx` needs `w`.
-`tanh` saves its output, because its derivative is `1 - tanh(x)²`.
+`y = x @ w` saves `x` and `w`, because $\partial y / \partial w$ needs `x` and $\partial y / \partial x$ needs `w`.
+`tanh` saves its output, because its derivative is $1 - \tanh(x)^2$.
 For a stack of `nn.Linear` followed by `nn.Tanh`, that is three saved tensors per block: the input, the weight and the tanh output.
 
 For a transformer the saved tensors of all `L` layers are alive at the same moment, between the end of the forward pass and the point where the backward pass reaches each layer.
@@ -341,9 +347,9 @@ The older reentrant one, the default for years, does not propagate gradients cor
 **How much it saves.**
 Checkpointing each of `L` blocks separately keeps one input tensor per block, the block's boundary, and recomputes one block at a time during the backward pass.
 So the saved tensors drop from "all intermediates of every block" to "one tensor per block", plus the intermediates of a single block while it is being recomputed.
-That is still `O(L)` boundary tensors, but each block's inner intermediates (attention weights, FFN hidden states, norm statistics in a real block) are no longer multiplied by `L`.
-Checkpointing segments of `sqrt(L)` blocks instead stores `sqrt(L)` boundaries and recomputes one segment of `sqrt(L)` blocks at a time, which brings the total to `O(sqrt(L))`.
-That is the result of Chen et al. 2016 and the source of the `sqrt(L)` in the folklore.
+That is still $O(L)$ boundary tensors, but each block's inner intermediates (attention weights, FFN hidden states, norm statistics in a real block) are no longer multiplied by `L`.
+Checkpointing segments of $\sqrt{L}$ blocks instead stores $\sqrt{L}$ boundaries and recomputes one segment of $\sqrt{L}$ blocks at a time, which brings the total to $O(\sqrt{L})$.
+That is the result of Chen et al. 2016 and the source of the $\sqrt{L}$ in the folklore.
 
 **Measuring it.**
 `torch.autograd.graph.saved_tensors_hooks(pack, unpack)` is a context manager.
@@ -424,7 +430,7 @@ No fixed value is right for a whole run, so `torch.amp.GradScaler` adjusts it:
 - If one does, **skip the optimizer step entirely** and halve the scale.
 - If none does, take the step; and once `growth_interval` steps in a row have gone by without an overflow, double the scale.
 
-The defaults are a starting scale of `2**16 = 65536`, a factor of 2 up and 0.5 down, and a growth interval of 2000 steps.
+The defaults are a starting scale of $2^{16} = 65536$, a factor of 2 up and 0.5 down, and a growth interval of 2000 steps.
 So the scale sits just below the point where overflows start, and probes upward now and then.
 An overflow takes priority over growth: if both happen on the same step, the scale goes down.
 
@@ -452,12 +458,12 @@ tensor(False)
 The same applies to a flag combined from several tensors: combine the Python values, or convert at the end.
 
 **Softmax in fp16.**
-`exp` overflows in fp16 as soon as its argument passes `log(65504)`, about 11.09: `exp(11.0)` is 59872, `exp(11.1)` is `inf`.
+`exp` overflows in fp16 as soon as its argument passes $\log(65504)$, about 11.09: $\exp(11.0)$ is 59872, $\exp(11.1)$ is `inf`.
 Logits of 60000, which fp16 can hold, are far beyond that.
 The max subtraction from the refresher removes the overflow of the `exp`, but the sum of many exponentials, and any intermediate on the way, still lives in a format with three significant digits and a ceiling of 65504.
 
 The robust pattern is the **upcast sandwich** from topic 11: convert the input to float32, do the whole reduction there, max subtraction included, and convert the result back to the input's dtype.
-The result of a softmax is in `[0, 1]`, which fp16 represents well; only the intermediates needed the range.
+The result of a softmax is in $[0, 1]$, which fp16 represents well; only the intermediates needed the range.
 The test checks all of it: the result is float16, every entry is finite, and the row sums to 1.
 On neutral data, a norm of a vector whose squares overflow fp16:
 
@@ -492,7 +498,7 @@ The parameters themselves usually stay in float32 as "master weights", and the o
 | `x.amax(dim=-1, keepdim=True)` | the row maximum of a block, `(..., 1)` |
 | `torch.maximum(a, b)` | elementwise maximum of two tensors, for `m_new`; `torch.max(a, b)` is the same |
 | `x.sum(dim=-1, keepdim=True)` | the row sum, `(..., 1)` |
-| `torch.exp(t)`, `torch.log(t)` / `t.exp()`, `t.log()` | the online update, and `m + log(l)` |
+| `torch.exp(t)`, `torch.log(t)` / `t.exp()`, `t.log()` | the online update, and $m + \log(l)$ |
 | `torch.full(shape, float("-inf"))`, `torch.full_like(t, float("-inf"))` | the starting `m` |
 | `torch.zeros(shape)`, `torch.zeros_like(t)` | the starting `l` and `o` |
 | `range(0, n, chunk)` with `x[..., i : i + chunk]` | blocks of an axis, the last one short |
@@ -547,8 +553,8 @@ The parameters themselves usually stay in float32 as "master weights", and the o
 - Dividing by `l` inside the key loop instead of once after it.
 - Building the causal mask of a tile from tile-local indices instead of absolute positions.
 - Building the tile mask from `block_size` instead of the actual, possibly shorter, slice.
-- Letting a row whose `m` is still `-inf` meet a fully masked tile: `exp(-inf - (-inf))` is NaN.
-- Forgetting the `1 / sqrt(Dh)` scale, or using `D` instead of `Dh`.
+- Letting a row whose `m` is still `-inf` meet a fully masked tile: $\exp(-\infty - (-\infty))$ is NaN.
+- Forgetting the $1 / \sqrt{d_{\text{head}}}$ scale, or using `D` instead of `Dh`.
 - Averaging per-chunk mean losses, which is wrong whenever the last chunk is shorter, instead of summing and dividing by `N` once.
 - Chunking the loss under `torch.no_grad()`, or detaching anything, and then wondering why nothing trains.
 - Believing that chunking alone shrinks the memory autograd saves for the backward pass.
@@ -570,13 +576,13 @@ Without looking anything up you can:
 - [ ] say what `m` and `l` start at, and why those values make the first update correct
 - [ ] say which three running statistics flash attention carries per query row, their shapes, and which two take the same correction
 - [ ] build the causal mask of one tile from absolute positions, and say when a tile can be skipped
-- [ ] say exactly when `exp(-inf - (-inf))` can occur in flash attention, and how skipping prevents it
+- [ ] say exactly when $\exp(-\infty - (-\infty))$ can occur in flash attention, and how skipping prevents it
 - [ ] explain why flash attention is faster on a GPU despite doing more arithmetic
 - [ ] compute the size of the logits for a given `N` and `V`, and chunk the loss over tokens with the right averaging
 - [ ] say why gradients still reach `weight` when it is used once per chunk
 - [ ] explain why chunking alone does not shrink saved memory, and what checkpointing each chunk changes
 - [ ] list what `x @ w` and `tanh` save for the backward pass, and what `checkpoint` keeps instead
-- [ ] state the time cost of checkpointing, and where `O(sqrt(L))` comes from
+- [ ] state the time cost of checkpointing, and where $O(\sqrt{L})$ comes from
 - [ ] count saved tensors with `saved_tensors_hooks`, and say why the count is 0 under `no_grad`
 - [ ] explain loss scaling, the `GradScaler` rules and their priority, and why bf16 does not need any of it
 - [ ] compute a reduction safely in fp16 with the upcast sandwich
@@ -585,7 +591,7 @@ Without looking anything up you can:
 
 - [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867), Milakov and Gimelshein 2018: the online softmax on its own, three pages.
 - [FlashAttention](https://arxiv.org/abs/2205.14135), Dao et al. 2022, and [FlashAttention-2](https://arxiv.org/abs/2307.08691), Dao 2023, the second of which has the loop order used here.
-- [Training Deep Nets with Sublinear Memory Cost](https://arxiv.org/abs/1604.06174), Chen et al. 2016, where the `sqrt(L)` checkpointing result comes from.
+- [Training Deep Nets with Sublinear Memory Cost](https://arxiv.org/abs/1604.06174), Chen et al. 2016, where the $\sqrt{L}$ checkpointing result comes from.
 - [Mixed Precision Training](https://arxiv.org/abs/1710.03740), Micikevicius et al. 2017, for fp16 training with master weights and loss scaling.
 - [PyTorch's `torch.utils.checkpoint` documentation](https://pytorch.org/docs/stable/checkpoint.html), for the differences between the reentrant and non-reentrant versions.
 - [Cut Your Losses in Large-Vocabulary Language Models](https://arxiv.org/abs/2411.09009), Wijmans et al. 2024, on computing cross-entropy without ever materializing the logits, gradients included.

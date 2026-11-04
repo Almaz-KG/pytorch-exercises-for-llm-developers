@@ -33,14 +33,14 @@ By the end of this file you will be able to derive it.
 
 ### Why there must be an activation at all
 
-Topic 06 showed that matrix multiplication is associative: `B @ (A @ v)` is the same as `(B @ A) @ v`.
-So two linear layers in a row are secretly one linear layer, with the single matrix `B @ A`.
+Topic 06 showed that matrix multiplication is associative: $B (A v)$ is the same as $(B A) v$.
+So two linear layers in a row are secretly one linear layer, with the single matrix $B A$.
 Ten linear layers in a row are still one.
 However many you stack, the whole thing can only compute linear functions: stretch, rotate, project.
 It could never learn "if this, then that".
 
 An activation breaks the chain.
-Put a nonlinear function between the two multiplications, and `B @ act(A @ v)` no longer collapses into one matrix.
+Put a nonlinear function between the two multiplications, and $B \operatorname{act}(A v)$ no longer collapses into one matrix.
 With a wide enough hidden layer, that combination can approximate essentially any function, which is why every FFN is shaped "linear, activation, linear".
 
 The activation is applied elementwise, to every one of the `d_ff` hidden numbers separately.
@@ -50,7 +50,7 @@ That makes it cheap, and it means its derivative is elementwise too.
 
 Here are the three activations of this topic on the same handful of inputs:
 
-| `x` | -3 | -1 | -0.5 | 0 | 0.5 | 1 | 3 |
+| $x$ | -3 | -1 | -0.5 | 0 | 0.5 | 1 | 3 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | ReLU | 0 | 0 | 0 | 0 | 0.5 | 1 | 3 |
 | GELU | -0.004 | -0.159 | -0.154 | 0 | 0.346 | 0.841 | 2.996 |
@@ -59,44 +59,46 @@ Here are the three activations of this topic on the same handful of inputs:
 All three agree on the big picture: large positive inputs pass through almost unchanged, large negative inputs are switched off.
 They differ in what happens near zero.
 
-**ReLU**, the rectified linear unit, is `max(x, 0)`: negative becomes 0, positive stays.
+**ReLU**, the rectified linear unit, is $\max(x, 0)$: negative becomes 0, positive stays.
 It is the simplest possible nonlinearity and was the standard for a decade.
 
 Its weakness is the flat half.
 For a negative input the output is a constant 0, so the derivative there is 0, and no gradient flows back through it.
 A hidden unit whose input is negative for every example never receives a gradient again, and so never changes: a "dead" neuron.
-At exactly `x = 0` the derivative is undefined mathematically; PyTorch uses 0 there by convention.
+At exactly $x = 0$ the derivative is undefined mathematically; PyTorch uses 0 there by convention.
 
 **GELU**, the Gaussian error linear unit, is a smooth version of ReLU:
 
-```
-gelu(x) = x * Phi(x)
-```
-
-`Phi(x)` is the probability that a random number from a standard normal distribution comes out below `x`.
-It rises smoothly from 0 (for very negative `x`) through 0.5 (at `x = 0`) to 1 (for very positive `x`).
-So GELU multiplies `x` by a soft switch: far positive, the switch is on and `x` passes; far negative, the switch is off; near zero, `x` is let through partly.
-
-Unlike ReLU, slightly negative inputs give slightly negative outputs, down to a minimum of about `-0.17` near `x = -0.75`, and the derivative is never stuck at exactly 0.
-
-`Phi` is computed with the **error function** `erf`, a standard special function available as `torch.erf`:
-
-```
-Phi(x)   = 0.5 * (1 + erf(x / sqrt(2)))
-gelu(x)  = x * 0.5 * (1 + erf(x / sqrt(2)))
+```math
+\operatorname{gelu}(x) = x \cdot \Phi(x)
 ```
 
-You do not need to know how `erf` is defined to use it.
-It is an S-shaped curve from -1 to 1, with `erf(0) = 0`, `erf(1) ≈ 0.843` and `erf(2) ≈ 0.995`.
+$\Phi(x)$ is the probability that a random number from a standard normal distribution comes out below $x$.
+It rises smoothly from 0 (for very negative $x$) through 0.5 (at $x = 0$) to 1 (for very positive $x$).
+So GELU multiplies $x$ by a soft switch: far positive, the switch is on and $x$ passes; far negative, the switch is off; near zero, $x$ is let through partly.
+
+Unlike ReLU, slightly negative inputs give slightly negative outputs, down to a minimum of about $-0.17$ near $x = -0.75$, and the derivative is never stuck at exactly 0.
+
+$\Phi$ is computed with the **error function** $\operatorname{erf}$, a standard special function available as `torch.erf`:
+
+```math
+\begin{aligned}
+\Phi(x) &= 0.5 \cdot (1 + \operatorname{erf}(x / \sqrt{2})) \\
+\operatorname{gelu}(x) &= x \cdot 0.5 \cdot (1 + \operatorname{erf}(x / \sqrt{2}))
+\end{aligned}
+```
+
+You do not need to know how $\operatorname{erf}$ is defined to use it.
+It is an S-shaped curve from -1 to 1, with $\operatorname{erf}(0) = 0$, $\operatorname{erf}(1) \approx 0.843$ and $\operatorname{erf}(2) \approx 0.995$.
 
 **The tanh approximation.**
-When GPT-2 was built, `erf` was slow on GPUs, so it used a formula that approximates GELU with `tanh`, the hyperbolic tangent (another S-shaped curve from -1 to 1, which was fast):
+When GPT-2 was built, $\operatorname{erf}$ was slow on GPUs, so it used a formula that approximates GELU with $\tanh$, the hyperbolic tangent (another S-shaped curve from -1 to 1, which was fast):
 
-```
-gelu_tanh(x) = 0.5 * x * (1 + tanh( sqrt(2 / pi) * (x + 0.044715 * x^3) ))
+```math
+\operatorname{gelu\_tanh}(x) = 0.5 \cdot x \cdot \left(1 + \tanh\left(\sqrt{2 / \pi} \cdot (x + 0.044715 \cdot x^3)\right)\right)
 ```
 
-The constants are just the ones that make the curve fit: `sqrt(2 / pi) ≈ 0.798` and `0.044715`.
+The constants are just the ones that make the curve fit: $\sqrt{2 / \pi} \approx 0.798$ and $0.044715$.
 On inputs between -5 and 5 the two forms differ by at most about `5e-4`.
 
 Hardware caught up long ago, but a model trained with one form behaves very slightly differently under the other.
@@ -105,39 +107,41 @@ The difference is big enough to move a benchmark score and small enough that nob
 
 **SiLU**, the sigmoid linear unit, also called swish, has the same idea with a different soft switch:
 
-```
-silu(x) = x * sigmoid(x)          where sigmoid(x) = 1 / (1 + exp(-x))
+```math
+\operatorname{silu}(x) = x \cdot \operatorname{sigmoid}(x) \qquad \text{where } \operatorname{sigmoid}(x) = \frac{1}{1 + e^{-x}}
 ```
 
-`sigmoid` is the S-curve from 0 to 1 that you may know from logistic regression: `sigmoid(0) = 0.5`, `sigmoid(3) ≈ 0.95`, `sigmoid(-3) ≈ 0.05`.
-SiLU looks almost exactly like GELU, dips a little deeper (minimum about `-0.28` near `x = -1.28`), and is cheaper to compute.
+$\operatorname{sigmoid}$ is the S-curve from 0 to 1 that you may know from logistic regression: $\operatorname{sigmoid}(0) = 0.5$, $\operatorname{sigmoid}(3) \approx 0.95$, $\operatorname{sigmoid}(-3) \approx 0.05$.
+SiLU looks almost exactly like GELU, dips a little deeper (minimum about $-0.28$ near $x = -1.28$), and is cheaper to compute.
 It is the activation inside SwiGLU, so it is the one in LLaMA and its descendants, and in CS336.
 
 **The derivative of SiLU, by hand.**
 Topic 19 asks you to write whole backward passes by hand, and this is the warm-up.
 Two facts are enough.
 
-The product rule: the derivative of `f(x) * g(x)` is `f' * g + f * g'`.
+The product rule: the derivative of $f(x) \cdot g(x)$ is $f' \cdot g + f \cdot g'$.
 
 The derivative of sigmoid is a famously tidy expression of sigmoid itself.
-Write `s = sigmoid(x)`; then
+Write $s = \operatorname{sigmoid}(x)$; then
 
-```
-s' = s * (1 - s)
+```math
+s' = s \cdot (1 - s)
 ```
 
-Apply the product rule to `x * s`, with `f = x` (derivative 1) and `g = s` (derivative `s * (1 - s)`):
+Apply the product rule to $x \cdot s$, with $f = x$ (derivative 1) and $g = s$ (derivative $s \cdot (1 - s)$):
 
-```
-d/dx [x * s]  =  1 * s  +  x * s * (1 - s)
-              =  s * (1 + x * (1 - s))
+```math
+\begin{aligned}
+\frac{d}{dx} [x \cdot s] &= 1 \cdot s + x \cdot s \cdot (1 - s) \\
+&= s \cdot (1 + x \cdot (1 - s))
+\end{aligned}
 ```
 
 That is the formula in the stub's docstring, and now you know where it comes from.
 Read it for a moment, because it says something surprising.
-At `x = 0` it is `0.5`.
-For large positive `x`, `s` approaches 1 and the derivative approaches 1, like ReLU's.
-But for every `x` below about `-1.28` it is **negative**, bottoming out near `-0.1`.
+At $x = 0$ it is $0.5$.
+For large positive $x$, $s$ approaches 1 and the derivative approaches 1, like ReLU's.
+But for every $x$ below about $-1.28$ it is **negative**, bottoming out near $-0.1$.
 A sigmoid's derivative is always positive; SiLU's is not, because the curve dips down before it comes back up to 0.
 GELU behaves the same way, and ReLU, with its derivative of exactly 0 or 1, does not.
 
@@ -148,8 +152,8 @@ To check a derivative you wrote by hand, compare it with autograd (topic 08): pu
 
 **The classic FFN**, used from the 2017 transformer through GPT-3:
 
-```
-FFN(x) = W2 @ act(W1 @ x)
+```math
+\operatorname{FFN}(x) = W_2 \operatorname{act}(W_1 x)
 ```
 
 Project up, apply the activation, project back down.
@@ -163,7 +167,7 @@ With the weights stored in the `(out, in)` convention from topic 09, and `x` of 
 
 The output has the same shape as the input, which is what lets the block add it back onto the residual stream.
 
-Traditionally `d_ff = 4 * d_model`.
+Traditionally $d_{\text{ff}} = 4 \cdot d_{\text{model}}$.
 The wide middle is where the capacity is: it is a large set of "features" that each look for some pattern in the token's vector, and the activation decides which ones fire.
 
 From topic 06, `@` treats every axis except the last two as batch axes, so the same code works for `x` of shape `(N, d_model)` and `(B, T, d_model)` alike.
@@ -171,8 +175,8 @@ No reshaping should appear in an FFN.
 
 **SwiGLU**, used by PaLM, LLaMA and almost every model since 2022, and the convention throughout this repository:
 
-```
-FFN(x) = W2 @ ( SiLU(W1 @ x) * (W3 @ x) )
+```math
+\operatorname{FFN}(x) = W_2 \left( \operatorname{SiLU}(W_1 x) \odot (W_3 x) \right)
 ```
 
 There are now **two** up-projections, and they are combined with an elementwise multiplication:
@@ -207,73 +211,79 @@ Modern FFNs have no bias vectors anywhere.
 `SwiGLUFFN` is a topic 09 module holding three weights named `w1`, `w2`, `w3`.
 `nn.Linear(d_in, d_out, bias=False)` stores its weight with shape `(d_out, d_in)`, the same convention as above, and its `state_dict` key becomes `w1.weight` when it is assigned to `self.w1`.
 A plain `nn.Parameter` assigned to `self.w1` gives the key `w1`; the test accepts either.
-Either way, the module should hold exactly `3 * d_model * d_ff` numbers.
+Either way, the module should hold exactly $3 \cdot d_{\text{model}} \cdot d_{\text{ff}}$ numbers.
 
 ### 12.3 The arithmetic
 
 **Parameters.**
-Each FFN matrix has `d_model * d_ff` entries:
+Each FFN matrix has $d_{\text{model}} \cdot d_{\text{ff}}$ entries:
 
-```
-classic:   2 matrices   ->   2 * d_model * d_ff
-gated:     3 matrices   ->   3 * d_model * d_ff
+```math
+\begin{aligned}
+&\text{classic:} && \text{2 matrices} && \to 2 \cdot d_{\text{model}} \cdot d_{\text{ff}} \\
+&\text{gated:} && \text{3 matrices} && \to 3 \cdot d_{\text{model}} \cdot d_{\text{ff}}
+\end{aligned}
 ```
 
-**Where `8/3` comes from.**
+**Where $8/3$ comes from.**
 To compare SwiGLU fairly with the classic FFN, give it the same number of parameters.
-It has three matrices instead of two, so its `d_ff` must shrink by a factor of `2/3`:
+It has three matrices instead of two, so its `d_ff` must shrink by a factor of $2/3$:
 
-```
-3 * d_model * d_ff_new  =  2 * d_model * (4 * d_model)
-d_ff_new                =  (8 / 3) * d_model
+```math
+\begin{aligned}
+3 \cdot d_{\text{model}} \cdot d_{\text{ff\_new}} &= 2 \cdot d_{\text{model}} \cdot (4 \cdot d_{\text{model}}) \\
+d_{\text{ff\_new}} &= (8 / 3) \cdot d_{\text{model}}
+\end{aligned}
 ```
 
-That is the origin of the strange `8/3` in every LLaMA-style config.
+That is the origin of the strange $8/3$ in every LLaMA-style config.
 It is not a tuned hyperparameter; it is the number that keeps the parameter count the same.
 
 **Rounding up to a multiple.**
-`8/3 * d_model` is usually not a whole number: for `d_model = 512` it is `1365.33`.
+$8/3 \cdot d_{\text{model}}$ is usually not a whole number: for `d_model = 512` it is `1365.33`.
 And GPUs compute matrix multiplications in fixed-size tiles, so a dimension that is not a multiple of the tile size wastes part of the last tile.
 So `d_ff` is rounded **up** to a multiple of 64, or of 128 or 256.
 
 Up, not to the nearest, so the model is never smaller than the target.
 
-| `d_model` | `8/3 * d_model` | up to a multiple of 64 | up to a multiple of 256 |
+| `d_model` | $8/3 \cdot d_{\text{model}}$ | up to a multiple of 64 | up to a multiple of 256 |
 | --- | --- | --- | --- |
 | 512 | 1365.33 | 1408 | 1536 |
 | 768 | 2048 | 2048 | 2048 |
 | 4096 | 10922.67 | 10944 | **11008** |
 
-And there is LLaMA-7B's `11008`: `8/3` of 4096, rounded up to a multiple of 256.
+And there is LLaMA-7B's `11008`: $8/3$ of 4096, rounded up to a multiple of 256.
 A config number that looks arbitrary usually is a rounding of something simple.
 
 **Rounding up with integers.**
 Python's `//` rounds **down**: `8 * 512 // 3` is `1365`, and rounding a number down never gets you to "at least".
-To round `a` up to a multiple of `m`, round `a / m` up to a whole number, then multiply by `m` again.
-For whole numbers, the ceiling of `a / m` has an exact integer spelling, `(a + m - 1) // m`, or `-(-a // m)`, which avoids floats entirely.
+To round $a$ up to a multiple of $m$, round $a / m$ up to a whole number, then multiply by $m$ again.
+For whole numbers, the ceiling of $a / m$ has an exact integer spelling, `(a + m - 1) // m`, or `-(-a // m)`, which avoids floats entirely.
 `math.ceil` on a float works too, but think about where the division by 3 happens: `8 * d_model` is a whole number, and dividing it by 3 is where the fraction appears.
-Note that with `multiple_of=1` the answer is still rounded up: `8/3 * 64 = 170.67` becomes `171`.
+Note that with `multiple_of=1` the answer is still rounded up: $8/3 \cdot 64 = 170.67$ becomes `171`.
 
 The function returns a Python `int`.
 
 **FLOPs.**
-Topic 06's rule: multiplying an `(m, k)` matrix by a `(k, n)` one costs `2 * m * n * k` floating-point operations, one multiply and one add per term.
+Topic 06's rule: multiplying an `(m, k)` matrix by a `(k, n)` one costs $2 \cdot m \cdot n \cdot k$ floating-point operations, one multiply and one add per term.
 With `N` tokens flattened into the rows, each FFN matrix multiplication is between `(N, d_model)` and `(d_model, d_ff)`, or the reverse for the way down, and all of them cost the same:
 
-```
-one matmul:   2 * N * d_model * d_ff
-classic:      2 of them   ->   4 * N * d_model * d_ff
-gated:        3 of them   ->   6 * N * d_model * d_ff
+```math
+\begin{array}{lll}
+\text{one matmul:} & & 2 \cdot N \cdot d_{\text{model}} \cdot d_{\text{ff}} \\
+\text{classic:} & \text{2 of them} & \to 4 \cdot N \cdot d_{\text{model}} \cdot d_{\text{ff}} \\
+\text{gated:} & \text{3 of them} & \to 6 \cdot N \cdot d_{\text{model}} \cdot d_{\text{ff}}
+\end{array}
 ```
 
 The activation and the gating product touch each of the `N * d_ff` hidden numbers only a few times, which is tiny next to the matmuls, so nobody counts them.
 
 At the same `d_ff`, the gated FFN costs 50% more.
-At the `8/3` sizing it costs the same as the classic one with `4 * d_model`, because the smaller `d_ff` exactly compensates.
-That is the whole point of `8/3`: same parameters, same compute, better model.
+At the `8/3` sizing it costs the same as the classic one with $4 \cdot d_{\text{model}}$, because the smaller `d_ff` exactly compensates.
+That is the whole point of $8/3$: same parameters, same compute, better model.
 
 **Where the parameters live.**
-With `d_ff = 4 * d_model` the FFN holds `8 * d_model^2` numbers, while attention's four `d_model x d_model` projections (topic 14) hold `4 * d_model^2`.
+With $d_{\text{ff}} = 4 \cdot d_{\text{model}}$ the FFN holds $8 \cdot d_{\text{model}}^2$ numbers, while attention's four `d_model x d_model` projections (topic 14) hold $4 \cdot d_{\text{model}}^2$.
 So the FFN is two thirds of every block.
 That is why making the FFN cheaper is where the leverage is, and why Mixture-of-Experts (topic 19) replaces exactly this part of the block with several FFNs and a router.
 
@@ -288,7 +298,7 @@ That is why making the FFN cheaper is where the leverage is, and why Mixture-of-
 | `torch.zeros_like(x)` | zeros of the same shape and dtype |
 | `torch.erf(x)` | the error function, for the exact GELU |
 | `torch.tanh(x)` | the hyperbolic tangent, for the approximation |
-| `torch.sigmoid(x)` / `x.sigmoid()` | `1 / (1 + exp(-x))` |
+| `torch.sigmoid(x)` / `x.sigmoid()` | $1 / (1 + e^{-x})$ |
 | `x.pow(3)` / `x ** 3` | elementwise cube |
 | `math.sqrt(2.0)`, `math.sqrt(2.0 / math.pi)`, `math.pi` | the constants in the GELU formulas, as Python floats |
 | `F.relu(x)`, `F.gelu(x, approximate="none")`, `F.gelu(x, approximate="tanh")`, `F.silu(x)` | PyTorch's versions, for checking yours |
@@ -357,11 +367,11 @@ Without looking anything up you can:
 
 - [ ] explain why two linear layers without an activation between them are no better than one
 - [ ] say what ReLU, GELU and SiLU do with a large positive, a large negative and a small negative input
-- [ ] write the exact GELU, say what `Phi` is, and say why the tanh approximation still exists
-- [ ] derive SiLU's derivative from the product rule and `s' = s(1 - s)`, and say where it is negative
+- [ ] write the exact GELU, say what $\Phi$ is, and say why the tanh approximation still exists
+- [ ] derive SiLU's derivative from the product rule and $s' = s(1 - s)$, and say where it is negative
 - [ ] write the classic FFN and SwiGLU in the `(out, in)` convention, with the activation on the right branch
 - [ ] name what `w1`, `w2` and `w3` each do
-- [ ] derive `8/3` from equal parameter counts, and get from `d_model = 4096` to `11008`
+- [ ] derive $8/3$ from equal parameter counts, and get from `d_model = 4096` to `11008`
 - [ ] round a number up to a multiple using only integer arithmetic
 - [ ] compute an FFN's parameters and forward FLOPs for given `N`, `d_model` and `d_ff`
 - [ ] say what fraction of a block's parameters the FFN holds, and why that matters for Mixture-of-Experts
@@ -369,6 +379,6 @@ Without looking anything up you can:
 ## Going deeper
 
 - [GLU Variants Improve Transformer](https://arxiv.org/abs/2002.05202), Shazeer 2020, two pages and worth all of them.
-- [Gaussian Error Linear Units](https://arxiv.org/abs/1606.08415), Hendrycks and Gimpel, for where the `x * Phi(x)` formulation comes from.
+- [Gaussian Error Linear Units](https://arxiv.org/abs/1606.08415), Hendrycks and Gimpel, for where the $x \cdot \Phi(x)$ formulation comes from.
 - [Searching for Activation Functions](https://arxiv.org/abs/1710.05941), Ramachandran et al., the automated search that found swish.
-- [LLaMA](https://arxiv.org/abs/2302.13971), Touvron et al. 2023, section 2.2, for SwiGLU with the `2/3 * 4d` sizing in a real model.
+- [LLaMA](https://arxiv.org/abs/2302.13971), Touvron et al. 2023, section 2.2, for SwiGLU with the $2/3 \cdot 4d$ sizing in a real model.

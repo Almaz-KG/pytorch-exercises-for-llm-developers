@@ -165,9 +165,9 @@ That is fine when an initialization step overwrites every value right after (9.3
 If you want something usable straight away, start from `torch.randn(shape)`, or from `torch.empty` followed by an `nn.init` function.
 
 **The linear layer.**
-A linear layer computes `y = x W^T + b`.
-By PyTorch convention the weight `W` is stored with shape `(out_features, in_features)`: one row per output, which is why the formula has a transpose.
-The bias `b` has shape `(out_features,)` and is added to every output row by broadcasting (topic 03).
+A linear layer computes $y = x W^{\top} + b$.
+By PyTorch convention the weight $W$ is stored with shape `(out_features, in_features)`: one row per output, which is why the formula has a transpose.
+The bias $b$ has shape `(out_features,)` and is added to every output row by broadcasting (topic 03).
 `F.linear(x, weight, bias)` computes exactly this, and `bias=None` simply skips the addition.
 
 From topic 06 you know that `@` treats every axis except the last two as batch axes.
@@ -251,7 +251,7 @@ Start too small, and they shrink until the signal disappears.
 **A one-paragraph refresher on variance.**
 The variance of a random number measures how widely it spreads around its average; the standard deviation, `std`, is its square root, in the same units as the number itself.
 Two facts are all this section needs.
-Multiplying a random number by `c` multiplies its `std` by `c`, and so its variance by `c^2`.
+Multiplying a random number by $c$ multiplies its `std` by $c$, and so its variance by $c^2$.
 Adding up independent random numbers adds up their variances.
 
 **The defaults are not what transformers use.**
@@ -284,14 +284,14 @@ One `apply` call then reaches every layer of that type, however deeply it is nes
 This one is worth understanding rather than copying.
 In a transformer, every block reads a running vector called the residual stream, computes something, and adds its result back into that stream (topic 15).
 Each block adds twice: once from attention and once from the feed-forward network.
-So a model with `L` blocks makes `2L` additions to the stream.
+So a model with $L$ blocks makes $2L$ additions to the stream.
 
 Now use the variance facts.
-If every addition has variance `s` and they are roughly independent, after `2L` additions the stream's variance has grown to about `2L * s`.
+If every addition has variance $s$ and they are roughly independent, after $2L$ additions the stream's variance has grown to about $2L \cdot s$.
 For a 48-layer model that is almost a hundred times larger than after one layer, and the deeper the model, the worse it gets.
 
 GPT-2's fix is to shrink only the layers that write into the stream: the last projection of attention (`output_proj` in this repository) and the last projection of the feed-forward network (`w2`).
-Their `std` is divided by `sqrt(2L)`, which divides each addition's variance by `2L`, so `2L` of them add up to about `s` again, however deep the model is.
+Their `std` is divided by $\sqrt{2L}$, which divides each addition's variance by $2L$, so $2L$ of them add up to about $s$ again, however deep the model is.
 Every other layer keeps the base `std`.
 
 **Finding layers by name.**
@@ -386,10 +386,10 @@ The flag itself does nothing.
 Each layer decides whether to look at it, and almost none do.
 Of the standard layers, only two care: dropout, explained next, and batch normalization, which transformers do not use.
 
-**Dropout** is a regularizer: during training it randomly sets each element of its input to zero with probability `p`, so the network cannot lean too heavily on any single value.
+**Dropout** is a regularizer: during training it randomly sets each element of its input to zero with probability $p$, so the network cannot lean too heavily on any single value.
 Removing elements makes the output smaller on average, which would mean the network sees bigger numbers at evaluation time than it ever saw while training.
-So dropout also multiplies the surviving elements by `1 / (1 - p)`, which keeps the average the same.
-With `p = 0.5`, about half the elements become `0` and the rest are doubled:
+So dropout also multiplies the surviving elements by $1 / (1 - p)$, which keeps the average the same.
+With $p = 0.5$, about half the elements become `0` and the rest are doubled:
 
 ```python
 >>> drop = nn.Dropout(0.5)
@@ -542,7 +542,7 @@ Without looking anything up you can:
 - [ ] read a dotted parameter name like `blocks.3.attn.q_proj.weight` and say where it lives in the model
 - [ ] write a linear layer from scratch with an optional bias that stays out of the `state_dict`
 - [ ] initialize every `nn.Linear` in a model with one call, using a truncated normal with the right bounds
-- [ ] derive the `1 / sqrt(2 * n_layers)` residual scaling from how variances add up, and apply it only to the layers named `output_proj` and `w2`
+- [ ] derive the $1 / \sqrt{2 \cdot n_{\text{layers}}}$ residual scaling from how variances add up, and apply it only to the layers named `output_proj` and `w2`
 - [ ] save a model to an in-memory buffer and load it into a new one
 - [ ] tie an embedding to an output head and check that the tie is real
 - [ ] say exactly what `model.eval()` changes, and what it does not

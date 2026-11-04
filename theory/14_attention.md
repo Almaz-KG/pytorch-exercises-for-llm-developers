@@ -41,8 +41,8 @@ After the core, you will wrap it into the multi-head module every LLM uses, then
 
 ### A refresher: the dot product as similarity
 
-The dot product of two vectors multiplies them entry by entry and adds the results up: `(1, 2) . (3, -1) = 1*3 + 2*(-1) = 1`.
-Geometrically it is `|a| * |b| * cos(angle between them)`.
+The dot product of two vectors multiplies them entry by entry and adds the results up: $(1, 2) \cdot (3, -1) = 1 \cdot 3 + 2 \cdot (-1) = 1$.
+Geometrically it is $\lvert a \rvert \cdot \lvert b \rvert \cdot \cos(\text{angle between them})$.
 So it is large and positive when the two vectors point the same way, near zero when they are unrelated (perpendicular), and negative when they point in opposite directions.
 That makes it a cheap, differentiable measure of "how well do these two match", and attention uses nothing else to compare tokens.
 
@@ -63,7 +63,7 @@ The same scores times 8, `[8, 16, 24]`, give `[0.0000001, 0.0003, 0.9997]`: prac
 A softmax that does this is called **saturated**, and a saturated softmax has almost no gradient: nudging the scores barely changes an output that is already pinned at 0 and 1, so learning stalls.
 
 **`-inf` removes an entry.**
-`exp(-inf) = 0`, so a score of `-inf` gets a share of exactly 0, and the remaining entries share the whole 1 among themselves as if the removed one never existed:
+$e^{-\infty} = 0$, so a score of `-inf` gets a share of exactly 0, and the remaining entries share the whole 1 among themselves as if the removed one never existed:
 
 ```python
 >>> torch.tensor([1.0, float("-inf"), 2.0]).softmax(-1)
@@ -122,7 +122,7 @@ weights = softmax(scores) along the last axis, the keys        (..., T, S)
 out     = weights @ v                              (..., T, S) @ (..., S, Dh)  ->  (..., T, Dh)
 ```
 
-Or in one line, as the papers write it: `Attention(Q, K, V) = softmax(Q Kᵀ / sqrt(Dh) + mask) V`, where the mask is 0 at allowed positions and `-inf` at forbidden ones.
+Or in one line, as the papers write it: $\operatorname{Attention}(Q, K, V) = \operatorname{softmax}\left(Q K^\top / \sqrt{d_{\text{head}}} + \text{mask}\right) V$, where the mask is 0 at allowed positions and $-\infty$ at forbidden ones.
 
 Read the shapes of the score tensor `(..., T, S)` as "for every query, one number per key".
 Row `t` belongs to query `t`; column `s` to key `s`.
@@ -147,18 +147,18 @@ That is attention: nothing more than this, done for every query in parallel.
 
 Now the four decisions, each of which is a bug if you get it wrong.
 
-**1. The scale is `1 / sqrt(Dh)`.**
-A dot product of two vectors with `Dh` random entries of variance 1 is a sum of `Dh` random products, and its standard deviation grows like `sqrt(Dh)`.
+**1. The scale is $1 / \sqrt{d_{\text{head}}}$.**
+A dot product of two vectors with `Dh` random entries of variance 1 is a sum of `Dh` random products, and its standard deviation grows like $\sqrt{d_{\text{head}}}$.
 Measured on random vectors:
 
-| `Dh` | std of `q . k` | std after dividing by `sqrt(Dh)` |
+| `Dh` | std of $q \cdot k$ | std after dividing by $\sqrt{d_{\text{head}}}$ |
 | --- | --- | --- |
 | 4 | 2.0 | 1.0 |
 | 64 | 8.0 | 1.0 |
 | 1024 | 32.0 | 1.0 |
 
 Without the division, a model with `Dh = 64` feeds the softmax scores spread eight times wider than with it: exactly the `[8, 16, 24]` situation from the refresher, a saturated softmax and a dead gradient.
-Dividing by `sqrt(Dh)` keeps the spread of the scores near 1 whatever the head size.
+Dividing by $\sqrt{d_{\text{head}}}$ keeps the spread of the scores near 1 whatever the head size.
 The `Dh` is the **head** dimension, the last axis of `q`, never `d_model`; the dot products are taken inside one head.
 `q.shape[-1]` gives it, and `math.sqrt` of a Python int is a Python float.
 
@@ -195,17 +195,17 @@ Writing the function for separate `T` and `S` costs nothing and makes it right f
 It is the standard debugging picture: print it or plot it, and you see at a glance whether a mask does what you think.
 
 Two checks the tests use, worth knowing because they test the formula rather than a particular number.
-If all the queries are zero, every score is 0, all scores in a row are equal, and the weights are uniform: `1/S` for every key.
-And if you compute the scores of one query by hand, dividing by `sqrt(Dh)`, the softmax of them must equal your row of weights; with no division, the two disagree.
+If all the queries are zero, every score is 0, all scores in a row are equal, and the weights are uniform: $1/S$ for every key.
+And if you compute the scores of one query by hand, dividing by $\sqrt{d_{\text{head}}}$, the softmax of them must equal your row of weights; with no division, the two disagree.
 
 #### Causal masks
 
 A language model is trained to predict the next token from the previous ones, on every position of a sequence at once.
 If position 5 could look at position 6, it could simply read the answer, and the model would learn nothing useful.
-So in a decoder, query `i` may see key `j` only when `j <= i`.
+So in a decoder, query $i$ may see key $j$ only when $j \le i$.
 "Causality" is not a property of the architecture: it is exactly this mask, and nothing else.
 
-As a table, it is lower-triangular: row `i` (the query) has `True` up to and including column `i` (the key).
+As a table, it is lower-triangular: row $i$ (the query) has `True` up to and including column $i$ (the key).
 Comparing two `arange`s by broadcasting builds it (topic 03):
 
 ```python
@@ -222,7 +222,7 @@ Build the mask on the same device as the data (`device=q.device`), or a GPU run 
 
 The first row is the fastest check of any causal implementation: query 0 may see only key 0, so all its weight is on that key, and its output is **exactly** `v` at position 0.
 
-When `T != S`, as when one new token attends to a cache of `S` earlier ones, the queries are the **last** `T` positions, so query `i` sits at absolute position `S - T + i`.
+When `T != S`, as when one new token attends to a cache of `S` earlier ones, the queries are the **last** `T` positions, so query $i$ sits at absolute position $S - T + i$.
 Comparing `arange(S - T, S)` with `arange(S)` gives the right table:
 
 ```python
@@ -370,15 +370,15 @@ Two numbers, both of which you compute from the shapes rather than look up.
 The weights tensor is `(B, H, T, S)`, and the straightforward implementation materializes it in memory.
 Its size in bytes is the number of entries times the size of one entry:
 
-```
-bytes = B * H * T * S * bytes_per_element
+```math
+\text{bytes} = B \cdot H \cdot T \cdot S \cdot \text{bytes\_per\_element}
 ```
 
 `bytes_per_element` comes from the dtype: 4 for float32, 2 for bfloat16 and float16.
 `torch.bfloat16.itemsize` gives it directly (PyTorch 2.1 and later), and `torch.empty(0, dtype=dtype).element_size()` is the older spelling.
 
 **FLOPs.**
-Multiplying an `(m, k)` matrix by a `(k, n)` one costs `2 * m * k * n` floating-point operations: one multiply and one add per term (topic 06).
+Multiplying an $(m, k)$ matrix by a $(k, n)$ one costs $2 \cdot m \cdot k \cdot n$ floating-point operations: one multiply and one add per term (topic 06).
 For attention without the projections, per example and per head:
 
 ```
@@ -392,7 +392,7 @@ The exercise takes `T == S`.
 
 **Why these two formulas matter.**
 Both are quadratic in the sequence length: double the context and the score matrix and the attention FLOPs quadruple.
-Take `B = 8`, `H = 32`, `T = S = 32768`, bf16: the score matrix is `8 * 32 * 32768² * 2` bytes, about 550 GB, for one layer, and the backward pass needs it again.
+Take `B = 8`, `H = 32`, `T = S = 32768`, bf16: the score matrix is $8 \cdot 32 \cdot 32768^2 \cdot 2$ bytes, about 550 GB, for one layer, and the backward pass needs it again.
 No GPU has that.
 Even a single sequence is 69 GB per layer.
 
@@ -404,8 +404,8 @@ Real code calls it, and prefers `is_causal=True` over an explicit mask, so the k
 Writing attention by hand once is what this topic is for; afterwards, use the built-in.
 
 **Attention is not always the expensive part.**
-The four `D -> D` projections cost `4 * 2 * B * T * D²` FLOPs, and attention itself `4 * B * T² * D` (since `H * Dh = D`).
-Their ratio is `T / (2D)`, so attention dominates only once the sequence is longer than about twice `d_model`: around 8k tokens for `D = 4096`.
+The four `D -> D` projections cost $4 \cdot 2 \cdot B \cdot T \cdot D^2$ FLOPs, and attention itself $4 \cdot B \cdot T^2 \cdot D$ (since `H * Dh = D`).
+Their ratio is $T / (2D)$, so attention dominates only once the sequence is longer than about twice `d_model`: around 8k tokens for `D = 4096`.
 Below that, a transformer is mostly matmuls against weights, and the quadratic term is a minor share.
 
 ## API you need
@@ -454,7 +454,7 @@ torch.Size([2, 2, 2])
 
 ## Traps
 
-- Dividing by `sqrt(d_model)` instead of `sqrt(Dh)`, or not dividing at all.
+- Dividing by $\sqrt{d_{\text{model}}}$ instead of $\sqrt{d_{\text{head}}}$, or not dividing at all.
 - Softmax along the query axis instead of the key axis; check `weights.sum(-1)` is all ones.
 - Masking after the softmax, or with 0 instead of `-inf`.
 - `masked_fill` fills where the condition is `True`, so an "allowed" mask needs `~` first.
@@ -475,7 +475,7 @@ Without looking anything up you can:
 - [ ] explain attention as a soft dictionary lookup, and say what queries, keys and values are for
 - [ ] work one query against three keys by hand and get the output as a weighted average of the values
 - [ ] write scaled dot-product attention in four lines, with the right scale and the right softmax axis
-- [ ] say why the scale is `sqrt(Dh)` and what happens to the softmax without it
+- [ ] say why the scale is $\sqrt{d_{\text{head}}}$ and what happens to the softmax without it
 - [ ] say what each axis of the `(B, H, T, S)` score tensor means
 - [ ] say why the mask is `-inf` before the softmax, and what masking with 0 does instead
 - [ ] build a causal mask, including for `T != S`, and say which positions the queries occupy

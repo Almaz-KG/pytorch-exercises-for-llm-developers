@@ -396,9 +396,9 @@ Rows with no marker at all should come out right without any special case; check
 **Next-token prediction.**
 A language model learns by guessing each next token from the ones before it.
 Take a row of `T + 1` token ids.
-The model reads the first `T` of them as input, and at every input position `i` its target is the token at position `i + 1`:
+The model reads the first `T` of them as input, and at every input position $i$ its target is the token at position $i + 1$:
 
-| position `i` | 0 | 1 | 2 |
+| position $i$ | 0 | 1 | 2 |
 | --- | --- | --- | --- |
 | input | `a` | `b` | `c` |
 | target | `b` | `c` | `d` |

@@ -33,7 +33,7 @@ Take them one at a time, in any order; nothing in 19.3 needs anything from 19.1.
 | slot | which of a token's `K` chosen experts we mean: slot 0 is its best expert, slot 1 its second best |
 | capacity | the most tokens one expert accepts in a batch; the surplus is dropped |
 | draft, target | the small fast model that proposes tokens, and the large model whose distribution we want |
-| acceptance rate, `alpha` | the probability that the target accepts one draft token |
+| acceptance rate, $\alpha$ | the probability that the target accepts one draft token |
 | beam | one partial sequence with its accumulated log probability |
 
 ### 19.1 A backward of your own for RMSNorm
@@ -42,9 +42,11 @@ Take them one at a time, in any order; nothing in 19.3 needs anything from 19.1.
 RMSNorm from topic 11, with statistics over the last axis of width `D`.
 `x` is `(..., D)`, `weight` is `(D,)`:
 
-```
-r   = (mean(x²) + eps)^(-1/2)            one number per row, (..., 1)
-y_i = g_i * x_i * r                      g is the weight
+```math
+\begin{aligned}
+r &= \big(\operatorname{mean}(x^2) + \varepsilon\big)^{-1/2} && \text{one number per row, } (\dots, 1) \\
+y_i &= g_i \cdot x_i \cdot r && g \text{ is the weight}
+\end{aligned}
 ```
 
 `eps` sits **inside** the square root, and the test compares your forward with exactly `x * rsqrt(x.pow(2).mean(-1, keepdim=True) + eps) * w`.
@@ -54,46 +56,47 @@ The exercise's docstring prints the result for cross-checking; derive it yoursel
 Work on one row, so `x`, `y`, `g` are vectors of length `D` and `r` is a scalar.
 
 First, how `r` reacts to one input.
-`mean(x²) = (1/D) * sum_i x_i²`, so its derivative with respect to `x_j` is `2 x_j / D`, and by the chain rule:
+$\operatorname{mean}(x^2) = \frac{1}{D} \sum_i x_i^2$, so its derivative with respect to $x_j$ is $2 x_j / D$, and by the chain rule:
 
-```
-dr/dx_j = -1/2 * (mean(x²) + eps)^(-3/2) * (2 x_j / D)  =  -x_j * r³ / D
+```math
+\frac{\partial r}{\partial x_j} = -\frac{1}{2} \big(\operatorname{mean}(x^2) + \varepsilon\big)^{-3/2} \cdot \frac{2 x_j}{D} = -\frac{x_j \, r^3}{D}
 ```
 
 Next, the chain rule through `y`.
-Write `a_i = grad_y_i * g_i`, folding the weight into the incoming gradient.
-The input `x_j` reaches the loss along two paths: **directly**, through its own output `y_j = g_j * x_j * r`, and **indirectly**, through `r`, which every output `y_i` depends on.
+Write $a_i = \frac{\partial L}{\partial y_i} \cdot g_i$, folding the weight into the incoming gradient.
+The input $x_j$ reaches the loss along two paths: **directly**, through its own output $y_j = g_j \cdot x_j \cdot r$, and **indirectly**, through $r$, which every output $y_i$ depends on.
 Sum both:
 
+```math
+\begin{aligned}
+\frac{\partial L}{\partial x_j} &= a_j \cdot r && \text{the direct path, only } i = j \\
+&\quad + \sum_i (a_i \cdot x_i) \cdot \frac{\partial r}{\partial x_j} && \text{the path through } r \text{, every } i \\[4pt]
+&= a_j \cdot r - x_j \cdot r^3 \cdot \sum_i (a_i \cdot x_i) / D
+\end{aligned}
 ```
-dL/dx_j = a_j * r                         the direct path, only i = j
-        + sum_i (a_i * x_i) * dr/dx_j     the path through r, every i
 
-        = a_j * r  -  x_j * r³ * sum_i(a_i * x_i) / D
-```
-
-The same formula in terms of the normalized input `x̂ = x * r` reads `dL/dx = r * (a - x̂ * mean(a * x̂))`, which is easier to remember: scale the incoming gradient, then remove its component along `x̂`.
+The same formula in terms of the normalized input $\hat{x} = x \cdot r$ reads $\frac{\partial L}{\partial x} = r \cdot \big(a - \hat{x} \cdot \operatorname{mean}(a \odot \hat{x})\big)$, which is easier to remember: scale the incoming gradient, then remove its component along $\hat{x}$.
 It has the same shape as the softmax backward in topic 08, for the same reason: a shared statistic takes one direction of freedom away.
 
-The weight gradient is simpler, because `g_i` touches only `y_i`.
-Per row, `dL/dg_i = grad_y_i * x_i * r`.
-But one `g` is shared by every row of the batch and every position, so the contributions of all those rows add up:
+The weight gradient is simpler, because $g_i$ touches only $y_i$.
+Per row, $\frac{\partial L}{\partial g_i} = \frac{\partial L}{\partial y_i} \cdot x_i \cdot r$.
+But one $g$ is shared by every row of the batch and every position, so the contributions of all those rows add up:
 
-```
-dL/dg_i = sum over every leading axis of  grad_y_i * x_i * r       shape (D,)
+```math
+\frac{\partial L}{\partial g_i} = \sum_{\text{over every leading axis}} \frac{\partial L}{\partial y_i} \cdot x_i \cdot r \qquad \text{shape } (D,)
 ```
 
 **In tensor form.**
-`sum_i(a_i * x_i)` is a sum over the last axis, one number per row, and so is `r`.
+$\sum_i a_i \cdot x_i$ is a sum over the last axis, one number per row, and so is $r$.
 Keep both as `(..., 1)` with `keepdim=True` so they broadcast against the `(..., D)` tensors; without it a `(B, T)` tensor meets a `(B, T, D)` one and either fails to broadcast or, worse, lines up against the wrong axis.
 The weight gradient is a sum over every axis but the last: `t.sum(dim=tuple(range(t.ndim - 1)))`, or `t.reshape(-1, D).sum(0)`.
 
 Two structural facts are worth extracting, because they generalize to every normalization you will ever differentiate.
 
 - **A broadcast in the forward pass becomes a sum in the backward pass.**
-  `g` is broadcast over all leading axes, so its gradient sums over all of them; the bias of `linear_backward` in topic 06 did the same.
+  $g$ is broadcast over all leading axes, so its gradient sums over all of them; the bias of `linear_backward` in topic 06 did the same.
 - **A shared statistic produces a coupling term.**
-  Because `r` depends on every `x_i`, the gradient at `j` contains a sum over all `i`.
+  Because $r$ depends on every $x_i$, the gradient at $j$ contains a sum over all $i$.
   LayerNorm has two shared statistics, the mean and the variance, and its backward has two such terms.
 
 **As a `torch.autograd.Function`.**
@@ -126,15 +129,15 @@ All the masks here follow topic 14's convention: a `(T, T)` boolean table, rows 
 They are built the way topic 14 built the causal mask, by comparing two `arange`s through broadcasting, so no Python loop is needed.
 
 **Sliding window** (Mistral, Longformer).
-Position `i` may see `j` when `i - window < j <= i`: causal, plus a floor on how far back.
-So row `i` has exactly `min(i + 1, window)` allowed keys, which one of the tests checks for several windows.
+Position $i$ may see $j$ when $i - \text{window} < j \le i$: causal, plus a floor on how far back.
+So row $i$ has exactly $\min(i + 1, \text{window})$ allowed keys, which one of the tests checks for several windows.
 `window = 1` leaves only the diagonal: every token sees only itself.
 When `window >= T` the floor never bites, and the mask must coincide exactly with the plain causal mask.
-The table of `i - j` over all pairs is one broadcast subtraction, and both conditions are comparisons on it, joined with `&`.
+The table of $i - j$ over all pairs is one broadcast subtraction, and both conditions are comparisons on it, joined with `&`.
 
 The point is cost.
-Each query attends to at most `window` keys, so attention costs `O(T * window)` instead of `O(T²)`, and the KV cache (topic 17) only ever needs the last `window` positions.
-Information still travels further than `window`: layer 2 sees layer 1's outputs, each of which already summarized a window, so after `L` layers a token can be influenced by tokens roughly `L * window` positions back.
+Each query attends to at most `window` keys, so attention costs $O(T \cdot \text{window})$ instead of $O(T^2)$, and the KV cache (topic 17) only ever needs the last `window` positions.
+Information still travels further than `window`: layer 2 sees layer 1's outputs, each of which already summarized a window, so after `L` layers a token can be influenced by tokens roughly $L \cdot \text{window}$ positions back.
 Mistral 7B uses a window of 4096 with 32 layers.
 
 **Document masking**, the mask behind sequence packing.
@@ -143,7 +146,7 @@ Padding each one out to `T` would waste most of the compute on filler, so severa
 Attention must not cross a document boundary, or the model learns to condition on unrelated text that happened to precede it.
 
 The packed example comes with `doc_ids` of `(T,)`: the index of the document each position belongs to.
-Query `i` may see key `j` when **both** hold: `j <= i`, and `j` belongs to the same document as `i`.
+Query $i$ may see key $j$ when **both** hold: $j \le i$, and $j$ belongs to the same document as $i$.
 The second condition alone is not enough, since inside one document a position would see its own future; the first alone is the plain causal mask, which leaks across documents.
 The "same document" table is an outer equality comparison of `doc_ids` with itself, and the result is causal triangles along the diagonal, one per document, and nothing between them.
 
@@ -220,21 +223,21 @@ Without help, routing collapses.
 A few experts get chosen a little more often early on, get more gradient, improve faster, get chosen even more, and the rest sit idle.
 The Switch Transformer's auxiliary loss pushes back:
 
-```
-loss = E * sum_e f_e * P_e
+```math
+\text{loss} = E \cdot \sum_e f_e \cdot P_e
 ```
 
-- `f_e` is the **fraction of tokens whose top-1 expert is `e`**: count the tokens per expert from `top1_idx` and divide by `N`.
+- $f_e$ is the **fraction of tokens whose top-1 expert is $e$**: count the tokens per expert from `top1_idx` and divide by `N`.
   `torch.bincount(idx, minlength=E)` counts directly; `F.one_hot(idx, E)` averaged over the tokens gives the same fractions.
-- `P_e` is the **mean router probability of expert `e`** over all tokens: the column means of `router_probs`, the full softmax over all `E` experts, not the renormalized top-2 weights.
+- $P_e$ is the **mean router probability of expert $e$** over all tokens: the column means of `router_probs`, the full softmax over all `E` experts, not the renormalized top-2 weights.
 
 Both vectors sum to 1 over experts, and the loss reads directly when logged:
 
-- perfectly balanced routing, `f_e = P_e = 1/E`, gives `E * E * (1/E)² = 1`;
-- total collapse onto one expert, `f = P = (1, 0, ..., 0)`, gives `E`.
+- perfectly balanced routing, $f_e = P_e = 1/E$, gives $E \cdot E \cdot (1/E)^2 = 1$;
+- total collapse onto one expert, $f = P = (1, 0, \dots, 0)$, gives $E$.
 
-`f` comes from an argmax, so it is discrete and carries no gradient; `P` is a mean of softmax outputs, so it does.
-The gradient of the loss with respect to `P_e` is `E * f_e`, which pushes down hardest on the probability of the experts that are actually receiving the most tokens, which is exactly the feedback that undoes collapse.
+$f$ comes from an argmax, so it is discrete and carries no gradient; $P$ is a mean of softmax outputs, so it does.
+The gradient of the loss with respect to $P_e$ is $E \cdot f_e$, which pushes down hardest on the probability of the experts that are actually receiving the most tokens, which is exactly the feedback that undoes collapse.
 In training it is added to the language-model loss with a small coefficient, typically 0.01.
 
 The function returns a 0-dim float tensor, and the test compares it with `torch.tensor(1.0)`.
@@ -249,9 +252,13 @@ x:       (N, D)
 router:  (E, D)
 w1:      (E, D_ff, D)        w1[e] is (D_ff, D), the nn.Linear layout: (out, in)
 w2:      (E, D, D_ff)        w2[e] is (D, D_ff)
+```
 
-expert e on one token:    w2[e] @ relu(w1[e] @ x_n)       a (D,) vector
-layer output for token n: sum over its two slots of  weight[n, slot] * expert_{idx[n, slot]}(x_n)
+```math
+\begin{aligned}
+&\text{expert } e \text{ on one token:} && w_2[e] \, \operatorname{relu}(w_1[e] \, x_n) \qquad \text{a } (D,) \text{ vector} \\
+&\text{layer output for token } n \text{:} && \sum_{\text{its two slots}} \text{weight}[n, \text{slot}] \cdot \text{expert}_{\text{idx}[n, \text{slot}]}(x_n)
+\end{aligned}
 ```
 
 The formula is written for one column vector `x_n`.
@@ -285,8 +292,8 @@ So scoring `K + 1` positions in one forward pass costs almost exactly what scori
 
 The scheme:
 
-1. a small **draft** model proposes `K` tokens, cheaply, one at a time, recording its distribution `p_draft` at each position;
-2. the large **target** model runs once over the context plus those `K` tokens and produces its distribution `p_target` at all `K + 1` positions, the `K` proposed ones plus the one after them;
+1. a small **draft** model proposes `K` tokens, cheaply, one at a time, recording its distribution $p_{\text{draft}}$ at each position;
+2. the large **target** model runs once over the context plus those `K` tokens and produces its distribution $p_{\text{target}}$ at all `K + 1` positions, the `K` proposed ones plus the one after them;
 3. an acceptance rule decides how many of the `K` to keep, and which distribution the next token comes from.
 
 `speculative_accept` is step 3.
@@ -295,18 +302,18 @@ It does not sample anything: it returns how many draft tokens survive and the di
 
 **The acceptance rule.**
 Walk the positions in order.
-At position `i`, with `t` the draft's token there and `u[i]` uniform in `[0, 1)`:
+At position `i`, with `t` the draft's token there and `u[i]` uniform in $[0, 1)$:
 
-- **accept** if `u[i] <= p_target(t) / p_draft(t)`.
-  When the target likes `t` at least as much as the draft did, the ratio is at least 1 and the token is accepted whatever `u` is; with `u = 0` every token is accepted, which is what the first test uses.
+- **accept** if $u[i] \le p_{\text{target}}(t) / p_{\text{draft}}(t)$.
+  When the target likes $t$ at least as much as the draft did, the ratio is at least 1 and the token is accepted whatever `u` is; with `u = 0` every token is accepted, which is what the first test uses.
 - On the **first rejection**, at position `j`, stop: return `j` and the **residual distribution** at position `j`,
 
-  ```
-  residual = relu(p_target - p_draft)  /  sum(relu(p_target - p_draft))
+  ```math
+  \text{residual} = \frac{\operatorname{relu}(p_{\text{target}} - p_{\text{draft}})}{\sum \operatorname{relu}(p_{\text{target}} - p_{\text{draft}})}
   ```
 
   Everything after `j` is discarded, because the draft generated it conditioned on a token that was not kept.
-- If all `K` are accepted, return `K` and `p_target` at position `K`, the extra row of `target_probs`.
+- If all `K` are accepted, return `K` and $p_{\text{target}}$ at position `K`, the extra row of `target_probs`.
   That **bonus** token is free: the target's single pass already computed its distribution.
 
 `draft_probs` is `(K, V)` and `target_probs` is `(K + 1, V)`, so the first `K` rows of the target line up with the draft row for row, and the last one is only used for the bonus.
@@ -314,14 +321,14 @@ The two probabilities to compare at each position are one entry per row, the ent
 The returned count is a Python `int`, so convert it with `int(...)` if it comes out of a tensor.
 
 **Why the result is exactly the target's distribution.**
-The probability that the step emits token `t` has two parts.
-The draft proposes `t` with probability `p_draft(t)` and it is kept with probability `min(1, p_target(t) / p_draft(t))`, which multiplies out to `min(p_draft(t), p_target(t))`.
-A rejection happens with the remaining probability `1 - sum_s min(p_draft(s), p_target(s))`, and then `t` is drawn from the residual.
-The residual's normalizer is the same number, because `sum_s relu(p_target(s) - p_draft(s)) = 1 - sum_s min(p_draft(s), p_target(s))`.
-So the second part is `relu(p_target(t) - p_draft(t))`, and
+The probability that the step emits token $t$ has two parts.
+The draft proposes $t$ with probability $p_{\text{draft}}(t)$ and it is kept with probability $\min\big(1, p_{\text{target}}(t) / p_{\text{draft}}(t)\big)$, which multiplies out to $\min\big(p_{\text{draft}}(t), p_{\text{target}}(t)\big)$.
+A rejection happens with the remaining probability $1 - \sum_s \min\big(p_{\text{draft}}(s), p_{\text{target}}(s)\big)$, and then $t$ is drawn from the residual.
+The residual's normalizer is the same number, because $\sum_s \operatorname{relu}\big(p_{\text{target}}(s) - p_{\text{draft}}(s)\big) = 1 - \sum_s \min\big(p_{\text{draft}}(s), p_{\text{target}}(s)\big)$.
+So the second part is $\operatorname{relu}\big(p_{\text{target}}(t) - p_{\text{draft}}(t)\big)$, and
 
-```
-min(p_draft, p_target) + relu(p_target - p_draft) = p_target
+```math
+\min(p_{\text{draft}}, p_{\text{target}}) + \operatorname{relu}(p_{\text{target}} - p_{\text{draft}}) = p_{\text{target}}
 ```
 
 holds for every token.
@@ -329,15 +336,15 @@ The output is not an approximation of the target model; it **is** the target mod
 The `relu` is what makes the residual a distribution, non-negative and concentrated on exactly the tokens the target wants more than the draft gave them; without it the "distribution" has negative entries.
 
 **How fast.**
-If each draft token is accepted independently with probability `alpha`, a cycle yields `1` token with probability `1 - alpha`, `2` with `alpha * (1 - alpha)`, and so on, up to `K + 1` when all are accepted and the bonus is added.
+If each draft token is accepted independently with probability $\alpha$, a cycle yields $1$ token with probability $1 - \alpha$, $2$ with $\alpha (1 - \alpha)$, and so on, up to $K + 1$ when all are accepted and the bonus is added.
 The expected count is the geometric sum
 
-```
-1 + alpha + alpha² + ... + alpha^K  =  (1 - alpha^(K+1)) / (1 - alpha)
+```math
+1 + \alpha + \alpha^2 + \dots + \alpha^K = \frac{1 - \alpha^{K+1}}{1 - \alpha}
 ```
 
-At `alpha = 1` the closed form is `0 / 0`, while the sum is plainly `K + 1`, so that case is handled separately.
-At `alpha = 0` it is 1: the target always overrules the draft, and every cycle yields just the target's own token.
+At $\alpha = 1$ the closed form is $0 / 0$, while the sum is plainly $K + 1$, so that case is handled separately.
+At $\alpha = 0$ it is 1: the target always overrules the draft, and every cycle yields just the target's own token.
 
 | `alpha` | `K = 4` | `K = 8` |
 | --- | --- | --- |
@@ -347,7 +354,7 @@ At `alpha = 0` it is 1: the target always overrules the draft, and every cycle y
 | 0.9 | 4.10 | 6.13 |
 
 `expected_speedup` is this count of tokens per cycle, which is the speedup only if the draft were free.
-A real cycle costs `K` draft steps plus one target pass, so the wall-clock gain is smaller, and a larger `K` only pays while `alpha` is high.
+A real cycle costs `K` draft steps plus one target pass, so the wall-clock gain is smaller, and a larger `K` only pays while $\alpha$ is high.
 
 A small draft agrees with the target more often than you might expect, because most tokens in natural text are easy: punctuation, common words, the second half of a word the tokenizer split.
 They disagree exactly where the interesting decisions are, which is where the target's verification takes over.
@@ -371,7 +378,7 @@ The inputs are `beam_scores` of `(num_beams,)` and `next_log_probs` of `(num_bea
 4. **Recover** which beam and which token each flat index came from.
 
 The last step is the inverse of the flatten.
-A row-major `(R, C)` table flattened to `(R * C,)` puts entry `[r, c]` at flat index `r * C + c`, so the row is `flat // C` and the column is `flat % C`.
+A row-major `(R, C)` table flattened to `(R * C,)` puts entry $[r, c]$ at flat index $r \cdot C + c$, so the row is `flat // C` and the column is `flat % C`.
 On int64 tensors, `//` is floor division and `%` is the matching remainder; for non-negative indices both are exact.
 `torch.div(a, b, rounding_mode="floor")` is the spelling that names the rounding explicitly; older PyTorch versions warned on a bare `//`, current ones do not.
 
@@ -386,7 +393,7 @@ After every step the KV cache and the token history have to be reordered by it, 
 At the very first step all beams hold the same prompt, so implementations usually start with scores `[0, -inf, -inf, ...]`, which keeps the first topk from picking the same continuation once per identical beam.
 
 **Why beam search lost for chat.**
-Raw scores penalize length, because each extra token adds another negative log probability, so finished beams are compared after **length normalization**, dividing the score by the length or by `length^alpha`.
+Raw scores penalize length, because each extra token adds another negative log probability, so finished beams are compared after **length normalization**, dividing the score by the length or by $\text{length}^\alpha$.
 Even normalized, beam search produces bland, repetitive text for open-ended generation, the finding that the nucleus sampling paper behind topic 17 opens with: the most probable continuation is not the most human one.
 It remains the right tool for translation, summarization, and any task with a well-defined best answer.
 
@@ -398,9 +405,9 @@ It remains the right tool for translation, summarization, and any task with a we
 | `F.apply(*inputs)` | call it; arguments in the order of `forward` |
 | `ctx.save_for_backward(*tensors)`, `ctx.saved_tensors`, `ctx.name = value` | carry tensors and plain values from forward to backward |
 | `torch.autograd.gradcheck(f, inputs)` | numeric versus analytic Jacobian; float64 inputs with `requires_grad=True` |
-| `x.pow(2).mean(-1, keepdim=True)`, `torch.rsqrt(t)` | the RMS statistic, kept as `(..., 1)`; `1 / sqrt(t)` |
+| `x.pow(2).mean(-1, keepdim=True)`, `torch.rsqrt(t)` | the RMS statistic, kept as `(..., 1)`; $1 / \sqrt{t}$ |
 | `t.sum(dim=tuple(range(t.ndim - 1)))`, `t.reshape(-1, D).sum(0)` | sum over every axis but the last |
-| `torch.arange(T)[:, None] - torch.arange(T)[None, :]` | the `(T, T)` table of `i - j` |
+| `torch.arange(T)[:, None] - torch.arange(T)[None, :]` | the `(T, T)` table of $i - j$ |
 | `a[:, None] == a[None, :]` | outer equality, `(T, T)` bool |
 | `mask_a & mask_b` | allowed by both |
 | `torch.repeat_interleave(values, repeats)` | each value repeated its own number of times; `repeats` a tensor or an int |
@@ -409,7 +416,7 @@ It remains the right tool for translation, summarization, and any task with a we
 | `F.one_hot(idx, num_classes)` | `(..., C)` int64 one-hot |
 | `t.cumsum(dim)` | running sum, inclusive |
 | `t.gather(dim, idx)` | one entry per row, at the column `idx` names |
-| `torch.bincount(idx, minlength=E)` | count of each value in `[0, E)`, int64 |
+| `torch.bincount(idx, minlength=E)` | count of each value in $[0, E)$, int64 |
 | `torch.where(cond)` | the index tensors of the `True` entries, one per axis |
 | `out.index_add_(0, rows, values)` | `out[rows[k]] += values[k]`, accumulating repeats |
 | `F.relu(t)` / `torch.relu(t)`, `t.clamp(min=0)` | negative entries to 0 |
@@ -419,7 +426,7 @@ It remains the right tool for translation, summarization, and any task with a we
 
 ### A worked example on neutral data
 
-A complete custom function with a non-tensor argument and a broadcast weight, `y = w * tanh(c * x)`.
+A complete custom function with a non-tensor argument and a broadcast weight, $y = w \cdot \tanh(c \cdot x)$.
 It has no shared statistic, so no coupling term; what it shows is the three return values, the `None`, and the sum over the leading axes:
 
 ```python
@@ -522,16 +529,16 @@ tensor([0.5000, 0.3000, 0.2000])
 - `eps` goes inside the square root, and is a plain attribute on `ctx`, not a saved tensor.
 - `backward` returns one value per `forward` input, three here, with `None` for `eps`.
 - Per-row statistics in the RMSNorm backward need `keepdim=True`, or they broadcast against the wrong axis.
-- The coupling term is easy to drop: `x_j` reaches the loss through `r` too, not only through `y_j`.
+- The coupling term is easy to drop: $x_j$ reaches the loss through $r$ too, not only through $y_j$.
 - The weight gradient sums over **all** leading axes; autograd will silently do it for you if you forget, a real kernel will not.
 - `gradcheck` in float32 fails even on a correct backward; use float64.
-- A sliding window mask must equal the causal mask when `window >= T`, and row `i` must have `min(i + 1, window)` allowed keys.
+- A sliding window mask must equal the causal mask when `window >= T`, and row $i$ must have $\min(i + 1, \text{window})$ allowed keys.
 - A document mask needs causality **and** the same-document condition; either alone is wrong.
 - `repeat_interleave` takes a tensor of repeats, not a Python list.
 - Softmaxing over all `E` experts and then selecting the top 2 gives weights that do not sum to 1.
 - The capacity cumsum is inclusive: the first token in a queue has position 1, not 0.
 - The capacity queue is slot-major: slot 0 of every token before slot 1 of any token; `reshape(-1)` on `(N, K)` is token-major.
-- `P_e` in the balancing loss is the mean of the full router softmax, `f_e` a fraction of top-1 counts; return a 0-dim float tensor, not a Python float or an int64 count.
+- $P_e$ in the balancing loss is the mean of the full router softmax, $f_e$ a fraction of top-1 counts; return a 0-dim float tensor, not a Python float or an int64 count.
 - Running every token through every expert defeats the purpose of MoE.
 - `w1[e]` is `(D_ff, D)`; rows of tokens multiply its transpose.
 - `index_add_` rather than indexed assignment, because a token receives a contribution from each of its two experts.

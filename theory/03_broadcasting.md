@@ -75,11 +75,11 @@ A one-hot encoding is a comparison against `arange`.
 ### 3.4 Masks and relative positions
 
 A **causal mask** compares two aranges shaped as a column and a row.
-With `i` the query position and `j` the key position, "query `i` may attend to key `j`" is `j <= i`, which is `torch.arange(T)[:, None] >= torch.arange(T)[None, :]`.
+With $i$ the query position and $j$ the key position, "query $i$ may attend to key $j$" is $j \le i$, which is `torch.arange(T)[:, None] >= torch.arange(T)[None, :]`.
 `torch.tril(torch.ones(T, T, dtype=torch.bool))` is the same thing.
 The comparison form is preferred here because it generalizes directly to windows and to `q_len != k_len`.
 
-**Relative positions** are `i - j`, so `arange(q_len)[:, None] - arange(k_len)[None, :]`.
+**Relative positions** are $i - j$, so `arange(q_len)[:, None] - arange(k_len)[None, :]`.
 Positive below the diagonal, zero on it, negative above.
 
 **ALiBi** turns that into an additive bias with a per-head slope: `bias[h, i, j] = -slope[h] * (i - j)`.
@@ -88,8 +88,8 @@ The effect is a linear penalty that grows with distance, different per head.
 
 **Applying a mask** to scores is `scores.masked_fill(~mask, float("-inf"))`, where `mask` is True at *allowed* positions.
 Two things matter.
-Forbidden positions must become a large negative value rather than zero, because the mask is applied to the scores *before* the softmax, and `exp(-inf) == 0` is what actually removes them.
-Setting them to zero instead gives them weight `exp(0) == 1`, the opposite of masking.
+Forbidden positions must become a large negative value rather than zero, because the mask is applied to the scores *before* the softmax, and $e^{-\infty} = 0$ is what actually removes them.
+Setting them to zero instead gives them weight $e^{0} = 1$, the opposite of masking.
 And `masked_fill` takes a mask of positions to *fill*, so a boolean that marks what is allowed has to be inverted.
 
 **Padding masks** refer to keys, and keys live on the last axis of `(B, H, T_q, T_k)`.
@@ -178,7 +178,7 @@ Without looking anything up you can:
 
 **Pairwise distances at scale.**
 The `(N, M, D)` intermediate this topic builds is the clear way to write the formula and the wrong way to run it.
-Production code expands the square into `|a|^2 - 2 a·b + |b|^2`, which turns the whole thing into one matmul plus two cheap row norms and never materializes the third axis.
+Production code expands the square into $\lVert a \rVert^2 - 2\, a \cdot b + \lVert b \rVert^2$, which turns the whole thing into one matmul plus two cheap row norms and never materializes the third axis.
 Topic 06 does that expansion.
 
 **Why anyone wanted ALiBi.**
