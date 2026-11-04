@@ -50,7 +50,7 @@ class MyEmbedding(nn.Module):
         self.weight = nn.Parameter(torch.randn(num_embeddings, embedding_dim))
 
     def forward(self, ids: Tensor) -> Tensor:
-        return self.weight[ids] 
+        return self.weight[ids]
 
 
 class CausalMask(nn.Module):
@@ -66,7 +66,7 @@ class CausalMask(nn.Module):
         self.register_buffer("mask", idx[:, None] >= idx[None, :], persistent=True)
 
     def forward(self, seq_len: int) -> Tensor:
-        return self.mask[:seq_len, :seq_len] # type: ignore
+        return self.mask[:seq_len, :seq_len]  # type: ignore
 
 
 class BlockStack(nn.Module):
@@ -132,6 +132,7 @@ def init_all_linears_(model: nn.Module, std: float) -> nn.Module:
 
     Hint: model.apply(fn) calls fn on every submodule.
     """
+
     def fn(module: nn.Module) -> None:
         if isinstance(module, nn.Linear):
             init_linear_(module, std)
@@ -180,9 +181,7 @@ def strip_prefix(state_dict: dict[str, Tensor], prefix: str) -> dict[str, Tensor
 
     This exact function lives in the conftest.py of the first CS336 assignment.
     """
-    return {
-        n.removeprefix(prefix): p for n, p in state_dict.items() 
-    }
+    return {n.removeprefix(prefix): p for n, p in state_dict.items()}
 
 
 def tie_weights(embedding: nn.Embedding, head: nn.Linear) -> None:
@@ -221,10 +220,11 @@ def capture_activations(model: nn.Sequential, x: Tensor) -> dict[str, Tensor]:
     """
     result = {}
     handlers = []
-    
+
     def make_hook(name):
         def hook(_module, _inputs, output):
             result[name] = output.detach()
+
         return hook
 
     for name, module in model.named_children():
