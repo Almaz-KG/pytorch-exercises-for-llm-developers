@@ -122,7 +122,7 @@ weights = softmax(scores) along the last axis, the keys        (..., T, S)
 out     = weights @ v                              (..., T, S) @ (..., S, Dh)  ->  (..., T, Dh)
 ```
 
-Or in one line, as the papers write it: $\operatorname{Attention}(Q, K, V) = \operatorname{softmax}\left(Q K^\top / \sqrt{d_{\text{head}}} + \text{mask}\right) V$, where the mask is 0 at allowed positions and $-\infty$ at forbidden ones.
+Or in one line, as the papers write it: $\mathrm{Attention}(Q, K, V) = \mathrm{softmax}\left(Q K^\top / \sqrt{d_{\text{head}}} + \text{mask}\right) V$, where the mask is 0 at allowed positions and $-\infty$ at forbidden ones.
 
 Read the shapes of the score tensor `(..., T, S)` as "for every query, one number per key".
 Row `t` belongs to query `t`; column `s` to key `s`.

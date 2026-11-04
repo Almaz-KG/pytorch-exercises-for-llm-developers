@@ -38,7 +38,7 @@ The point of the repository is that a transformer block comes out of your hands 
 
 You built each of these before; here is what each one does in one line.
 
-- **RMSNorm** (topic 11): divides every vector by its root mean square, then multiplies by a learned per-channel `weight` that starts at 1: $x / \sqrt{\operatorname{mean}(x^2) + \varepsilon} \cdot \text{weight}$, with the mean over the last axis.
+- **RMSNorm** (topic 11): divides every vector by its root mean square, then multiplies by a learned per-channel `weight` that starts at 1: $x / \sqrt{\mathrm{mean}(x^2) + \varepsilon} \cdot \text{weight}$, with the mean over the last axis.
 - **SwiGLU** (topic 12): the feed-forward network, `w2(silu(w1(x)) * w3(x))`, three bias-free linear maps; `w1` and `w3` go from `D` up to `d_ff`, `w2` comes back down to `D`.
 - **Causal multi-head self-attention** (topic 14): projections `q_proj`, `k_proj`, `v_proj`, a head split, scaled dot-product attention under a causal mask, a head merge, `output_proj`.
 - **Embedding** (topic 13): a `(V, D)` table; looking up `(B, T)` ids gives `(B, T, D)` vectors.
@@ -222,7 +222,7 @@ A model that cannot even memorize its training batch has a broken gradient path,
 \begin{aligned}
 \text{embeddings} &: \quad V \cdot D \\
 \text{per layer} &: \quad 4 \cdot D^2 && \text{attention: } q, k, v, \text{output} \\
-&\phantom{:} \quad + 3 \cdot D \cdot d_{\text{ff}} && \text{SwiGLU: } w_1, w_2, w_3 \\
+&\quad; + 3 \cdot D \cdot d_{\text{ff}} && \text{SwiGLU: } w_1, w_2, w_3 \\
 \text{lm\_head} &: \quad V \cdot D && \text{(0 if tied to the embeddings)} \\[1ex]
 \text{total} &= V D + L \cdot (4 D^2 + 3 D \, d_{\text{ff}}) + (0 \text{ if tied else } V D)
 \end{aligned}

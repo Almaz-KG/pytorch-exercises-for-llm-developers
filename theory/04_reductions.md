@@ -41,7 +41,7 @@ Getting it wrong gives an answer close enough to pass an eyeball check and fails
 
 The biased variance is `((x - x.mean(dim, keepdim=True)) ** 2).mean(dim, keepdim=True)`, which is worth being able to write directly.
 
-RMS is $\sqrt{\operatorname{mean}(x^2)}$, with no mean subtraction at all.
+RMS is $\sqrt{\mathrm{mean}(x^2)}$, with no mean subtraction at all.
 That difference is the entire distinction between LayerNorm and RMSNorm, and it is why RMSNorm is cheaper: one pass instead of two, and no centering.
 
 ### 4.2 Reductions with a mask
@@ -90,7 +90,7 @@ m = x.max(dim, keepdim=True).values
 ```
 
 ```math
-\operatorname{logsumexp}(x) = m + \log \sum_i e^{x_i - m}
+\mathrm{logsumexp}(x) = m + \log \sum_i e^{x_i - m}
 ```
 
 This is exact, not an approximation.

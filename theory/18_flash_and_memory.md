@@ -52,8 +52,8 @@ The fix is that subtracting the same constant from every entry of a row changes 
 
 ```math
 \begin{aligned}
-\operatorname{softmax}(x)_i &= \frac{\exp(x_i - m)}{\sum_j \exp(x_j - m)} \\
-\operatorname{logsumexp}(x) &= m + \log\Big(\sum_j \exp(x_j - m)\Big)
+\mathrm{softmax}(x)_i &= \frac{\exp(x_i - m)}{\sum_j \exp(x_j - m)} \\
+\mathrm{logsumexp}(x) &= m + \log\Big(\sum_j \exp(x_j - m)\Big)
 \end{aligned}
 ```
 
@@ -133,8 +133,8 @@ Once every block has gone through, `m` is the true row maximum and `l` the true 
 
 ```math
 \begin{aligned}
-\operatorname{logsumexp}(x) &= m + \log(l) \qquad (\dots, 1) \\
-\operatorname{softmax}(x)_i &= \exp(x_i - m) / l
+\mathrm{logsumexp}(x) &= m + \log(l) \qquad (\dots, 1) \\
+\mathrm{softmax}(x)_i &= \exp(x_i - m) / l
 \end{aligned}
 ```
 
@@ -169,7 +169,7 @@ Attention for one query is a softmax-weighted average of the value vectors:
 ```
 
 Flash attention applies the online softmax to this and adds one thing: an **output accumulator**, rescaled together with `l`.
-Carry, per query row, the unnormalized sum $o = \sum_j \exp(s_j - m) \, v_j$ alongside `m` and `l`.
+Carry, per query row, the unnormalized sum $o = \sum_j \exp(s_j - m) v_j$ alongside `m` and `l`.
 Every term in `o` was weighted relative to the current `m`, exactly like every term in `l`, so when `m` goes up, `o` takes the same correction factor $\exp(m_{\text{old}} - m_{\text{new}})$.
 Dividing `o` by `l` once, after the last key block, gives the normalized output.
 
@@ -276,7 +276,7 @@ On a large-vocabulary model it is the biggest tensor in the whole step, bigger t
 From topic 10, the loss of one token is
 
 ```math
-\text{loss}_n = \operatorname{logsumexp}(\text{logits}_n) - \text{logits}_n[\text{target}_n] \qquad \text{logits}_n = \text{weight} \cdot \text{hidden}_n, \ \text{shape } (V,)
+\text{loss}_n = \mathrm{logsumexp}(\text{logits}_n) - \text{logits}_n[\text{target}_n] \qquad \text{logits}_n = \text{weight} \cdot \text{hidden}_n, \ \text{shape } (V,)
 ```
 
 and the mean loss is $\sum_n \text{loss}_n / N$.

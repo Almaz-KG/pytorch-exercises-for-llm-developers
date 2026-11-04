@@ -45,7 +45,7 @@ A few derivatives you will meet in this file:
 | $x^3$ | $3x^2$ |
 | $\sin(x)$ | $\cos(x)$ |
 | $\exp(x)$ | $\exp(x)$ |
-| $\operatorname{round}(x)$ | $0$ almost everywhere, and undefined at the jumps |
+| $\mathrm{round}(x)$ | $0$ almost everywhere, and undefined at the jumps |
 
 When a function has many inputs, you take one derivative per input, holding the others still.
 These are called partial derivatives.
@@ -218,7 +218,7 @@ So summing the first gradient and differentiating that sum gives you every eleme
 
 **The Jacobian and the vector-Jacobian product.**
 So far every output has been a single number.
-Now take a function with several inputs and several outputs, say $f(x_1, x_2) = (x_1 \cdot x_2,\ x_1 + x_2)$.
+Now take a function with several inputs and several outputs, say $f(x_1, x_2) = (x_1 \cdot x_2, x_1 + x_2)$.
 There are now four derivatives: each output with respect to each input.
 Arrange them in a table where row $i$ is output $i$ and column $j$ is input $j$:
 
@@ -356,7 +356,7 @@ The second is to give an operation a gradient it does not really have.
 
 **The straight-through estimator.**
 Some operations, such as rounding, are flat almost everywhere and jump at a few points.
-The derivative of $\operatorname{round}(x)$ is zero almost everywhere.
+The derivative of $\mathrm{round}(x)$ is zero almost everywhere.
 If you put rounding in the middle of a network, the zero gradient stops everything before it from learning.
 
 The straight-through estimator, or STE, is a deliberate cheat.

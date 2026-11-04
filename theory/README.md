@@ -80,6 +80,8 @@ Shapes are written as tuples of single letters, and the letters mean the same th
 Mathematics is written in LaTeX: `$...$` inline, and a fenced block tagged `math` for a formula on its own line.
 Those are the two forms both GitHub and the site render, so avoid `$$...$$` and `\(...\)`.
 Code stays in backticks: `torch.exp(x)` is an API call, $e^{x}$ is the function it computes.
+GitHub renders math with an allowlist of macros, stricter than the site's KaTeX: write named functions as `\mathrm{softmax}`, never `\operatorname`, and do not use `\phantom`.
+Inside inline `$...$` GitHub first strips Markdown escapes, so a backslash before punctuation or a space (`\,`, `\;`, `\ `, `\{`, `\_`) silently disappears; keep those to `math` fences.
 
 ## Two ways to read it
 

@@ -77,13 +77,13 @@ The same applies to `x.std()`.
 ```math
 \begin{aligned}
 \mu &= \text{mean of } x \qquad \text{over the last axis} \\
-\operatorname{var} &= \text{mean of } (x - \mu)^2 \qquad \text{biased, divided by } D \\
-y &= \frac{x - \mu}{\sqrt{\operatorname{var} + \varepsilon}} \cdot \text{weight} + \text{bias}
+\mathrm{var} &= \text{mean of } (x - \mu)^2 \qquad \text{biased, divided by } D \\
+y &= \frac{x - \mu}{\sqrt{\mathrm{var} + \varepsilon}} \cdot \text{weight} + \text{bias}
 \end{aligned}
 ```
 
 Read the last line in two halves.
-$(x - \mu) / \sqrt{\operatorname{var} + \varepsilon}$ is the normalization itself: subtract the mean so the vector is centered on zero, then divide by the standard deviation so its spread is 1.
+$(x - \mu) / \sqrt{\mathrm{var} + \varepsilon}$ is the normalization itself: subtract the mean so the vector is centered on zero, then divide by the standard deviation so its spread is 1.
 `* weight + bias` then lets the model undo some of that if it wants: `weight` and `bias` are learned, one number per channel, both of shape `(D,)`.
 
 On `[1, 2, 3, 4]`: subtract 2.5 to get `[-1.5, -0.5, 0.5, 1.5]`, divide by 1.118 to get `[-1.342, -0.447, 0.447, 1.342]`.
@@ -93,8 +93,8 @@ That has mean 0 and standard deviation 1, whatever the input looked like.
 
 ```math
 \begin{aligned}
-\operatorname{rms} &= \sqrt{\text{mean of } x^2 + \varepsilon} \qquad \text{over the last axis} \\
-y &= x / \operatorname{rms} \cdot \text{weight}
+\mathrm{rms} &= \sqrt{\text{mean of } x^2 + \varepsilon} \qquad \text{over the last axis} \\
+y &= x / \mathrm{rms} \cdot \text{weight}
 \end{aligned}
 ```
 
@@ -126,9 +126,9 @@ It is also why LayerNorm behaves identically at batch size 1 and needs no stored
 `eps` is a small number, `1e-5` here, added to protect against dividing by zero.
 A vector of all zeros has variance 0 and RMS 0, and without `eps` that is `0 / 0 = nan`; the tests check that an all-zero input comes out finite.
 
-It goes **inside** the square root: $\sqrt{\operatorname{var} + \varepsilon}$, never $\sqrt{\operatorname{var}} + \varepsilon$.
-The two agree when $\operatorname{var}$ is large and disagree exactly when $\varepsilon$ matters.
-With $\operatorname{var} = 10^{-8}$, $\sqrt{\operatorname{var} + \varepsilon}$ is about $0.0032$, while $\sqrt{\operatorname{var}} + \varepsilon$ is about $0.00011$, thirty times smaller, so the output would be thirty times larger.
+It goes **inside** the square root: $\sqrt{\mathrm{var} + \varepsilon}$, never $\sqrt{\mathrm{var}} + \varepsilon$.
+The two agree when $\mathrm{var}$ is large and disagree exactly when $\varepsilon$ matters.
+With $\mathrm{var} = 10^{-8}$, $\sqrt{\mathrm{var} + \varepsilon}$ is about $0.0032$, while $\sqrt{\mathrm{var}} + \varepsilon$ is about $0.00011$, thirty times smaller, so the output would be thirty times larger.
 
 **`rsqrt`.**
 `torch.rsqrt(t)` computes $1 / \sqrt{t}$ in one operation, so dividing by a square root can be written as multiplying by an `rsqrt`.
@@ -204,7 +204,7 @@ There are no buffers in either module.
 
 **The residual connection.**
 Every block in a transformer has the same outline: run a sublayer, then **add** its result back onto its input.
-$x + \operatorname{sublayer}(\dots)$ is called a residual connection.
+$x + \mathrm{sublayer}(\dots)$ is called a residual connection.
 It means each block only has to learn a correction to the vector, not rebuild the vector from scratch, and the running sum of all those corrections is the residual stream.
 
 The question is where the normalization goes in that outline, and there are two answers.
@@ -212,13 +212,13 @@ The question is where the normalization goes in that outline, and there are two 
 **Post-norm**, the original 2017 transformer, normalizes **after** adding:
 
 ```math
-x = \operatorname{norm}(x + \operatorname{sublayer}(x))
+x = \mathrm{norm}(x + \mathrm{sublayer}(x))
 ```
 
 **Pre-norm**, used by almost everything since about 2019, normalizes only **what goes into the sublayer**, and adds onto the raw stream:
 
 ```math
-x = x + \operatorname{sublayer}(\operatorname{norm}(x))
+x = x + \mathrm{sublayer}(\mathrm{norm}(x))
 ```
 
 They look like a reshuffle of the same three pieces.
@@ -241,7 +241,7 @@ Pre-norm can train with little or no warmup; large models keep a short one anywa
 **A quick test of which one you wrote.**
 Imagine a sublayer that outputs all zeros.
 Pre-norm then returns $x$ unchanged, exactly, because the stream is never touched.
-Post-norm returns $\operatorname{norm}(x)$, which is different.
+Post-norm returns $\mathrm{norm}(x)$, which is different.
 The exercise has a test for exactly this.
 
 **The extra norm at the end.**
@@ -261,13 +261,13 @@ Multiply the input by any positive number $c$.
 Every value gets $c$ times bigger, the RMS gets $c$ times bigger, and the division cancels them:
 
 ```math
-\operatorname{rms\_norm}(c x) = \operatorname{rms\_norm}(x) \qquad \text{for } c > 0
+\mathrm{rms\_norm}(c x) = \mathrm{rms\_norm}(x) \qquad \text{for } c > 0
 ```
 
 That is the stabilizing guarantee from the start of this file, in one line: however large the previous layer's output was, the next layer sees the same thing.
 It also means the vector's **direction** carries all the information and its length carries none.
 
-`eps` breaks the identity slightly, since it is added to $c^2 \cdot \operatorname{mean}(x^2)$ and not scaled with it, so the measured difference is small but not exactly zero.
+`eps` breaks the identity slightly, since it is added to $c^2 \cdot \mathrm{mean}(x^2)$ and not scaled with it, so the measured difference is small but not exactly zero.
 "Measured difference" means the same thing as in topic 10: subtract the two outputs, take the absolute value, take the largest entry.
 `weight` should be all ones for this, and `torch.ones` needs the right length, `x.shape[-1]`, to broadcast.
 
@@ -335,7 +335,7 @@ tensor([[0.3651, 0.7303, 1.0954, 1.4606]])
 
 - `x.var()` and `x.std()` default to dividing by `D - 1`.
   Normalization divides by `D`: pass `correction=0`.
-- $\sqrt{\operatorname{var}} + \varepsilon$ is not $\sqrt{\operatorname{var} + \varepsilon}$.
+- $\sqrt{\mathrm{var}} + \varepsilon$ is not $\sqrt{\mathrm{var} + \varepsilon}$.
 - Without `eps`, an all-zero vector gives `0 / 0 = nan`.
 - Forgetting `keepdim=True` breaks the broadcast in the subtraction or the division.
 - Reducing over a fixed axis number instead of `-1` breaks the same function for inputs of other ranks.

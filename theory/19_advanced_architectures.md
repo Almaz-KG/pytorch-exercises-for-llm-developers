@@ -44,7 +44,7 @@ RMSNorm from topic 11, with statistics over the last axis of width `D`.
 
 ```math
 \begin{aligned}
-r &= \big(\operatorname{mean}(x^2) + \varepsilon\big)^{-1/2} && \text{one number per row, } (\dots, 1) \\
+r &= \big(\mathrm{mean}(x^2) + \varepsilon\big)^{-1/2} && \text{one number per row, } (\dots, 1) \\
 y_i &= g_i \cdot x_i \cdot r && g \text{ is the weight}
 \end{aligned}
 ```
@@ -56,10 +56,10 @@ The exercise's docstring prints the result for cross-checking; derive it yoursel
 Work on one row, so `x`, `y`, `g` are vectors of length `D` and `r` is a scalar.
 
 First, how `r` reacts to one input.
-$\operatorname{mean}(x^2) = \frac{1}{D} \sum_i x_i^2$, so its derivative with respect to $x_j$ is $2 x_j / D$, and by the chain rule:
+$\mathrm{mean}(x^2) = \frac{1}{D} \sum_i x_i^2$, so its derivative with respect to $x_j$ is $2 x_j / D$, and by the chain rule:
 
 ```math
-\frac{\partial r}{\partial x_j} = -\frac{1}{2} \big(\operatorname{mean}(x^2) + \varepsilon\big)^{-3/2} \cdot \frac{2 x_j}{D} = -\frac{x_j \, r^3}{D}
+\frac{\partial r}{\partial x_j} = -\frac{1}{2} \big(\mathrm{mean}(x^2) + \varepsilon\big)^{-3/2} \cdot \frac{2 x_j}{D} = -\frac{x_j \, r^3}{D}
 ```
 
 Next, the chain rule through `y`.
@@ -75,7 +75,7 @@ Sum both:
 \end{aligned}
 ```
 
-The same formula in terms of the normalized input $\hat{x} = x \cdot r$ reads $\frac{\partial L}{\partial x} = r \cdot \big(a - \hat{x} \cdot \operatorname{mean}(a \odot \hat{x})\big)$, which is easier to remember: scale the incoming gradient, then remove its component along $\hat{x}$.
+The same formula in terms of the normalized input $\hat{x} = x \cdot r$ reads $\frac{\partial L}{\partial x} = r \cdot \big(a - \hat{x} \cdot \mathrm{mean}(a \odot \hat{x})\big)$, which is easier to remember: scale the incoming gradient, then remove its component along $\hat{x}$.
 It has the same shape as the softmax backward in topic 08, for the same reason: a shared statistic takes one direction of freedom away.
 
 The weight gradient is simpler, because $g_i$ touches only $y_i$.
@@ -256,7 +256,7 @@ w2:      (E, D, D_ff)        w2[e] is (D, D_ff)
 
 ```math
 \begin{aligned}
-&\text{expert } e \text{ on one token:} && w_2[e] \, \operatorname{relu}(w_1[e] \, x_n) \qquad \text{a } (D,) \text{ vector} \\
+&\text{expert } e \text{ on one token:} && w_2[e] \, \mathrm{relu}(w_1[e] \, x_n) \qquad \text{a } (D,) \text{ vector} \\
 &\text{layer output for token } n \text{:} && \sum_{\text{its two slots}} \text{weight}[n, \text{slot}] \cdot \text{expert}_{\text{idx}[n, \text{slot}]}(x_n)
 \end{aligned}
 ```
@@ -309,7 +309,7 @@ At position `i`, with `t` the draft's token there and `u[i]` uniform in $[0, 1)$
 - On the **first rejection**, at position `j`, stop: return `j` and the **residual distribution** at position `j`,
 
   ```math
-  \text{residual} = \frac{\operatorname{relu}(p_{\text{target}} - p_{\text{draft}})}{\sum \operatorname{relu}(p_{\text{target}} - p_{\text{draft}})}
+  \text{residual} = \frac{\mathrm{relu}(p_{\text{target}} - p_{\text{draft}})}{\sum \mathrm{relu}(p_{\text{target}} - p_{\text{draft}})}
   ```
 
   Everything after `j` is discarded, because the draft generated it conditioned on a token that was not kept.
@@ -324,11 +324,11 @@ The returned count is a Python `int`, so convert it with `int(...)` if it comes 
 The probability that the step emits token $t$ has two parts.
 The draft proposes $t$ with probability $p_{\text{draft}}(t)$ and it is kept with probability $\min\big(1, p_{\text{target}}(t) / p_{\text{draft}}(t)\big)$, which multiplies out to $\min\big(p_{\text{draft}}(t), p_{\text{target}}(t)\big)$.
 A rejection happens with the remaining probability $1 - \sum_s \min\big(p_{\text{draft}}(s), p_{\text{target}}(s)\big)$, and then $t$ is drawn from the residual.
-The residual's normalizer is the same number, because $\sum_s \operatorname{relu}\big(p_{\text{target}}(s) - p_{\text{draft}}(s)\big) = 1 - \sum_s \min\big(p_{\text{draft}}(s), p_{\text{target}}(s)\big)$.
-So the second part is $\operatorname{relu}\big(p_{\text{target}}(t) - p_{\text{draft}}(t)\big)$, and
+The residual's normalizer is the same number, because $\sum_s \mathrm{relu}\big(p_{\text{target}}(s) - p_{\text{draft}}(s)\big) = 1 - \sum_s \min\big(p_{\text{draft}}(s), p_{\text{target}}(s)\big)$.
+So the second part is $\mathrm{relu}\big(p_{\text{target}}(t) - p_{\text{draft}}(t)\big)$, and
 
 ```math
-\min(p_{\text{draft}}, p_{\text{target}}) + \operatorname{relu}(p_{\text{target}} - p_{\text{draft}}) = p_{\text{target}}
+\min(p_{\text{draft}}, p_{\text{target}}) + \mathrm{relu}(p_{\text{target}} - p_{\text{draft}}) = p_{\text{target}}
 ```
 
 holds for every token.

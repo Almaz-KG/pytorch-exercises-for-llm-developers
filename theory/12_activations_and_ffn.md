@@ -40,7 +40,7 @@ However many you stack, the whole thing can only compute linear functions: stret
 It could never learn "if this, then that".
 
 An activation breaks the chain.
-Put a nonlinear function between the two multiplications, and $B \operatorname{act}(A v)$ no longer collapses into one matrix.
+Put a nonlinear function between the two multiplications, and $B \mathrm{act}(A v)$ no longer collapses into one matrix.
 With a wide enough hidden layer, that combination can approximate essentially any function, which is why every FFN is shaped "linear, activation, linear".
 
 The activation is applied elementwise, to every one of the `d_ff` hidden numbers separately.
@@ -70,7 +70,7 @@ At exactly $x = 0$ the derivative is undefined mathematically; PyTorch uses 0 th
 **GELU**, the Gaussian error linear unit, is a smooth version of ReLU:
 
 ```math
-\operatorname{gelu}(x) = x \cdot \Phi(x)
+\mathrm{gelu}(x) = x \cdot \Phi(x)
 ```
 
 $\Phi(x)$ is the probability that a random number from a standard normal distribution comes out below $x$.
@@ -79,23 +79,23 @@ So GELU multiplies $x$ by a soft switch: far positive, the switch is on and $x$ 
 
 Unlike ReLU, slightly negative inputs give slightly negative outputs, down to a minimum of about $-0.17$ near $x = -0.75$, and the derivative is never stuck at exactly 0.
 
-$\Phi$ is computed with the **error function** $\operatorname{erf}$, a standard special function available as `torch.erf`:
+$\Phi$ is computed with the **error function** $\mathrm{erf}$, a standard special function available as `torch.erf`:
 
 ```math
 \begin{aligned}
-\Phi(x) &= 0.5 \cdot (1 + \operatorname{erf}(x / \sqrt{2})) \\
-\operatorname{gelu}(x) &= x \cdot 0.5 \cdot (1 + \operatorname{erf}(x / \sqrt{2}))
+\Phi(x) &= 0.5 \cdot (1 + \mathrm{erf}(x / \sqrt{2})) \\
+\mathrm{gelu}(x) &= x \cdot 0.5 \cdot (1 + \mathrm{erf}(x / \sqrt{2}))
 \end{aligned}
 ```
 
-You do not need to know how $\operatorname{erf}$ is defined to use it.
-It is an S-shaped curve from -1 to 1, with $\operatorname{erf}(0) = 0$, $\operatorname{erf}(1) \approx 0.843$ and $\operatorname{erf}(2) \approx 0.995$.
+You do not need to know how $\mathrm{erf}$ is defined to use it.
+It is an S-shaped curve from -1 to 1, with $\mathrm{erf}(0) = 0$, $\mathrm{erf}(1) \approx 0.843$ and $\mathrm{erf}(2) \approx 0.995$.
 
 **The tanh approximation.**
-When GPT-2 was built, $\operatorname{erf}$ was slow on GPUs, so it used a formula that approximates GELU with $\tanh$, the hyperbolic tangent (another S-shaped curve from -1 to 1, which was fast):
+When GPT-2 was built, $\mathrm{erf}$ was slow on GPUs, so it used a formula that approximates GELU with $\tanh$, the hyperbolic tangent (another S-shaped curve from -1 to 1, which was fast):
 
 ```math
-\operatorname{gelu\_tanh}(x) = 0.5 \cdot x \cdot \left(1 + \tanh\left(\sqrt{2 / \pi} \cdot (x + 0.044715 \cdot x^3)\right)\right)
+\mathrm{gelu\_tanh}(x) = 0.5 \cdot x \cdot \left(1 + \tanh\left(\sqrt{2 / \pi} \cdot (x + 0.044715 \cdot x^3)\right)\right)
 ```
 
 The constants are just the ones that make the curve fit: $\sqrt{2 / \pi} \approx 0.798$ and $0.044715$.
@@ -108,10 +108,10 @@ The difference is big enough to move a benchmark score and small enough that nob
 **SiLU**, the sigmoid linear unit, also called swish, has the same idea with a different soft switch:
 
 ```math
-\operatorname{silu}(x) = x \cdot \operatorname{sigmoid}(x) \qquad \text{where } \operatorname{sigmoid}(x) = \frac{1}{1 + e^{-x}}
+\mathrm{silu}(x) = x \cdot \mathrm{sigmoid}(x) \qquad \text{where } \mathrm{sigmoid}(x) = \frac{1}{1 + e^{-x}}
 ```
 
-$\operatorname{sigmoid}$ is the S-curve from 0 to 1 that you may know from logistic regression: $\operatorname{sigmoid}(0) = 0.5$, $\operatorname{sigmoid}(3) \approx 0.95$, $\operatorname{sigmoid}(-3) \approx 0.05$.
+$\mathrm{sigmoid}$ is the S-curve from 0 to 1 that you may know from logistic regression: $\mathrm{sigmoid}(0) = 0.5$, $\mathrm{sigmoid}(3) \approx 0.95$, $\mathrm{sigmoid}(-3) \approx 0.05$.
 SiLU looks almost exactly like GELU, dips a little deeper (minimum about $-0.28$ near $x = -1.28$), and is cheaper to compute.
 It is the activation inside SwiGLU, so it is the one in LLaMA and its descendants, and in CS336.
 
@@ -122,7 +122,7 @@ Two facts are enough.
 The product rule: the derivative of $f(x) \cdot g(x)$ is $f' \cdot g + f \cdot g'$.
 
 The derivative of sigmoid is a famously tidy expression of sigmoid itself.
-Write $s = \operatorname{sigmoid}(x)$; then
+Write $s = \mathrm{sigmoid}(x)$; then
 
 ```math
 s' = s \cdot (1 - s)
@@ -153,7 +153,7 @@ To check a derivative you wrote by hand, compare it with autograd (topic 08): pu
 **The classic FFN**, used from the 2017 transformer through GPT-3:
 
 ```math
-\operatorname{FFN}(x) = W_2 \operatorname{act}(W_1 x)
+\mathrm{FFN}(x) = W_2 \mathrm{act}(W_1 x)
 ```
 
 Project up, apply the activation, project back down.
@@ -176,7 +176,7 @@ No reshaping should appear in an FFN.
 **SwiGLU**, used by PaLM, LLaMA and almost every model since 2022, and the convention throughout this repository:
 
 ```math
-\operatorname{FFN}(x) = W_2 \left( \operatorname{SiLU}(W_1 x) \odot (W_3 x) \right)
+\mathrm{FFN}(x) = W_2 \left( \mathrm{SiLU}(W_1 x) \odot (W_3 x) \right)
 ```
 
 There are now **two** up-projections, and they are combined with an elementwise multiplication:

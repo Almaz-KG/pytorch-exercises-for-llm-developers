@@ -178,7 +178,7 @@ Without looking anything up you can:
 
 **Pairwise distances at scale.**
 The `(N, M, D)` intermediate this topic builds is the clear way to write the formula and the wrong way to run it.
-Production code expands the square into $\lVert a \rVert^2 - 2\, a \cdot b + \lVert b \rVert^2$, which turns the whole thing into one matmul plus two cheap row norms and never materializes the third axis.
+Production code expands the square into $\lVert a \rVert^2 - 2 a \cdot b + \lVert b \rVert^2$, which turns the whole thing into one matmul plus two cheap row norms and never materializes the third axis.
 Topic 06 does that expansion.
 
 **Why anyone wanted ALiBi.**

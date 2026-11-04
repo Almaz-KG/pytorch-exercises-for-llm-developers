@@ -251,7 +251,7 @@ The query sits at position $m$, so its arrow is turned by $m w$; the key at posi
 
 Their dot product depends only on their lengths and on the angle between them.
 Rotations do not change lengths.
-And the angle between them changes by $m w - n w = (m - n)\, w$: only the difference of the positions survives.
+And the angle between them changes by $m w - n w = (m - n) w$: only the difference of the positions survives.
 
 The full dot product of two head vectors is the sum of the dot products of their pairs, and every pair obeys the same argument with its own $w$.
 So the whole score between a query at $m$ and a key at $n$ depends on $m - n$ and nothing else.

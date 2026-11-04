@@ -80,7 +80,7 @@ This topic is mostly about using it everywhere.
 For a row of logits $x_1, \dots, x_V$:
 
 ```math
-\operatorname{softmax}(x)_i = \frac{e^{x_i}}{e^{x_1} + e^{x_2} + \dots + e^{x_V}} = \frac{e^{x_i}}{\sum_{j=1}^{V} e^{x_j}}
+\mathrm{softmax}(x)_i = \frac{e^{x_i}}{e^{x_1} + e^{x_2} + \dots + e^{x_V}} = \frac{e^{x_i}}{\sum_{j=1}^{V} e^{x_j}}
 ```
 
 Read it as two steps.
@@ -104,7 +104,7 @@ That last sentence is exact, and it is the most important property of softmax.
 Add the same constant $c$ to every logit: each $e^{x_i + c}$ becomes $e^{c} \cdot e^{x_i}$, the total gains the same factor $e^{c}$, and it cancels out of the fraction.
 
 ```math
-\operatorname{softmax}(x + c) = \operatorname{softmax}(x) \qquad \text{for any number } c
+\mathrm{softmax}(x + c) = \mathrm{softmax}(x) \qquad \text{for any number } c
 ```
 
 So `[2, 1, 0]`, `[102, 101, 100]` and `[-3, -4, -5]` all give the same three probabilities.
@@ -160,9 +160,9 @@ The fix comes from writing out the log of the softmax formula with the rules fro
 
 ```math
 \begin{aligned}
-\log \operatorname{softmax}(x)_i &= \log \frac{e^{x_i}}{\sum_j e^{x_j}} \\
+\log \mathrm{softmax}(x)_i &= \log \frac{e^{x_i}}{\sum_j e^{x_j}} \\
 &= x_i - \log \sum_j e^{x_j} \\
-&= x_i - \operatorname{logsumexp}(x)
+&= x_i - \mathrm{logsumexp}(x)
 \end{aligned}
 ```
 
@@ -173,12 +173,12 @@ The rule to take away from this whole topic: **stay in log space until the very 
 A probability of `1e-40` is hopeless in float32, but its log, `-92.1`, is an ordinary number.
 
 **Temperature.**
-Before the softmax, you can divide the logits by a positive number $T$, the temperature: $\operatorname{softmax}(\text{logits} / T)$.
+Before the softmax, you can divide the logits by a positive number $T$, the temperature: $\mathrm{softmax}(\text{logits} / T)$.
 Dividing by $T$ stretches or squeezes the gaps between logits, and the gaps are all softmax cares about.
 
 Same logits `[2, 1, 0]` as before:
 
-| $T$ | $\operatorname{softmax}(\text{logits} / T)$ | what happened |
+| $T$ | $\mathrm{softmax}(\text{logits} / T)$ | what happened |
 | --- | --- | --- |
 | 0.5 | `[0.867, 0.117, 0.016]` | gaps doubled, the winner takes almost everything |
 | 1 | `[0.665, 0.245, 0.090]` | unchanged |
@@ -218,7 +218,7 @@ That average, not the sum, is the convention, so that the loss does not change j
 In general, cross-entropy compares a target distribution $q$ with a predicted one $p$:
 
 ```math
-\operatorname{cross\_entropy}(q, p) = -\sum_i q_i \log p_i
+\mathrm{cross\_entropy}(q, p) = -\sum_i q_i \log p_i
 ```
 
 For next-token prediction, the target puts all its weight on the one correct token: $q$ is 1 at the target and 0 everywhere else.
@@ -232,8 +232,8 @@ Plug in the `log_softmax` formula from 10.1:
 
 ```math
 \begin{aligned}
-\text{loss}_i &= -\log \operatorname{softmax}(\text{logits}_i)[\text{target}_i] \\
-&= \operatorname{logsumexp}(\text{logits}_i) - \text{logits}_i[\text{target}_i]
+\text{loss}_i &= -\log \mathrm{softmax}(\text{logits}_i)[\text{target}_i] \\
+&= \mathrm{logsumexp}(\text{logits}_i) - \text{logits}_i[\text{target}_i]
 \end{aligned}
 ```
 
@@ -340,7 +340,7 @@ Instead of a one-hot target, the student is graded against the teacher's whole p
 The measure of how far the student is from the teacher is the Kullback-Leibler divergence:
 
 ```math
-\operatorname{KL}(\text{teacher} \parallel \text{student}) = \sum_i p_{\text{teacher},i} \cdot (\log p_{\text{teacher},i} - \log p_{\text{student},i})
+\mathrm{KL}(\text{teacher} \parallel \text{student}) = \sum_i p_{\text{teacher},i} \cdot (\log p_{\text{teacher},i} - \log p_{\text{student},i})
 ```
 
 Read it as "how much extra surprise do I get if I use the student's probabilities, when the data really follows the teacher's?".
@@ -350,11 +350,11 @@ It is cross-entropy minus the teacher's own entropy, so it measures only the par
 Three things to get right:
 
 - **Stay in log space.** Get $\log p_{\text{teacher}}$ and $\log p_{\text{student}}$ with `log_softmax`, subtract them, and get the teacher's probabilities as `exp` of its log-probabilities. Never form the ratio $p_{\text{teacher}} / p_{\text{student}}$: dividing two tiny probabilities is exactly the rounding problem from 10.1.
-- **The order matters.** $\operatorname{KL}(a \parallel b)$ is not $\operatorname{KL}(b \parallel a)$. With `p = [0.7, 0.2, 0.1]` and `q = [0.5, 0.3, 0.2]`, one direction is `0.085` and the other `0.092`. The weights in front always come from the first argument, here the teacher.
+- **The order matters.** $\mathrm{KL}(a \parallel b)$ is not $\mathrm{KL}(b \parallel a)$. With `p = [0.7, 0.2, 0.1]` and `q = [0.5, 0.3, 0.2]`, one direction is `0.085` and the other `0.092`. The weights in front always come from the first argument, here the teacher.
 - **What "averaged over the batch" means.** Sum over the vocabulary axis, giving one KL per row, then average over the `N` rows. This is what PyTorch calls `reduction="batchmean"`.
 
 `F.kl_div` itself is famously easy to misuse.
-It takes the **student's log-probabilities first** and the teacher's distribution second, which is the reverse of how $\operatorname{KL}(\text{teacher} \parallel \text{student})$ is written.
+It takes the **student's log-probabilities first** and the teacher's distribution second, which is the reverse of how $\mathrm{KL}(\text{teacher} \parallel \text{student})$ is written.
 By default it expects the second argument as plain probabilities, unless you pass `log_target=True`.
 And its `reduction="mean"` averages over every element, `N * V` of them, which is not the mathematical KL, a documented historical wart.
 Computing it by hand, as the exercise asks, sidesteps all three.
@@ -364,17 +364,17 @@ Computing it by hand, as the exercise asks, sidesteps all three.
 Topic 08 worked out the softmax Jacobian, a `V x V` table.
 For cross-entropy, almost all of it cancels, and the result is short enough to remember for life.
 
-Take one row and the loss from 10.2, $\text{loss} = \operatorname{logsumexp}(x) - x_{\text{target}}$.
+Take one row and the loss from 10.2, $\text{loss} = \mathrm{logsumexp}(x) - x_{\text{target}}$.
 Ask how it changes when one logit $x_j$ changes, one piece at a time:
 
-- the derivative of $\operatorname{logsumexp}(x)$ with respect to $x_j$ is $e^{x_j} / \sum_k e^{x_k}$, which is just $p_j$, the softmax probability;
+- the derivative of $\mathrm{logsumexp}(x)$ with respect to $x_j$ is $e^{x_j} / \sum_k e^{x_k}$, which is just $p_j$, the softmax probability;
 - the derivative of $x_{\text{target}}$ with respect to $x_j$ is 1 if $j$ is the target, and 0 otherwise. Over all $j$ that is the one-hot vector of the target.
 
 So for one row, the gradient is $p - \text{onehot}(\text{target})$.
 The batch loss is the average over $N$ rows, so each row's share is divided by $N$:
 
 ```math
-\frac{\partial \text{Loss}}{\partial \text{logits}} = \frac{\operatorname{softmax}(\text{logits}) - \text{onehot}(\text{targets})}{N}
+\frac{\partial \text{Loss}}{\partial \text{logits}} = \frac{\mathrm{softmax}(\text{logits}) - \text{onehot}(\text{targets})}{N}
 ```
 
 Read it entry by entry:
@@ -414,11 +414,11 @@ At a 128k vocabulary that is the difference between fitting in memory and not, a
 ### 10.4 Properties worth feeling
 
 **Shift invariance, measured.**
-On paper, $\operatorname{softmax}(x)$ and $\operatorname{softmax}(x + c)$ are identical.
+On paper, $\mathrm{softmax}(x)$ and $\mathrm{softmax}(x + c)$ are identical.
 In float32 they are computed through different intermediate numbers, so they round differently, and the largest difference between them is tiny but usually not exactly zero:
 
 ```math
-\max \lvert \operatorname{softmax}(x) - \operatorname{softmax}(x + 100) \rvert \approx 6 \times 10^{-7} \qquad \text{for a random } (3, 8)\ x
+\max \lvert \mathrm{softmax}(x) - \mathrm{softmax}(x + 100) \rvert \approx 6 \times 10^{-7} \qquad \text{for a random } (3, 8)\ x
 ```
 
 Measuring "how far apart are two tensors" as the largest absolute difference is the same idea `assert_close` uses: subtract, take the absolute value, take the maximum.
@@ -542,11 +542,11 @@ Without looking anything up you can:
 - [ ] explain why subtracting the maximum changes nothing mathematically and fixes overflow
 - [ ] show on a two-element example why `log(softmax(x))` fails where `x - logsumexp(x)` does not
 - [ ] predict what a low and a high temperature do to `softmax([2, 1, 0])`
-- [ ] derive $\text{loss} = \operatorname{logsumexp}(\text{logits}) - \text{logits}[\text{target}]$ from $-\log p_{\text{target}}$
+- [ ] derive $\text{loss} = \mathrm{logsumexp}(\text{logits}) - \text{logits}[\text{target}]$ from $-\log p_{\text{target}}$
 - [ ] explain what goes wrong when padding is excluded from the sum but not from the divisor, and why `-100` cannot go into `gather`
 - [ ] write down the smoothed target distribution for $V = 4$, $s = 0.1$
 - [ ] say what perplexity 8 means in plain words
-- [ ] state which argument of $\operatorname{KL}(\text{teacher} \parallel \text{student})$ provides the weights, and why the ratio of probabilities is never formed
+- [ ] state which argument of $\mathrm{KL}(\text{teacher} \parallel \text{student})$ provides the weights, and why the ratio of probabilities is never formed
 - [ ] state the gradient of mean cross-entropy with respect to the logits, derive it in two lines, and say which way each logit moves
 - [ ] say what $\log 50257$ is to one decimal place, and what a much higher or a much lower initial loss tells you
 
