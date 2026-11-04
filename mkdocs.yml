@@ -47,7 +47,15 @@ theme:
     - content.tooltips
 
 extra_css:
+  - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css
   - assets/extra.css
+
+# Math: `$...$` inline and ```math fences, the two forms GitHub also renders.
+# arithmatex only marks them up; KaTeX draws them in the browser.
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js
+  - https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js
+  - assets/katex.js
 
 markdown_extensions:
   - abbr
@@ -65,7 +73,16 @@ markdown_extensions:
       anchor_linenums: true
       pygments_lang_class: true
   - pymdownx.inlinehilite
-  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: math
+          class: arithmatex
+          format: !!python/object/apply:pymdownx.arithmatex.arithmatex_fenced_format
+            kwds:
+              mode: generic
+              tag: div
   - pymdownx.tasklist:
       custom_checkbox: true
 

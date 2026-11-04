@@ -34,6 +34,7 @@ When you want the answer outright, that is what `solutions/` is for.
 
 ```sh
 uv sync                                   # once
+uv run pre-commit install                 # once: ruff check --fix and ruff format on every commit
 
 uv run pytest test_01_tensor_basics.py -x # the current file, stop at the first failure
 uv run pytest -x                          # everything, in order

@@ -67,6 +67,7 @@ If asked directly for implementation work anyway, say once why that undercuts th
 ## House rules that apply to any code an agent does write
 
 - Python >= 3.12, < 3.14; ruff with line length 120 and `UP` enabled.
+- A pre-commit hook (`.pre-commit-config.yaml`) runs `ruff check --fix` and `ruff format` on every commit; do not skip it with `--no-verify`.
 - No element-wise Python loops over tensors unless a docstring explicitly allows them; `einops` is the intended tool for head splitting and attention algebra.
 - Names mirror the reference implementations the owner works against: `q_proj`, `k_proj`, `v_proj`, `output_proj`, `w1`, `w2`, `w3`, `ln1`, `ln2`, `ln_final`, `token_embeddings`, `lm_head`, no biases anywhere.
   Several tests assert on `state_dict` keys, so these names are load-bearing.

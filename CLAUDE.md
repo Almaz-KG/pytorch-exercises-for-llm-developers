@@ -23,6 +23,7 @@ Pushing to this repo's own remote comes first; bumping the pin in `ai-learning-p
 
 ```sh
 uv sync                                          # once
+uv run pre-commit install                        # once: ruff check --fix + ruff format as a git hook
 uv run pytest test_01_tensor_basics.py -x        # current topic, stop at first failure
 uv run pytest -x                                 # everything, in order
 uv run pytest -k rope                            # one test by name
@@ -69,11 +70,11 @@ Those carry `@pytest.mark.depends_on("a", "b")` and are skipped until every stub
 `conftest.py` implements the marker: `pytest_runtest_setup` skips when `inspect.getsource` of a named object still contains `raise NotImplementedError`.
 
 The marker names **prerequisites, not the subject**.
-`test_tie_weights` declares `MyEmbedding` and `MyLinear` because it cannot run without them, but not `tie_weights` itself: once the modules exist, that test must fail rather than skip, because it is the test for `tie_weights`.
+`test_init_all_linears` declares `init_linear_` because the stub is specified in terms of it, but not `init_all_linears_` itself: once `init_linear_` exists, that test must fail rather than skip, because it is the test for `init_all_linears_`.
 A name misspelled in a marker gates nothing and fails silently, so keep them in step with the stubs.
 
 A fresh topic file therefore no longer fails every test: the per-stub tests fail with `NotImplementedError` and the composition tests skip.
-Across the whole suite that is 320 test functions: 249 stubs each with a subject test of their own, and 27 composition tests behind the marker.
+Across the whole suite that is 322 test functions: 249 stubs each with a subject test of their own, and 28 tests behind the marker.
 
 No topic file imports another one, and none of them import `solutions/`.
 Every file stands alone, and a later topic that needs an earlier helper re-declares its stub rather than importing it: `split_heads` is drilled again at the top of topic 14, the transformer bricks again at the top of topic 15.
@@ -106,6 +107,9 @@ Each file opens with a one-line metadata blockquote, `> **Exercise** ... · **Re
 
 The same files are the source of a static site built with Material for MkDocs.
 `mkdocs.yml` sets `docs_dir: theory`, so nothing is duplicated and the Markdown renders both on GitHub and in the browser; `theory/README.md` is the site's landing page and `theory/assets/extra.css` is the only styling on top of the theme.
+Formulas are LaTeX, `$...$` inline and ```` ```math ```` fences for display, rendered on the site by `pymdownx.arithmatex` plus KaTeX from a CDN (`theory/assets/katex.js` hooks it into Material's instant navigation); those two forms are the ones GitHub also renders.
+GitHub's renderer has its own macro allowlist and rejects `\operatorname` and `\phantom` with "The following macros are not allowed", while KaTeX and MathJax accept them, so a clean local build proves nothing about GitHub; use `\mathrm{...}` for named functions.
+It also strips Markdown backslash escapes inside inline `$...$` before rendering, so `\,`, `\;`, `\ `, `\{` and `\_` belong only in `math` fences.
 `site/` is generated and git-ignored, and `strict: true` means a broken internal link fails the build rather than shipping.
 Adding a topic means adding its file, its row in `theory/README.md` and the root `README.md`, and its entry under `nav:` in `mkdocs.yml`.
 
@@ -146,5 +150,8 @@ If asked for direct implementation work anyway, say once why that undercuts the 
 ## Conventions
 
 - Python >= 3.12, < 3.14, ruff with line length 120 and `UP` enabled. `F722`, `E741` and `PLR0402` are ignored repo-wide, and `F401` additionally in `test_*.py`: imports are staged in advance for the solution, so unused ones are expected and should stay.
+- `.pre-commit-config.yaml` runs `ruff check --fix` and `ruff format` on staged Python files through `uv run`, so the ruff version comes from `uv.lock` and is not pinned a second time.
+  A hook that rewrites a file fails the commit; re-stage and commit again.
+  Do not bypass it with `--no-verify`.
 - The exercises ban element-wise Python loops unless a docstring says otherwise; `einops` is available and is the intended tool for head splitting and attention algebra.
 - `conftest.py` reseeds `torch`, `numpy`, and `random` before every test, so tests using randomness are still expected to be exactly reproducible.
