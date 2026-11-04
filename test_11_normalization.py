@@ -24,12 +24,15 @@ from torch import Tensor
 
 def layer_norm(x: Tensor, weight: Tensor, bias: Tensor, eps: float = 1e-5) -> Tensor:
     """LayerNorm along the last axis, without F.layer_norm. The variance is biased (denominator N)."""
-    raise NotImplementedError
+    var = x.var(dim=-1, keepdim=True, unbiased=False)
+    mean = x.mean(dim=-1, keepdim=True)
+    return ((x - mean) / (var + eps).sqrt()) * weight + bias
 
 
 def rms_norm(x: Tensor, weight: Tensor, eps: float = 1e-5) -> Tensor:
     """RMSNorm along the last axis: x / sqrt(mean(x^2) + eps) * weight."""
-    raise NotImplementedError
+    denom = ((x**2).mean(dim=-1, keepdim=True) + eps).sqrt()
+    return (x / denom) * weight
 
 
 def rms_norm_upcast(x: Tensor, weight: Tensor, eps: float = 1e-5) -> Tensor:
@@ -38,7 +41,9 @@ def rms_norm_upcast(x: Tensor, weight: Tensor, eps: float = 1e-5) -> Tensor:
 
     This is exactly how RMSNorm is written in real repositories.
     """
-    raise NotImplementedError
+    mean = (x**2).mean(dim=-1, keepdim=True, dtype=torch.float32)
+    denom = (mean + eps).sqrt()
+    return (x * weight / denom).to(x.dtype)
 
 
 # ==========================================================================
@@ -54,10 +59,17 @@ class RMSNorm(nn.Module):
 
     def __init__(self, d_model: int, eps: float = 1e-5):
         super().__init__()
-        raise NotImplementedError
+        self.eps = eps
+        self.weight = nn.Parameter(
+            torch.ones(
+                d_model,
+            )
+        )
 
     def forward(self, x: Tensor) -> Tensor:
-        raise NotImplementedError
+        mean = (x**2).mean(dim=-1, keepdim=True)
+        denom = (mean + self.eps).sqrt()
+        return x * self.weight / denom
 
 
 class LayerNormModule(nn.Module):
@@ -65,10 +77,14 @@ class LayerNormModule(nn.Module):
 
     def __init__(self, d_model: int, eps: float = 1e-5):
         super().__init__()
-        raise NotImplementedError
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(d_model))
+        self.bias = nn.Parameter(torch.zeros(d_model))
 
     def forward(self, x: Tensor) -> Tensor:
-        raise NotImplementedError
+        mean = x.mean(dim=-1, keepdim=True)
+        var = x.var(dim=-1, keepdim=True, unbiased=False)
+        return self.weight * (x - mean) / (var + self.eps).sqrt() + self.bias
 
 
 # ==========================================================================
@@ -78,7 +94,7 @@ class LayerNormModule(nn.Module):
 
 def post_norm_residual(x: Tensor, sublayer_out: Tensor, norm: nn.Module) -> Tensor:
     """The original transformer (2017): norm(x + sublayer(x))."""
-    raise NotImplementedError
+    return norm(x + sublayer_out)
 
 
 def pre_norm_residual(x: Tensor, sublayer: nn.Module, norm: nn.Module) -> Tensor:
@@ -87,7 +103,7 @@ def pre_norm_residual(x: Tensor, sublayer: nn.Module, norm: nn.Module) -> Tensor
     The difference is not cosmetic: in pre-norm the residual stream runs from the input to the output
     without a single normalization, so the gradient does not decay and the model trains without warmup crutches.
     """
-    raise NotImplementedError
+    return x + sublayer(norm(x))
 
 
 # ==========================================================================
@@ -100,7 +116,8 @@ def scale_invariance_gap(x: Tensor, c: float) -> Tensor:
 
     RMSNorm is invariant to the scale of the input - that is why it stabilizes training.
     """
-    raise NotImplementedError
+    weight = torch.ones(x.shape[-1], dtype=x.dtype)
+    return (rms_norm(x, weight) - rms_norm(x * c, weight)).max()
 
 
 def stats_after_layernorm(x: Tensor) -> tuple[Tensor, Tensor]:
@@ -109,7 +126,10 @@ def stats_after_layernorm(x: Tensor) -> tuple[Tensor, Tensor]:
 
     It should come out as roughly 0 and 1 - that is the definition of LayerNorm.
     """
-    raise NotImplementedError
+    weight = torch.ones(x.shape[-1])
+    bias = torch.zeros(x.shape[-1])
+    ln = layer_norm(x, weight=weight, bias=bias)
+    return ln.mean(dim=-1), ln.var(dim=-1, unbiased=False)
 
 
 # ==========================================================================
