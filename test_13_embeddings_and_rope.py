@@ -30,7 +30,7 @@ def scaled_token_embedding(table: Tensor, ids: Tensor) -> Tensor:
     """A lookup multiplied by sqrt(d_model) - this is what the original transformer does,
     so that the embeddings and the positional sinusoids are comparable in scale.
     """
-    raise NotImplementedError
+    return table[ids] * math.sqrt(table.shape[-1])
 
 
 def learned_positional(embed: Tensor, pos_table: Tensor, offset: int = 0) -> Tensor:
@@ -39,7 +39,11 @@ def learned_positional(embed: Tensor, pos_table: Tensor, offset: int = 0) -> Ten
 
     The offset is needed during generation: at a decoding step we have one token, but its position is not zero.
     """
-    raise NotImplementedError
+    T = embed.shape[1]
+    print(embed.shape)
+    print(pos_table.shape)
+    print(pos_table[offset : T + offset, :].shape)
+    return embed + pos_table[offset : T + offset, :]
 
 
 def sinusoidal_pe(seq_len: int, d_model: int) -> Tensor:
@@ -47,7 +51,19 @@ def sinusoidal_pe(seq_len: int, d_model: int) -> Tensor:
     PE[pos, 2i]   = sin(pos / 10000^(2i/d))
     PE[pos, 2i+1] = cos(pos / 10000^(2i/d))
     """
-    raise NotImplementedError
+    pos = torch.arange(seq_len, dtype=torch.float32)[:, None]
+    i = torch.arange(0, d_model, 2, dtype=torch.float32)
+    inv_freq = torch.pow(10_000.0, -i / d_model)
+    vals = pos * inv_freq
+
+    pe = torch.empty(seq_len, d_model, dtype=torch.float32)
+    pe[:, 0::2] = vals.sin()
+    pe[:, 1::2] = vals.cos()
+
+    print(pe.shape)
+    print(pe)
+
+    return pe
 
 
 # ==========================================================================
@@ -60,7 +76,8 @@ def rope_inv_freq(d_head: int, theta: float = 10000.0) -> Tensor:
 
     The first pair spins fast (frequency 1), the last one very slowly.
     """
-    raise NotImplementedError
+    i = torch.arange(0, d_head // 2, dtype=torch.float32)
+    return torch.pow(theta, -2 * i / d_head)
 
 
 def rope_cos_sin(seq_len: int, d_head: int, theta: float = 10000.0, offset: int = 0) -> tuple[Tensor, Tensor]:
@@ -69,7 +86,12 @@ def rope_cos_sin(seq_len: int, d_head: int, theta: float = 10000.0, offset: int 
 
     In a real model this is computed once and kept as a buffer.
     """
-    raise NotImplementedError
+
+    i = torch.arange(0, d_head // 2, dtype=torch.float32)
+    inv_freq = torch.pow(theta, -2 * i / d_head)
+    pos = torch.arange(seq_len)[:, None]
+
+    return ((offset + pos) * inv_freq).cos(), ((offset + pos) * inv_freq).sin()
 
 
 def apply_rope(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
@@ -81,7 +103,12 @@ def apply_rope(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
 
     The function must work both for (T, Dh) and for (B, H, T, Dh) - thanks to broadcasting.
     """
-    raise NotImplementedError
+    x_even = x[..., 0::2]
+    x_odd = x[..., 1::2]
+
+    out_even = x_even * cos - x_odd * sin
+    out_odd = x_even * sin + x_odd * cos
+    return torch.stack((out_even, out_odd), dim=-1).flatten(-2)
 
 
 def apply_rope_to_qk(q: Tensor, k: Tensor, theta: float = 10000.0, offset: int = 0) -> tuple[Tensor, Tensor]:
@@ -89,7 +116,26 @@ def apply_rope_to_qk(q: Tensor, k: Tensor, theta: float = 10000.0, offset: int =
 
     Note: RoPE is applied to q and k, but NOT to v.
     """
-    raise NotImplementedError
+    seq_len, d_head = q.shape[-2], q.shape[-1]
+    i = torch.arange(0, d_head // 2, dtype=torch.float32)
+    inv_freq = torch.pow(theta, -2 * i / d_head)
+    pos = torch.arange(seq_len)[:, None]
+    cos = ((offset + pos) * inv_freq).cos()
+    sin = ((offset + pos) * inv_freq).sin()
+
+    q_even = q[..., 0::2]
+    q_odd = q[..., 1::2]
+    q_even_r = q_even * cos - q_odd * sin
+    q_odd_r = q_even * sin + q_odd * cos
+
+    k_even = k[..., 0::2]
+    k_odd = k[..., 1::2]
+    k_even_r = k_even * cos - k_odd * sin
+    k_odd_r = k_even * sin + k_odd * cos
+
+    q_r = torch.stack((q_even_r, q_odd_r), dim=-1).flatten(-2)
+    k_r = torch.stack((k_even_r, k_odd_r), dim=-1).flatten(-2)
+    return q_r, k_r
 
 
 # ==========================================================================
@@ -102,12 +148,21 @@ def rope_dot_product(q: Tensor, k: Tensor, pos_q: int, pos_k: int, theta: float 
 
     This will be needed to check the relativity.
     """
-    raise NotImplementedError
+    d_head = q.shape[-1]
+    cq, sq = rope_cos_sin(1, d_head, theta, offset=pos_q)
+    ck, sk = rope_cos_sin(1, d_head, theta, offset=pos_k)
+
+    qr = apply_rope(q[None, :], cq, sq)[0]
+    kr = apply_rope(k[None, :], ck, sk)[0]
+
+    return (qr * kr).sum()
 
 
 def rope_norm_change(x: Tensor, pos: int, theta: float = 10000.0) -> Tensor:
     """By how much the rotation changes the norm of the vector. As expected - not at all: it is a pure rotation."""
-    raise NotImplementedError
+    cos, sin = rope_cos_sin(1, x.shape[-1], theta=theta, offset=pos)
+    rorated = apply_rope(x[None, :], cos, sin)[0]
+    return rorated.norm() - x.norm()
 
 
 # ==========================================================================
@@ -124,10 +179,15 @@ class RotaryEmbedding(nn.Module):
 
     def __init__(self, d_head: int, max_len: int, theta: float = 10000.0):
         super().__init__()
-        raise NotImplementedError
+        cos, sin = rope_cos_sin(max_len, d_head, theta)
+        self.register_buffer("cos_cached", cos, persistent=True)
+        self.register_buffer("sin_cached", sin, persistent=True)
 
     def forward(self, x: Tensor, offset: int = 0) -> Tensor:
-        raise NotImplementedError
+        T = x.shape[-2]
+        sin = self.sin_cached[offset : offset + T].to(x.dtype)  # type: ignore
+        cos = self.cos_cached[offset : offset + T].to(x.dtype)  # type: ignore
+        return apply_rope(x, cos, sin)
 
 
 # ==========================================================================
@@ -226,21 +286,6 @@ def test_apply_rope_preserves_norm():
     torch.testing.assert_close(out.norm(dim=-1), x.norm(dim=-1), atol=1e-5, rtol=1e-5)
 
 
-def test_rope_dot_product():
-    """The key property: the dot product depends only on the difference of the positions."""
-    q, k = torch.randn(16), torch.randn(16)
-    base = rope_dot_product(q, k, 5, 3)
-    for pq, pk in [(2, 0), (10, 8), (101, 99)]:
-        torch.testing.assert_close(rope_dot_product(q, k, pq, pk), base, atol=1e-4, rtol=1e-4)
-    # and at a different difference the value is obliged to differ
-    assert not torch.allclose(rope_dot_product(q, k, 5, 0), base, atol=1e-3)
-
-
-def test_rope_norm_change():
-    x = torch.randn(32)
-    assert rope_norm_change(x, 17).abs().item() < 1e-5
-
-
 def test_apply_rope_to_qk():
     B, H, T, Dh = 2, 3, 4, 8
     q, k = torch.randn(B, H, T, Dh), torch.randn(B, H, T, Dh)
@@ -256,19 +301,6 @@ def test_apply_rope_to_qk():
     torch.testing.assert_close(q1_shifted, qr[:, :, 3:4], atol=1e-5, rtol=1e-5)
 
 
-def test_rotary_embedding_module():
-    rope = RotaryEmbedding(8, max_len=16)
-    assert sum(p.numel() for p in rope.parameters()) == 0, "RoPE has no trainable parameters"
-    assert set(rope.state_dict().keys()) == {"cos_cached", "sin_cached"}
-
-    x = torch.randn(2, 3, 5, 8)
-    torch.testing.assert_close(rope(x), _ref_rope(x, *_ref_cos_sin(5, 8)), atol=1e-5, rtol=1e-5)
-
-    x1 = torch.randn(2, 3, 1, 8)
-    expected = _ref_rope(x1, *_ref_cos_sin(1, 8, offset=4))
-    torch.testing.assert_close(rope(x1, offset=4), expected, atol=1e-5, rtol=1e-5)
-
-
 @pytest.mark.depends_on("rope_cos_sin", "apply_rope", "apply_rope_to_qk")
 def test_rope_pieces_agree():
     """The wrapper must be exactly apply_rope over rope_cos_sin - the same rotation, assembled."""
@@ -280,6 +312,16 @@ def test_rope_pieces_agree():
     torch.testing.assert_close(kr, apply_rope(k, cos, sin), atol=1e-5, rtol=1e-5)
 
 
+def test_rope_dot_product():
+    """The key property: the dot product depends only on the difference of the positions."""
+    q, k = torch.randn(16), torch.randn(16)
+    base = rope_dot_product(q, k, 5, 3)
+    for pq, pk in [(2, 0), (10, 8), (101, 99)]:
+        torch.testing.assert_close(rope_dot_product(q, k, pq, pk), base, atol=1e-4, rtol=1e-4)
+    # and at a different difference the value is obliged to differ
+    assert not torch.allclose(rope_dot_product(q, k, 5, 0), base, atol=1e-3)
+
+
 @pytest.mark.parametrize("d_head", [2, 8, 64])
 def test_rope_relative_property_across_dims(d_head):
     q, k = torch.randn(d_head), torch.randn(d_head)
@@ -289,3 +331,21 @@ def test_rope_relative_property_across_dims(d_head):
         atol=1e-4,
         rtol=1e-4,
     )
+
+
+def test_rope_norm_change():
+    x = torch.randn(32)
+    assert rope_norm_change(x, 17).abs().item() < 1e-5
+
+
+def test_rotary_embedding_module():
+    rope = RotaryEmbedding(8, max_len=16)
+    assert sum(p.numel() for p in rope.parameters()) == 0, "RoPE has no trainable parameters"
+    assert set(rope.state_dict().keys()) == {"cos_cached", "sin_cached"}
+
+    x = torch.randn(2, 3, 5, 8)
+    torch.testing.assert_close(rope(x), _ref_rope(x, *_ref_cos_sin(5, 8)), atol=1e-5, rtol=1e-5)
+
+    x1 = torch.randn(2, 3, 1, 8)
+    expected = _ref_rope(x1, *_ref_cos_sin(1, 8, offset=4))
+    torch.testing.assert_close(rope(x1, offset=4), expected, atol=1e-5, rtol=1e-5)
