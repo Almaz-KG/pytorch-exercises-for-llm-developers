@@ -135,18 +135,18 @@ def test_gelu_tanh():
     torch.testing.assert_close(gelu_tanh(x), F.gelu(x, approximate="tanh"), atol=1e-6, rtol=1e-5)
 
 
-def test_silu():
-    x = torch.randn(1000) * 3
-    torch.testing.assert_close(silu(x), F.silu(x))
-    assert silu(torch.tensor([-1.0])).item() < 0
-    torch.testing.assert_close(silu(torch.tensor([0.0])), torch.tensor([0.0]))
-
-
 @pytest.mark.depends_on("gelu_exact", "gelu_tanh")
 def test_gelu_approximations_are_close():
     """The two forms have to agree: that is what makes the cheap one a drop-in for the exact one."""
     x = torch.linspace(-5, 5, 200)
     assert (gelu_exact(x) - gelu_tanh(x)).abs().max().item() < 1e-3
+
+
+def test_silu():
+    x = torch.randn(1000) * 3
+    torch.testing.assert_close(silu(x), F.silu(x))
+    assert silu(torch.tensor([-1.0])).item() < 0
+    torch.testing.assert_close(silu(torch.tensor([0.0])), torch.tensor([0.0]))
 
 
 def test_silu_grad_matches_autograd():
@@ -189,6 +189,13 @@ def test_swiglu_d_ff():
     assert swiglu_d_ff(64, multiple_of=1) == 171
 
 
+@pytest.mark.parametrize("d_model", [128, 512, 1024, 4096])
+def test_swiglu_d_ff_is_multiple(d_model):
+    d_ff = swiglu_d_ff(d_model)
+    assert d_ff % 64 == 0
+    assert d_ff >= 8 * d_model / 3
+
+
 @pytest.mark.depends_on("swiglu_d_ff")
 def test_ffn_params_are_comparable():
     d = 512
@@ -203,10 +210,3 @@ def test_ffn_flops():
     n, d, dff = 1024, 512, 2048
     assert ffn_flops(n, d, dff, gated=False) == 2 * (2 * n * d * dff)
     assert ffn_flops(n, d, dff, gated=True) == 3 * (2 * n * d * dff)
-
-
-@pytest.mark.parametrize("d_model", [128, 512, 1024, 4096])
-def test_swiglu_d_ff_is_multiple(d_model):
-    d_ff = swiglu_d_ff(d_model)
-    assert d_ff % 64 == 0
-    assert d_ff >= 8 * d_model / 3

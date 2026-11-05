@@ -218,6 +218,14 @@ def test_cosine_lr_schedule():
     assert all(a >= b - 1e-12 for a, b in itertools.pairwise(values))
 
 
+@pytest.mark.parametrize("warmup,cosine", [(0, 100), (10, 100), (50, 50)])
+def test_cosine_lr_bounds(warmup, cosine):
+    for step in range(cosine + 20):
+        lr = cosine_lr(step, 1.0, 0.1, warmup, cosine)
+        assert 0.0 <= lr <= 1.0 + 1e-12
+        assert not math.isnan(lr)
+
+
 def test_clip_grad_norm_matches_torch():
     torch.manual_seed(0)
     mine = [torch.randn(4, 3), torch.randn(3)]
@@ -288,11 +296,3 @@ def test_chinchilla_tokens():
 def test_tokens_per_step():
     assert tokens_per_step(8, 1024, 4) == 32768
     assert tokens_per_step(8, 1024, 1) == 8192
-
-
-@pytest.mark.parametrize("warmup,cosine", [(0, 100), (10, 100), (50, 50)])
-def test_cosine_lr_bounds(warmup, cosine):
-    for step in range(cosine + 20):
-        lr = cosine_lr(step, 1.0, 0.1, warmup, cosine)
-        assert 0.0 <= lr <= 1.0 + 1e-12
-        assert not math.isnan(lr)

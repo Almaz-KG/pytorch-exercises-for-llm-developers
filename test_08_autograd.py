@@ -293,6 +293,15 @@ def test_softmax_vjp():
     torch.testing.assert_close(softmax_vjp(probs.detach(), g), logits.grad, atol=1e-5, rtol=1e-5)
 
 
+@pytest.mark.parametrize("shape", [(3,), (2, 4)])
+def test_softmax_vjp_property(shape):
+    logits = torch.randn(*shape, requires_grad=True)
+    probs = logits.softmax(dim=-1)
+    g = torch.randn(*shape)
+    probs.backward(g)
+    torch.testing.assert_close(softmax_vjp(probs.detach(), g), logits.grad, atol=1e-5, rtol=1e-5)
+
+
 def test_square_function():
     x = torch.randn(3, 4, requires_grad=True)
     y = SquareFunction.apply(x)
@@ -339,12 +348,3 @@ def test_grad_norm_after_backward():
 
     expected = torch.cat([p.grad.flatten() for p in model.parameters()]).norm().item()  # pyright: ignore[reportOptionalMemberAccess]
     assert abs(norm - expected) < 1e-6
-
-
-@pytest.mark.parametrize("shape", [(3,), (2, 4)])
-def test_softmax_vjp_property(shape):
-    logits = torch.randn(*shape, requires_grad=True)
-    probs = logits.softmax(dim=-1)
-    g = torch.randn(*shape)
-    probs.backward(g)
-    torch.testing.assert_close(softmax_vjp(probs.detach(), g), logits.grad, atol=1e-5, rtol=1e-5)

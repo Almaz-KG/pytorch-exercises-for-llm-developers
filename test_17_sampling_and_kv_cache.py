@@ -179,6 +179,15 @@ def test_top_p_keeps_order_of_original_vocab():
     assert not bool(kept[0])
 
 
+@pytest.mark.parametrize("p", [0.1, 0.5, 0.9, 1.0])
+def test_top_p_never_empties_the_row(p):
+    logits = torch.randn(4, 20)
+    out = top_p_filter(logits, p)
+    assert (torch.isfinite(out).sum(dim=-1) >= 1).all()
+    probs = out.softmax(dim=-1)
+    torch.testing.assert_close(probs.sum(dim=-1), torch.ones(4), atol=1e-5, rtol=0)
+
+
 def test_repetition_penalty():
     logits = torch.tensor([[2.0, -2.0, 1.0]])
     generated = torch.tensor([[0, 1]])
@@ -300,12 +309,3 @@ def test_greedy_generate():
     out = greedy_generate(step_fn, prompt, max_new_tokens=3)
     assert out.shape == (1, 5)
     torch.testing.assert_close(out, torch.tensor([[0, 1, 2, 3, 4]]))
-
-
-@pytest.mark.parametrize("p", [0.1, 0.5, 0.9, 1.0])
-def test_top_p_never_empties_the_row(p):
-    logits = torch.randn(4, 20)
-    out = top_p_filter(logits, p)
-    assert (torch.isfinite(out).sum(dim=-1) >= 1).all()
-    probs = out.softmax(dim=-1)
-    torch.testing.assert_close(probs.sum(dim=-1), torch.ones(4), atol=1e-5, rtol=0)

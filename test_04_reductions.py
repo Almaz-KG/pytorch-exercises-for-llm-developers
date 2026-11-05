@@ -292,6 +292,13 @@ def test_l2_normalize():
     assert torch.isfinite(out).all(), "a zero vector must not give nan - that is what eps is for"
 
 
+@pytest.mark.parametrize("shape", [(3,), (2, 3), (2, 3, 4)])
+def test_l2_normalize_unit_norm(shape):  # type: ignore
+    x = torch.randn(*shape) + 1.0  # type: ignore
+    out = l2_normalize(x)
+    torch.testing.assert_close(out.norm(dim=-1), torch.ones(shape[:-1]), atol=1e-5, rtol=0)  # type: ignore
+
+
 def test_global_grad_norm():
     a = torch.tensor([3.0, 4.0])
     b = torch.tensor([[12.0]])
@@ -310,10 +317,3 @@ def test_token_frequencies():
 def test_cumulative_mean():
     x = torch.tensor([2.0, 4.0, 6.0])
     torch.testing.assert_close(cumulative_mean(x), torch.tensor([2.0, 3.0, 4.0]))
-
-
-@pytest.mark.parametrize("shape", [(3,), (2, 3), (2, 3, 4)])
-def test_l2_normalize_unit_norm(shape):  # type: ignore
-    x = torch.randn(*shape) + 1.0  # type: ignore
-    out = l2_normalize(x)
-    torch.testing.assert_close(out.norm(dim=-1), torch.ones(shape[:-1]), atol=1e-5, rtol=0)  # type: ignore

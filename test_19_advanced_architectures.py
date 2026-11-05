@@ -243,9 +243,12 @@ def test_sliding_window_mask():
     torch.testing.assert_close(sliding_window_mask(6, 99), (idx[:, None] >= idx[None, :]))
 
 
-def test_block_diagonal_lengths_to_doc_ids():
-    torch.testing.assert_close(block_diagonal_lengths_to_doc_ids([2, 3]), torch.tensor([0, 0, 1, 1, 1]))
-    torch.testing.assert_close(block_diagonal_lengths_to_doc_ids([3, 2, 4]), torch.tensor([0, 0, 0, 1, 1, 2, 2, 2, 2]))
+@pytest.mark.parametrize("window", [1, 2, 5, 100])
+def test_sliding_window_counts(window):
+    T = 10
+    m = sliding_window_mask(T, window)
+    for i in range(T):
+        assert int(m[i].sum()) == min(i + 1, window)
 
 
 def test_document_mask():
@@ -262,6 +265,11 @@ def test_document_mask():
         dtype=torch.bool,
     )
     assert torch.equal(m, expected)
+
+
+def test_block_diagonal_lengths_to_doc_ids():
+    torch.testing.assert_close(block_diagonal_lengths_to_doc_ids([2, 3]), torch.tensor([0, 0, 1, 1, 1]))
+    torch.testing.assert_close(block_diagonal_lengths_to_doc_ids([3, 2, 4]), torch.tensor([0, 0, 0, 1, 1, 2, 2, 2, 2]))
 
 
 def test_top2_routing():
@@ -429,11 +437,3 @@ def test_beam_search_step_shapes():
     assert (scores[:-1] >= scores[1:]).all()
     for i in range(3):
         torch.testing.assert_close(scores[i], beam_scores[beam_idx[i]] + log_probs[beam_idx[i], token_idx[i]])
-
-
-@pytest.mark.parametrize("window", [1, 2, 5, 100])
-def test_sliding_window_counts(window):
-    T = 10
-    m = sliding_window_mask(T, window)
-    for i in range(T):
-        assert int(m[i].sum()) == min(i + 1, window)

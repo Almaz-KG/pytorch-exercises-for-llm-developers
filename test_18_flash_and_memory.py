@@ -171,11 +171,6 @@ def test_chunked_softmax():
     assert torch.isfinite(chunked_softmax(big, chunk=4)).all()
 
 
-def test_chunked_logsumexp():
-    x = torch.randn(6, 41) * 3
-    torch.testing.assert_close(chunked_logsumexp(x, chunk=7), torch.logsumexp(x, dim=-1))
-
-
 def test_flash_attention_matches_reference():
     torch.manual_seed(0)
     q, k, v = torch.randn(2, 3, 40, 16), torch.randn(2, 3, 40, 16), torch.randn(2, 3, 40, 16)
@@ -234,6 +229,11 @@ def test_chunked_cross_entropy_value_and_grads():
     loss.backward()
     torch.testing.assert_close(hidden.grad, ref_h, atol=1e-5, rtol=1e-5)
     torch.testing.assert_close(weight.grad, ref_w, atol=1e-5, rtol=1e-5)
+
+
+def test_chunked_logsumexp():
+    x = torch.randn(6, 41) * 3
+    torch.testing.assert_close(chunked_logsumexp(x, chunk=7), torch.logsumexp(x, dim=-1))
 
 
 def test_checkpointing_gives_identical_results():

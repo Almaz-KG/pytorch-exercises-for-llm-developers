@@ -247,6 +247,13 @@ def test_keep_top_k():
     torch.testing.assert_close(probs.sum(), torch.tensor(1.0))
 
 
+@pytest.mark.parametrize("k", [1, 3, 5])
+def test_keep_top_k_counts(k: int):
+    logits = torch.randn(4, 7)
+    out = keep_top_k(logits, k)
+    assert (torch.isfinite(out).sum(dim=-1) == k).all()
+
+
 def test_select_valid():
     x = torch.arange(2 * 3 * 2, dtype=torch.float32).reshape(2, 3, 2)
     mask = torch.tensor([[True, False, True], [False, True, True]])
@@ -297,10 +304,3 @@ def test_expand_for_beams():
     out = expand_for_beams(x, 3)
     assert out.shape == (6, 2)
     torch.testing.assert_close(out, torch.tensor([[1, 2], [1, 2], [1, 2], [3, 4], [3, 4], [3, 4]]))
-
-
-@pytest.mark.parametrize("k", [1, 3, 5])
-def test_keep_top_k_counts(k: int):
-    logits = torch.randn(4, 7)
-    out = keep_top_k(logits, k)
-    assert (torch.isfinite(out).sum(dim=-1) == k).all()

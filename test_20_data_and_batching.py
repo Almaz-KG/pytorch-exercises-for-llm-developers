@@ -135,6 +135,14 @@ def test_get_batch_works_with_memmap(tmp_path):
     torch.testing.assert_close(y[:, :-1], x[:, 1:])
 
 
+@pytest.mark.parametrize("context_length", [1, 8, 64])
+def test_get_batch_context_lengths(context_length):
+    data = np.arange(500, dtype=np.int64)
+    x, y = get_batch(data, batch_size=3, context_length=context_length)
+    assert x.shape == (3, context_length)
+    torch.testing.assert_close(y, x + 1)
+
+
 def test_max_start_index():
     assert max_start_index(100, 10) == 89
     assert max_start_index(11, 10) == 0
@@ -225,11 +233,3 @@ def test_checkpoint_roundtrip():
     torch.testing.assert_close(fresh_model.weight, model.weight)
     assert fresh_opt.state_dict()["state"], "the optimizer state was lost"
     torch.testing.assert_close(fresh_opt.state_dict()["state"][0]["exp_avg"], opt.state_dict()["state"][0]["exp_avg"])
-
-
-@pytest.mark.parametrize("context_length", [1, 8, 64])
-def test_get_batch_context_lengths(context_length):
-    data = np.arange(500, dtype=np.int64)
-    x, y = get_batch(data, batch_size=3, context_length=context_length)
-    assert x.shape == (3, context_length)
-    torch.testing.assert_close(y, x + 1)

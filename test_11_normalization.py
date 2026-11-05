@@ -149,6 +149,13 @@ def test_layer_norm_zero_input_is_finite():
     assert torch.isfinite(out).all(), "a zero input must not give nan - that is what eps is for"
 
 
+def test_layer_norm_is_shift_invariant():
+    """LayerNorm does subtract the mean, so the same shift changes nothing. That is the contrast."""
+    x = torch.randn(4, 8)
+    w, b = torch.ones(8), torch.zeros(8)
+    torch.testing.assert_close(layer_norm(x, w, b), layer_norm(x + 5.0, w, b), atol=1e-4, rtol=1e-4)
+
+
 def test_rms_norm_matches_reference():
     x = torch.randn(2, 3, 16)
     w = torch.randn(16)
@@ -163,11 +170,17 @@ def test_rms_norm_is_not_shift_invariant():
     assert not torch.allclose(rms_norm(x, w), rms_norm(x + 5.0, w), atol=1e-3)
 
 
-def test_layer_norm_is_shift_invariant():
-    """LayerNorm does subtract the mean, so the same shift changes nothing. That is the contrast."""
-    x = torch.randn(4, 8)
-    w, b = torch.ones(8), torch.zeros(8)
-    torch.testing.assert_close(layer_norm(x, w, b), layer_norm(x + 5.0, w, b), atol=1e-4, rtol=1e-4)
+def test_rms_norm_gradients():
+    x = torch.randn(3, 8, dtype=torch.float64, requires_grad=True)
+    w = torch.randn(8, dtype=torch.float64, requires_grad=True)
+    assert torch.autograd.gradcheck(lambda a, b: rms_norm(a, b), (x, w)), "the RMSNorm gradients did not converge"
+
+
+@pytest.mark.parametrize("shape", [(8,), (3, 8), (2, 3, 8)])
+def test_rms_norm_shapes(shape):
+    x = torch.randn(*shape)
+    out = rms_norm(x, torch.ones(8))
+    assert out.shape == shape
 
 
 def test_rms_norm_upcast():
@@ -243,16 +256,3 @@ def test_stats_after_layernorm():
     mean, std = stats_after_layernorm(x)
     torch.testing.assert_close(mean, torch.zeros(4), atol=1e-5, rtol=0)
     torch.testing.assert_close(std, torch.ones(4), atol=1e-3, rtol=1e-3)
-
-
-def test_rms_norm_gradients():
-    x = torch.randn(3, 8, dtype=torch.float64, requires_grad=True)
-    w = torch.randn(8, dtype=torch.float64, requires_grad=True)
-    assert torch.autograd.gradcheck(lambda a, b: rms_norm(a, b), (x, w)), "the RMSNorm gradients did not converge"
-
-
-@pytest.mark.parametrize("shape", [(8,), (3, 8), (2, 3, 8)])
-def test_rms_norm_shapes(shape):
-    x = torch.randn(*shape)
-    out = rms_norm(x, torch.ones(8))
-    assert out.shape == shape
