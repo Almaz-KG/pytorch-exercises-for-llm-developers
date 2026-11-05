@@ -241,6 +241,13 @@ def test_merge_heads_roundtrip():
     torch.testing.assert_close(merge_heads(split_heads(x, 4)), x)
 
 
+@pytest.mark.depends_on("split_heads", "merge_heads")
+@pytest.mark.parametrize("shape", [(2, 3, 8), (1, 1, 8), (4, 7, 16)])
+def test_heads_roundtrip_property(shape):  # type: ignore
+    x = torch.randn(*shape)  # type: ignore
+    torch.testing.assert_close(merge_heads(split_heads(x, 2)), x)
+
+
 def test_transpose_last_two():
     x = torch.randn(2, 4, 5, 8)
     out = transpose_last_two(x)
@@ -342,10 +349,3 @@ def test_shift_right():
     out = shift_right(x, pad_value=-1)
     torch.testing.assert_close(out, torch.tensor([[-1, 1, 2], [-1, 4, 5]]))
     assert out.dtype == x.dtype
-
-
-@pytest.mark.depends_on("split_heads", "merge_heads")
-@pytest.mark.parametrize("shape", [(2, 3, 8), (1, 1, 8), (4, 7, 16)])
-def test_heads_roundtrip_property(shape):  # type: ignore
-    x = torch.randn(*shape)  # type: ignore
-    torch.testing.assert_close(merge_heads(split_heads(x, 2)), x)

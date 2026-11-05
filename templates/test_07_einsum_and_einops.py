@@ -252,6 +252,13 @@ def test_eo_heads_roundtrip():
     torch.testing.assert_close(eo_merge_heads(eo_split_heads(x, 3)), x)
 
 
+@pytest.mark.depends_on("eo_split_heads", "eo_merge_heads")
+@pytest.mark.parametrize("num_heads", [1, 2, 4])
+def test_eo_heads_property(num_heads: int):
+    x = torch.randn(3, 6, 8)
+    torch.testing.assert_close(eo_merge_heads(eo_split_heads(x, num_heads)), x)
+
+
 def test_eo_flatten_tokens():
     x = torch.randn(2, 3, 4)
     out = eo_flatten_tokens(x)
@@ -300,10 +307,3 @@ def test_eo_broadcast_mask():
     m = eo_broadcast_mask(mask, 3)
     assert m.shape == (2, 3, 4, 4)
     torch.testing.assert_close(m[:, 2], mask)
-
-
-@pytest.mark.depends_on("eo_split_heads", "eo_merge_heads")
-@pytest.mark.parametrize("num_heads", [1, 2, 4])
-def test_eo_heads_property(num_heads: int):
-    x = torch.randn(3, 6, 8)
-    torch.testing.assert_close(eo_merge_heads(eo_split_heads(x, num_heads)), x)

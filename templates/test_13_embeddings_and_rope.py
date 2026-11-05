@@ -226,21 +226,6 @@ def test_apply_rope_preserves_norm():
     torch.testing.assert_close(out.norm(dim=-1), x.norm(dim=-1), atol=1e-5, rtol=1e-5)
 
 
-def test_rope_dot_product():
-    """The key property: the dot product depends only on the difference of the positions."""
-    q, k = torch.randn(16), torch.randn(16)
-    base = rope_dot_product(q, k, 5, 3)
-    for pq, pk in [(2, 0), (10, 8), (101, 99)]:
-        torch.testing.assert_close(rope_dot_product(q, k, pq, pk), base, atol=1e-4, rtol=1e-4)
-    # and at a different difference the value is obliged to differ
-    assert not torch.allclose(rope_dot_product(q, k, 5, 0), base, atol=1e-3)
-
-
-def test_rope_norm_change():
-    x = torch.randn(32)
-    assert rope_norm_change(x, 17).abs().item() < 1e-5
-
-
 def test_apply_rope_to_qk():
     B, H, T, Dh = 2, 3, 4, 8
     q, k = torch.randn(B, H, T, Dh), torch.randn(B, H, T, Dh)
@@ -256,19 +241,6 @@ def test_apply_rope_to_qk():
     torch.testing.assert_close(q1_shifted, qr[:, :, 3:4], atol=1e-5, rtol=1e-5)
 
 
-def test_rotary_embedding_module():
-    rope = RotaryEmbedding(8, max_len=16)
-    assert sum(p.numel() for p in rope.parameters()) == 0, "RoPE has no trainable parameters"
-    assert set(rope.state_dict().keys()) == {"cos_cached", "sin_cached"}
-
-    x = torch.randn(2, 3, 5, 8)
-    torch.testing.assert_close(rope(x), _ref_rope(x, *_ref_cos_sin(5, 8)), atol=1e-5, rtol=1e-5)
-
-    x1 = torch.randn(2, 3, 1, 8)
-    expected = _ref_rope(x1, *_ref_cos_sin(1, 8, offset=4))
-    torch.testing.assert_close(rope(x1, offset=4), expected, atol=1e-5, rtol=1e-5)
-
-
 @pytest.mark.depends_on("rope_cos_sin", "apply_rope", "apply_rope_to_qk")
 def test_rope_pieces_agree():
     """The wrapper must be exactly apply_rope over rope_cos_sin - the same rotation, assembled."""
@@ -280,6 +252,16 @@ def test_rope_pieces_agree():
     torch.testing.assert_close(kr, apply_rope(k, cos, sin), atol=1e-5, rtol=1e-5)
 
 
+def test_rope_dot_product():
+    """The key property: the dot product depends only on the difference of the positions."""
+    q, k = torch.randn(16), torch.randn(16)
+    base = rope_dot_product(q, k, 5, 3)
+    for pq, pk in [(2, 0), (10, 8), (101, 99)]:
+        torch.testing.assert_close(rope_dot_product(q, k, pq, pk), base, atol=1e-4, rtol=1e-4)
+    # and at a different difference the value is obliged to differ
+    assert not torch.allclose(rope_dot_product(q, k, 5, 0), base, atol=1e-3)
+
+
 @pytest.mark.parametrize("d_head", [2, 8, 64])
 def test_rope_relative_property_across_dims(d_head):
     q, k = torch.randn(d_head), torch.randn(d_head)
@@ -289,3 +271,21 @@ def test_rope_relative_property_across_dims(d_head):
         atol=1e-4,
         rtol=1e-4,
     )
+
+
+def test_rope_norm_change():
+    x = torch.randn(32)
+    assert rope_norm_change(x, 17).abs().item() < 1e-5
+
+
+def test_rotary_embedding_module():
+    rope = RotaryEmbedding(8, max_len=16)
+    assert sum(p.numel() for p in rope.parameters()) == 0, "RoPE has no trainable parameters"
+    assert set(rope.state_dict().keys()) == {"cos_cached", "sin_cached"}
+
+    x = torch.randn(2, 3, 5, 8)
+    torch.testing.assert_close(rope(x), _ref_rope(x, *_ref_cos_sin(5, 8)), atol=1e-5, rtol=1e-5)
+
+    x1 = torch.randn(2, 3, 1, 8)
+    expected = _ref_rope(x1, *_ref_cos_sin(1, 8, offset=4))
+    torch.testing.assert_close(rope(x1, offset=4), expected, atol=1e-5, rtol=1e-5)
