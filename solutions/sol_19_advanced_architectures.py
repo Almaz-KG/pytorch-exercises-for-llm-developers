@@ -13,7 +13,7 @@ class RMSNormFunction(torch.autograd.Function):
         return x * r * weight
 
     @staticmethod
-    def backward(ctx, grad_out: Tensor):
+    def backward(ctx, grad_out: Tensor):  # pyright: ignore[reportIncompatibleMethodOverride]
         x, weight, r = ctx.saved_tensors
         d = x.shape[-1]
         a = grad_out * weight

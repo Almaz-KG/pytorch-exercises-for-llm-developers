@@ -63,6 +63,9 @@ class RMSNorm(nn.Module):
 class LayerNormModule(nn.Module):
     """The LayerNorm module with the parameters `weight` (ones) and `bias` (zeros)."""
 
+    weight: nn.Parameter
+    bias: nn.Parameter
+
     def __init__(self, d_model: int, eps: float = 1e-5):
         super().__init__()
         raise NotImplementedError

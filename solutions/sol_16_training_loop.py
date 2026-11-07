@@ -42,7 +42,7 @@ class AdamW(torch.optim.Optimizer):
         super().__init__(params, defaults)
 
     @torch.no_grad()
-    def step(self, closure=None):
+    def step(self, closure=None):  # type: ignore
         loss = None
         if closure is not None:
             with torch.enable_grad():
@@ -82,7 +82,7 @@ def cosine_lr(step: int, lr_max: float, lr_min: float, warmup_steps: int, cosine
 
 def clip_grad_norm(params: list[Tensor], max_norm: float, eps: float = 1e-6) -> float:
     grads = [p.grad for p in params if p.grad is not None]
-    total = torch.sqrt(sum(g.pow(2).sum() for g in grads))
+    total = torch.stack([g.pow(2).sum() for g in grads]).sum().sqrt()
     if total.item() > max_norm:
         scale = max_norm / (total + eps)
         for g in grads:

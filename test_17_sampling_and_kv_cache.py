@@ -101,6 +101,11 @@ class CachedSelfAttention(nn.Module):
     The projections: q_proj, k_proj, v_proj, output_proj without a bias.
     """
 
+    q_proj: nn.Linear
+    k_proj: nn.Linear
+    v_proj: nn.Linear
+    output_proj: nn.Linear
+
     def __init__(self, d_model: int, num_heads: int):
         super().__init__()
         raise NotImplementedError

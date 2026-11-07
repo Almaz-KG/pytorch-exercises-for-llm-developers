@@ -43,7 +43,7 @@ class RMSNormFunction(torch.autograd.Function):
         raise NotImplementedError
 
     @staticmethod
-    def backward(ctx, grad_out: Tensor):
+    def backward(ctx, grad_out: Tensor):  # pyright: ignore[reportIncompatibleMethodOverride]
         raise NotImplementedError
 
 
@@ -209,6 +209,7 @@ def test_rms_norm_function_backward_matches_autograd():
     # the reference is ordinary autograd through elementary operations
     ref = x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + 1e-5) * w
     ref.backward(g)
+    assert x.grad is not None and w.grad is not None
     ref_gx, ref_gw = x.grad.clone(), w.grad.clone()
 
     x.grad = None

@@ -68,6 +68,9 @@ def rope_norm_change(x: Tensor, pos: int, theta: float = 10000.0) -> Tensor:
 
 
 class RotaryEmbedding(nn.Module):
+    cos_cached: Tensor
+    sin_cached: Tensor
+
     def __init__(self, d_head: int, max_len: int, theta: float = 10000.0):
         super().__init__()
         cos, sin = rope_cos_sin(max_len, d_head, theta)

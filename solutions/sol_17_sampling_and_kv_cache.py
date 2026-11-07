@@ -59,7 +59,7 @@ class KVCache:
         self.v: Tensor | None = None
 
     def append(self, k: Tensor, v: Tensor) -> tuple[Tensor, Tensor]:
-        if self.k is None:
+        if self.k is None or self.v is None:
             self.k, self.v = k, v
         else:
             self.k = torch.cat([self.k, k], dim=-2)

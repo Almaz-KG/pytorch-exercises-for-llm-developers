@@ -219,6 +219,7 @@ def test_chunked_cross_entropy_value_and_grads():
 
     reference = F.cross_entropy(hidden @ weight.T, targets)
     reference.backward()
+    assert hidden.grad is not None and weight.grad is not None
     ref_h, ref_w = hidden.grad.clone(), weight.grad.clone()
 
     hidden.grad = None
@@ -243,7 +244,8 @@ def test_checkpointing_gives_identical_results():
 
     plain = checkpointed_sequential(blocks, x, use_checkpoint=False)
     plain.sum().backward()
-    plain_grads = [p.grad.clone() for p in blocks.parameters()]
+    plain_grads = [p.grad.clone() for p in blocks.parameters() if p.grad is not None]
+    assert x.grad is not None
     plain_x_grad = x.grad.clone()
 
     for p in blocks.parameters():

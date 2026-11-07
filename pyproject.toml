@@ -26,6 +26,7 @@ default-groups = ["dev", "docs"]
 
 [tool.pyright]
 typeCheckingMode = "standard"
+exclude = ["attempts", "site", "**/__pycache__", "**/.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["."]
