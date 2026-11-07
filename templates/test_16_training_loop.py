@@ -233,7 +233,7 @@ def test_clip_grad_norm_matches_torch():
         p.grad = torch.randn_like(p) * 10
     ref = [p.detach().clone() for p in mine]
     for p, q in zip(ref, mine, strict=True):
-        p.grad = q.grad.clone()
+        p.grad = q.grad.clone()  # type: ignore
 
     returned = clip_grad_norm(mine, 1.0)
     expected = torch.nn.utils.clip_grad_norm_(ref, 1.0).item()
@@ -241,7 +241,7 @@ def test_clip_grad_norm_matches_torch():
     for p, q in zip(mine, ref, strict=True):
         torch.testing.assert_close(p.grad, q.grad, atol=1e-5, rtol=1e-4)
 
-    total = torch.sqrt(sum(p.grad.pow(2).sum() for p in mine)).item()
+    total = torch.sqrt(sum(p.grad.pow(2).sum() for p in mine)).item()  # type: ignore
     assert total <= 1.0 + 1e-4
 
 
@@ -263,7 +263,7 @@ def test_gradient_accumulation_equals_big_batch():
     loss = F.mse_loss(model(x), y)
     model.zero_grad()
     loss.backward()
-    full_grads = [p.grad.clone() for p in model.parameters()]
+    full_grads = [p.grad.clone() for p in model.parameters()]  # type: ignore
 
     micro = [(x[i : i + 4], y[i : i + 4]) for i in range(0, 16, 4)]
     accum_loss = accumulate_gradients(model, micro)
@@ -284,7 +284,7 @@ def test_train_steps_reduces_loss():
 
 def test_training_flops():
     # 7B parameters, 1.4T tokens - roughly LLaMA-7B
-    assert training_flops(7e9, 1.4e12) == 6 * 7e9 * 1.4e12
+    assert training_flops(7e9, 1.4e12) == 6 * 7e9 * 1.4e12  # type: ignore
     assert training_flops(1, 1) == 6
 
 
