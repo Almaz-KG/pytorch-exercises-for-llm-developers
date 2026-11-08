@@ -306,30 +306,12 @@ The defaults `top_k=0` and `top_p=1.0` mean both filters are off.
 
 ### 17.2 Generation
 
-Every function in this section is the same outer loop with a different rule inside it.
-They all take the model as a `step_fn`, a prompt of shape `(B, T_prompt)` int64, and a step budget `max_new_tokens`, and they all return the prompt with the generated tokens appended after it.
 
 #### The model as a `StepFn`
 
-The exercise declares one type alias for the model:
-
+A whole transformer from [topic 15](./15_transformer_block.md) is a `StepFn`.
 ```python
 type StepFn = Callable[[Tensor], Tensor]
-```
-
-`Callable[[A], R]`, from `collections.abc`, is the type of "anything that can be called with one `A` and returns an `R`".
-The `type X = ...` statement (Python 3.12) gives that type a name, so every signature can say `step_fn: StepFn` instead of repeating it.
-The contract the type cannot express is the shapes: ids `(B, T)` int64 in, logits `(B, T, V)` out, one row of scores for the token **after** each position.
-
-A whole transformer from topic 15 is a `StepFn`, and so is any plain function with that contract.
-That is the point of passing a function rather than a model: the loop never needs to know what is inside, and the tests can hand it tiny stand-ins whose answer is known in advance.
-The stand-in most tests use always predicts "this token + 1, modulo 10", so from the prompt `[0, 1]` three greedy steps must give `[0, 1, 2, 3, 4]`.
-
-```python
->>> def bump(ids):                          # a toy StepFn: always predicts "this token + 1"
-...     return torch.nn.functional.one_hot((ids + 1) % 4, 4).float()
->>> bump(torch.tensor([[0, 2]])).shape
-torch.Size([1, 2, 4])
 ```
 
 #### Greedy: `greedy_generate`
