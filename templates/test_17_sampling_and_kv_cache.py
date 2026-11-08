@@ -4,11 +4,14 @@ Two independent topics that always go together.
 
 Sampling: a token has to be picked out of the logits. The temperature stretches or squeezes
 the distribution, top-k and top-p cut off the tail out of which the model talks nonsense.
+The generation loop runs the model, picks a token, appends it, and stops at a length or at EOS.
 
 The KV cache: when generating one token at a time, recomputing the attention over the whole prefix
 from scratch is O(T^2) per step. Instead the K and V of the past positions are stored and
 appended to. The main thing to check is that the cache gives EXACTLY the same result.
 """
+
+from collections.abc import Callable
 
 import pytest
 import torch
@@ -75,11 +78,46 @@ def sample_from_logits(
 # ==========================================================================
 
 
-def greedy_generate(step_fn, prompt: Tensor, max_new_tokens: int) -> Tensor:
-    """step_fn(ids) -> the logits (B, T, V) for the whole input. Append one
-    most probable token at a time, returning (B, T_prompt + max_new_tokens).
+# The model as generation sees it: token ids (B, T) int64 -> logits (B, T, V), one row of scores
+# for the token after each position. A whole transformer is a StepFn, and so is any function with
+# that contract; the tests pass small stand-ins.
+type StepFn = Callable[[Tensor], Tensor]
 
-    This is the naive version without a cache: the whole prefix is run through at every step.
+
+def greedy_generate(step_fn: StepFn, prompt: Tensor, max_new_tokens: int) -> Tensor:
+    """(B, T_prompt) -> (B, T_prompt + max_new_tokens) int64, the prompt unchanged at the front.
+
+    The naive loop without a cache: at every step the whole sequence so far goes through step_fn,
+    and the argmax of the logits at the LAST position is appended to every row.
+    Generation never calls backward, so step_fn must run with autograd switched off.
+    """
+    raise NotImplementedError
+
+
+def sample_generate(
+    step_fn: StepFn,
+    prompt: Tensor,
+    max_new_tokens: int,
+    temperature: float = 1.0,
+    top_k: int = 0,
+    top_p: float = 1.0,
+    generator: torch.Generator | None = None,
+) -> Tensor:
+    """The same loop as greedy_generate, but every new token is drawn by sample_from_logits from 17.1
+    with these settings. At temperature == 0 the result is exactly greedy_generate's.
+
+    One generator serves the whole generation: the same seed gives the same text, another seed
+    another text.
+    """
+    raise NotImplementedError
+
+
+def generate_until_eos(step_fn: StepFn, prompt: Tensor, max_new_tokens: int, eos_id: int) -> Tensor:
+    """Greedy generation that stops early: (B, T_prompt) -> (B, T_prompt + n), n <= max_new_tokens.
+
+    A row is finished once it has GENERATED eos_id; an eos_id already in the prompt does not count.
+    A finished row gets eos_id appended from then on, whatever the model predicts, so all rows keep
+    the same length. The loop stops as soon as every row is finished, or after max_new_tokens steps.
     """
     raise NotImplementedError
 
@@ -137,6 +175,22 @@ def cache_memory_bytes(
     """The memory for the KV cache: two tensors (K and V) per layer.
 
     This exact quantity is the reason GQA and MQA exist.
+    """
+    raise NotImplementedError
+
+
+# ==========================================================================
+# 17.4 Generation with the cache
+# ==========================================================================
+
+
+def generate_with_cache(step_fn: StepFn, prompt: Tensor, max_new_tokens: int) -> Tensor:
+    """Greedy generation driven the way a cached model is driven. The result is the same as
+    greedy_generate's, (B, T_prompt + max_new_tokens).
+
+    Here step_fn keeps a KV cache of its own, so it must only be given what it has not seen yet:
+    the whole prompt once (the prefill), then just the token picked on the previous step, (B, 1).
+    It returns logits for exactly the positions it was given.
     """
     raise NotImplementedError
 
@@ -226,20 +280,79 @@ def test_sample_from_logits_distribution():
     assert (counts - 0.25).abs().max().item() < 0.03
 
 
+def _ref_plus_one(ids: Tensor, vocab: int = 10) -> Tensor:
+    """A stand-in model that always predicts "the next token = this token + 1, modulo vocab"."""
+    logits = torch.full((*ids.shape, vocab), -10.0)
+    return logits.scatter(-1, ((ids + 1) % vocab).unsqueeze(-1), 10.0)
+
+
 def test_greedy_generate():
-    """The stub model always predicts "the next token = the previous one + 1"."""
+    calls = []
 
     def step_fn(ids: Tensor) -> Tensor:
-        B, T = ids.shape
-        logits = torch.full((B, T, 10), -10.0)
-        nxt = (ids + 1) % 10
-        logits.scatter_(-1, nxt.unsqueeze(-1), 10.0)
-        return logits
+        assert not torch.is_grad_enabled(), "generation must run with autograd switched off"
+        calls.append(ids.shape[1])
+        return _ref_plus_one(ids)
 
-    prompt = torch.tensor([[0, 1]])
+    prompt = torch.tensor([[0, 1], [7, 8]])
     out = greedy_generate(step_fn, prompt, max_new_tokens=3)
-    assert out.shape == (1, 5)
-    torch.testing.assert_close(out, torch.tensor([[0, 1, 2, 3, 4]]))
+    assert out.shape == (2, 5) and out.dtype == torch.int64
+    torch.testing.assert_close(out, torch.tensor([[0, 1, 2, 3, 4], [7, 8, 9, 0, 1]]))
+    assert calls == [2, 3, 4], "without a cache every step runs the whole sequence"
+
+
+@pytest.mark.depends_on("sample_from_logits")
+def test_sample_generate_draws_only_what_the_filters_allow():
+    row = torch.tensor([3.0, 2.9, 0.0, -5.0, -5.0, -5.0])
+
+    def step_fn(ids: Tensor) -> Tensor:
+        assert not torch.is_grad_enabled(), "generation must run with autograd switched off"
+        return row.expand(*ids.shape, -1)
+
+    prompt = torch.tensor([[4], [5], [4], [5]])
+    g = torch.Generator().manual_seed(0)
+    out = sample_generate(step_fn, prompt, max_new_tokens=20, top_k=2, generator=g)
+    assert out.shape == (4, 21) and out.dtype == torch.int64
+    torch.testing.assert_close(out[:, :1], prompt)
+    assert set(out[:, 1:].flatten().tolist()) == {0, 1}, "top-k=2 must allow tokens 0 and 1, and only them"
+
+
+@pytest.mark.depends_on("sample_from_logits")
+def test_sample_generate_seed_and_greedy_limit():
+    def step_fn(ids: Tensor) -> Tensor:
+        return torch.zeros(*ids.shape, 50)
+
+    prompt = torch.zeros(2, 3, dtype=torch.long)
+
+    def run(seed: int) -> Tensor:
+        return sample_generate(step_fn, prompt, 16, generator=torch.Generator().manual_seed(seed))
+
+    torch.testing.assert_close(run(0), run(0))
+    assert not torch.equal(run(0), run(1)), "another seed must give another text"
+    assert len(set(run(0)[0, 3:].tolist())) > 1, "every step must continue the generator's stream"
+
+    out = sample_generate(_ref_plus_one, torch.tensor([[0, 1], [7, 8]]), 3, temperature=0.0)
+    torch.testing.assert_close(out, torch.tensor([[0, 1, 2, 3, 4], [7, 8, 9, 0, 1]]))
+
+
+def test_generate_until_eos_stops_and_pads():
+    calls = []
+
+    def step_fn(ids: Tensor) -> Tensor:
+        assert not torch.is_grad_enabled(), "generation must run with autograd switched off"
+        calls.append(ids.shape[1])
+        return _ref_plus_one(ids)
+
+    prompt = torch.tensor([[0, 1], [3, 4]])
+    out = generate_until_eos(step_fn, prompt, max_new_tokens=10, eos_id=5)
+    # the second row says 5 on the first step and is then padded, although the model goes on to 6, 7, ...
+    torch.testing.assert_close(out, torch.tensor([[0, 1, 2, 3, 4, 5], [3, 4, 5, 5, 5, 5]]))
+    assert len(calls) == 4, "the loop must stop once every row has produced EOS"
+
+
+def test_generate_until_eos_ignores_the_prompt_and_respects_the_limit():
+    out = generate_until_eos(_ref_plus_one, torch.tensor([[5, 6]]), max_new_tokens=3, eos_id=5)
+    torch.testing.assert_close(out, torch.tensor([[5, 6, 7, 8, 9]]))
 
 
 def test_kv_cache_append():
@@ -317,3 +430,43 @@ def test_cache_memory_bytes():
     # GQA with 8 kv heads shrinks the cache exactly fourfold
     gqa = cache_memory_bytes(1, 32, 8, 4096, 128, torch.bfloat16)
     assert mha // gqa == 4
+
+
+def test_generate_with_cache_feeds_only_new_tokens():
+    seen = []
+
+    def step_fn(new_ids: Tensor) -> Tensor:
+        assert not torch.is_grad_enabled(), "generation must run with autograd switched off"
+        seen.append(new_ids.clone())
+        return _ref_plus_one(new_ids)
+
+    prompt = torch.tensor([[0, 1], [7, 8]])
+    out = generate_with_cache(step_fn, prompt, max_new_tokens=3)
+    torch.testing.assert_close(out, torch.tensor([[0, 1, 2, 3, 4], [7, 8, 9, 0, 1]]))
+
+    assert len(seen) == 3, "the prefill, then one call per token still to pick"
+    torch.testing.assert_close(seen[0], prompt)
+    torch.testing.assert_close(seen[1], torch.tensor([[2], [9]]))
+    torch.testing.assert_close(seen[2], torch.tensor([[3], [0]]))
+
+
+@pytest.mark.depends_on("KVCache", "CachedSelfAttention", "greedy_generate", "generate_with_cache")
+def test_cached_generation_matches_uncached():
+    """A tiny one-layer model, generated from twice: rerunning the whole prefix, and through the cache."""
+    torch.manual_seed(0)
+    V, D = 13, 16
+    emb = nn.Embedding(V, D)
+    attn = CachedSelfAttention(D, 2)
+    head = nn.Linear(D, V, bias=False)
+
+    def full(ids: Tensor) -> Tensor:
+        return head(attn(emb(ids)))
+
+    cache = KVCache()
+
+    def cached(new_ids: Tensor) -> Tensor:
+        return head(attn(emb(new_ids), cache=cache))
+
+    prompt = torch.randint(0, V, (2, 4))
+    torch.testing.assert_close(generate_with_cache(cached, prompt, 8), greedy_generate(full, prompt, 8))
+    assert len(cache) == 4 + 8 - 1, "the last token picked is never fed back"

@@ -6,9 +6,10 @@
 
 Topic 15 built a model that maps a row of token ids to logits, and topic 16 trained it.
 A trained model still does not write anything.
-**Generation** is the loop around it: run the model, take the scores at the last position, pick one token, append it to the input, and run again, until enough tokens have been produced.
+**Generation** is the loop around it: run the model, take the scores at the last position, pick one token, append it to the input, and run again, until enough tokens have been produced or the model says it is done.
+17.2 writes that loop three ways: greedy, sampled, and stopping at EOS, and 17.4 writes it once more for a model with a cache.
 
-Two independent things live inside that loop, and this topic builds both.
+Two independent things live inside the loop, and this topic builds both.
 
 **Sampling** is how one token gets picked out of `V` scores.
 It is a handful of tensor operations with no weights involved, and yet it decides most of what a user notices about a model: whether it rambles, repeats itself, or sounds robotic.
@@ -305,10 +306,35 @@ The defaults `top_k=0` and `top_p=1.0` mean both filters are off.
 
 ### 17.2 Generation
 
-`greedy_generate(step_fn, prompt, max_new_tokens)` is the naive loop, without a cache.
-`step_fn` stands for the model: given ids of shape `(B, T)`, it returns logits `(B, T, V)` for every position.
-The prompt is `(B, T_prompt)` int64, and the result is the prompt with `max_new_tokens` generated tokens after it, `(B, T_prompt + max_new_tokens)`.
+Every function in this section is the same outer loop with a different rule inside it.
+They all take the model as a `step_fn`, a prompt of shape `(B, T_prompt)` int64, and a step budget `max_new_tokens`, and they all return the prompt with the generated tokens appended after it.
 
+#### The model as a `StepFn`
+
+The exercise declares one type alias for the model:
+
+```python
+type StepFn = Callable[[Tensor], Tensor]
+```
+
+`Callable[[A], R]`, from `collections.abc`, is the type of "anything that can be called with one `A` and returns an `R`".
+The `type X = ...` statement (Python 3.12) gives that type a name, so every signature can say `step_fn: StepFn` instead of repeating it.
+The contract the type cannot express is the shapes: ids `(B, T)` int64 in, logits `(B, T, V)` out, one row of scores for the token **after** each position.
+
+A whole transformer from topic 15 is a `StepFn`, and so is any plain function with that contract.
+That is the point of passing a function rather than a model: the loop never needs to know what is inside, and the tests can hand it tiny stand-ins whose answer is known in advance.
+The stand-in most tests use always predicts "this token + 1, modulo 10", so from the prompt `[0, 1]` three greedy steps must give `[0, 1, 2, 3, 4]`.
+
+```python
+>>> def bump(ids):                          # a toy StepFn: always predicts "this token + 1"
+...     return torch.nn.functional.one_hot((ids + 1) % 4, 4).float()
+>>> bump(torch.tensor([[0, 2]])).shape
+torch.Size([1, 2, 4])
+```
+
+#### Greedy: `greedy_generate`
+
+The naive loop, without a cache.
 Each step does the same four things, with these shapes:
 
 | What | Shape |
@@ -322,26 +348,90 @@ Each step does the same four things, with these shapes:
 
 Notes on each line:
 
-- `step_fn` gets the **whole** current sequence every time, prompt plus everything generated so far; that is what makes this version slow and obviously correct.
-- the last position is `logits[:, -1]`, which indexes the time axis; `logits[-1]` would take the last **sequence** in the batch.
+- `step_fn` gets the **whole** current sequence every time, prompt plus everything generated so far; that is what makes this version slow and obviously correct, and the test records the lengths it was called with.
+- the last position is `logits[:, -1]`, which indexes the time axis; `logits[-1]` would take the last **sequence** in the batch, and the test uses two rows to catch it.
 - the pick is an `argmax` over the vocabulary axis, the last one.
 - `argmax` drops the axis it reduces, so the `(B,)` result needs a size-1 axis put back, `[:, None]` or `unsqueeze(-1)`, before it lines up with `(B, T)` for `torch.cat(..., dim=1)`.
 
 A Python `for` loop over the generation steps is fine and unavoidable: each step needs the token the previous step produced.
 The ban on Python loops is about looping over the **elements** of a tensor, not over time steps.
 
-The test's `step_fn` is a stand-in that always predicts "previous token + 1, modulo 10", so from the prompt `[0, 1]` three steps must give `[0, 1, 2, 3, 4]`.
-It only predicts that correctly when it reads the logits at the **last** position.
+**Autograd off.**
+Generation never calls `backward`, but autograd does not know that.
+With gradients on, every step records its graph, and the graph of a real model holds on to every activation of every step, so memory grows with each token for nothing.
+Every generation function here must run its `step_fn` with autograd off, and the test's stand-ins check `torch.is_grad_enabled()` to make sure.
+There are two ways to switch it off:
 
-**Real generation loops add three things** the exercise leaves out:
+```python
+>>> with torch.no_grad():                  # for a block
+...     torch.is_grad_enabled()
+False
+>>> @torch.no_grad()                       # for a whole function
+... def f():
+...     return torch.is_grad_enabled()
+>>> f(), torch.is_grad_enabled()
+(False, True)
+```
 
-- they run under `torch.no_grad()` or `torch.inference_mode()`, because generation never calls `backward`, and otherwise autograd keeps the graph of every step alive;
-- they replace `argmax` with the sampling pipeline of 17.1 whenever the temperature is above 0;
-- they stop early once every sequence in the batch has produced EOS, and mask whatever a finished sequence generates afterwards, which is the "everything after the first EOS" `cumsum` trick from topic 05.
+`torch.inference_mode()` is a stricter variant used the same way: it also skips some bookkeeping, and tensors created under it can never be used in autograd later.
 
-**And they use a cache.**
-Rerunning the whole prefix on every step, the first note above, is what makes this version slow, and removing that cost is the subject of 17.3.
-With a cache, the loop changes shape: one prefill call on the whole prompt, then each step feeds only the newest token, `(B, 1)`, and the cache supplies the rest.
+#### Sampling: `sample_generate`
+
+The same loop, with `argmax` replaced by `sample_from_logits` from 17.1 and its four settings passed through.
+It is specified in terms of that function, so its tests stay skipped until `sample_from_logits` is written.
+At `temperature = 0` the sampler is the argmax, and the result must equal greedy generation exactly.
+
+**One generator for the whole generation.**
+A `torch.Generator` is a stream of random numbers: every draw takes the next numbers from it and moves it forward.
+Passing the caller's generator to every step continues one stream across the whole text, so a fixed seed reproduces the text exactly, and another seed gives another one.
+Creating a fresh generator inside the loop, or reseeding it, restarts the stream at every step, and every step then makes the same draw:
+
+```python
+>>> probs = torch.full((1, 50), 0.02)
+>>> g = torch.Generator().manual_seed(0)
+>>> [torch.multinomial(probs, 1, generator=g).item() for _ in range(3)]       # one stream
+[47, 8, 28]
+>>> [torch.multinomial(probs, 1, generator=torch.Generator().manual_seed(0)).item() for _ in range(3)]
+[47, 47, 47]
+```
+
+The tests check all three properties: the same seed twice gives the same ids, another seed gives different ones, and the tokens within one generation are not all the same.
+A sampler that builds its own fixed-seed generator when given `None` has the restart bug built in: in a loop, every step draws identically.
+
+#### Stopping at EOS: `generate_until_eos`
+
+A real model says when it is done by producing the **EOS** ("end of sequence") token.
+`generate_until_eos` is greedy generation with that rule added, and its result may be shorter than the budget: `(B, T_prompt + n)` with `n <= max_new_tokens`.
+
+The difficulty is the batch.
+Rows finish at different steps, but a tensor has one length, so a finished row cannot simply stop growing while the others go on.
+The convention is to keep a **finished flag** per row, a `(B,)` bool tensor, and:
+
+- on every step, a finished row gets `eos_id` appended **whatever the model predicted**, which pads it;
+- a row becomes finished on the step its pick is `eos_id`;
+- once every row is finished, the loop stops early, without spending the rest of the budget.
+
+On the stand-in "+1" model with `eos_id = 5`, the prompt `[3, 4]` produces 5 on its first step, while the prompt `[0, 1]` needs four steps.
+After its first step the model would continue the shorter row with 6, 7, ..., and the padding is what replaces those with 5.
+The test checks both rows, and that `step_fn` was called four times and not ten.
+
+Only **generated** tokens count.
+An `eos_id` inside the prompt, which happens with chat templates, does not finish a row, so the flag must start as all `False` and be updated from the picks only, never computed from the whole sequence.
+
+The pieces are all elementwise on `(B,)` tensors:
+
+```python
+>>> done = torch.tensor([False, True, False])
+>>> pick = torch.tensor([7, 2, 5])
+>>> torch.where(done, 9, pick)              # a Python scalar broadcasts as a branch
+tensor([7, 9, 5])
+>>> done | (pick == 5)                      # elementwise "or"
+tensor([False,  True,  True])
+>>> bool(done.all()), bool(done.any())      # reductions to one Python bool
+(False, True)
+```
+
+The `cumsum` trick from topic 05, "everything after the first EOS", is the alternative for a sequence that was generated in full: it builds the same mask afterwards instead of step by step.
 
 ### 17.3 The KV cache
 
@@ -470,6 +560,36 @@ The formula is linear in batch and in sequence length, and that is what limits a
 The weights are loaded once and shared by every request, but the cache is per request and grows with every token, so the number of users a GPU can serve at once is the number of caches that fit beside the weights.
 vLLM's paged attention raised that number several times over on the same hardware by allocating the cache in fixed-size pages, like virtual memory, instead of reserving one contiguous block for each sequence's maximum length.
 
+### 17.4 Generation with the cache
+
+17.2 reruns the whole prefix on every step, and 17.3 built the cache that makes that unnecessary.
+`generate_with_cache` is the loop that drives a cached model, and its result must be the same as `greedy_generate`'s.
+
+The difference is entirely in **what is passed to `step_fn`**.
+A cached `step_fn` keeps its own KV cache between calls, so it must be given each position exactly once:
+
+| Call | Input to `step_fn` | What the cache holds after it |
+| --- | --- | --- |
+| 1, the prefill | the whole prompt, `(B, T_prompt)` | `T_prompt` positions |
+| 2 | the token picked on call 1, `(B, 1)` | `T_prompt + 1` |
+| ... | the token picked on the previous call, `(B, 1)` | one more each time |
+| `max_new_tokens` | the token picked on the previous call, `(B, 1)` | `T_prompt + max_new_tokens - 1` |
+
+So there are `max_new_tokens` calls, as in the naive loop, but only the first one sees more than one position, and the logits it returns cover only the positions it was given; the last of them, `[:, -1]`, is still the one that predicts the next token.
+The very last token picked is appended to the result and never fed back, because nothing is generated after it.
+That is why the cache ends one position short of the output, and the test checks the exact length.
+
+Two ways to get this loop wrong, both caught:
+
+- passing the whole sequence on every call, as the naive loop does: the cache appends the same positions again, and from the second step on the model attends to duplicated keys and the numbers drift away from the uncached run;
+- feeding the final token back after the loop, which costs a call and leaves the cache one position too long.
+
+The first test of the section records every input the stand-in model receives and checks them one by one.
+The second is the composition test of the whole topic: it builds a one-layer model from an embedding, your `CachedSelfAttention` and an output projection, wraps it twice, once as an uncached `StepFn` and once around a `KVCache`, and checks that `greedy_generate` and `generate_with_cache` produce identical ids.
+It stays skipped until all four pieces are written.
+
+A model with positions has one more thing to get right here: the token passed on call `t` sits at absolute position `T_prompt + t - 2`, not at 0, which is the offset from topic 13 and the "Positions" note in 17.3.
+
 ## API you need
 
 ### Sampling
@@ -494,10 +614,16 @@ vLLM's paged attention raised that number several times over on the same hardwar
 | `x.squeeze(-1)`, `x[:, 0]` | `(B, 1)` to `(B,)` |
 | `torch.Generator().manual_seed(n)` | an independent, reproducible random source |
 
-### The cache and the loop
+### The loop and the cache
 
 | Call | Result |
 | --- | --- |
+| `type StepFn = Callable[[Tensor], Tensor]` | a named type for "called with a `Tensor`, returns a `Tensor`"; `Callable` from `collections.abc` |
+| `@torch.no_grad()`, `with torch.no_grad():` | autograd off for a function or a block; `torch.inference_mode()` the same, stricter |
+| `torch.is_grad_enabled()` | whether autograd is recording right now |
+| `torch.where(done, eos_id, pick)` | a scalar in one branch broadcasts; pads finished rows |
+| `a \| b`, `a == 5` | elementwise "or" of bool tensors, elementwise comparison |
+| `bool(t.all())`, `bool(t.any())` | reduce a bool tensor to one Python `bool` |
 | `torch.cat([old, new], dim=-2)` | append along time for `(B, H, T, Dh)` |
 | `x.shape[-2]` | the time length of a `(B, H, T, Dh)` tensor, a Python `int` |
 | `def __len__(self) -> int` | what `len(obj)` calls; must return an `int` |
@@ -508,7 +634,6 @@ vLLM's paged attention raised that number several times over on the same hardwar
 | `x[:, None]` / `x.unsqueeze(-1)` | `(B,)` to `(B, 1)` |
 | `torch.cat([ids, new_col], dim=1)` | append a column of ids |
 | `dtype.itemsize` | bytes per element |
-| `torch.no_grad()`, `torch.inference_mode()` | context managers that switch autograd off |
 
 ### A worked example on neutral data
 
@@ -555,6 +680,12 @@ Bytes per element, and a cache length that grows:
 - Caching `q`, which is never used again.
 - Forgetting the position offset in a model with RoPE or learned positions.
 - Generating without `torch.no_grad()`, which keeps a growing graph alive across every step.
+- A generator created or reseeded inside the loop, or a fixed-seed default for `None`: every step then makes the same draw.
+- A finished row that is not padded with EOS keeps whatever the model says after it.
+- Counting an EOS from the prompt as finished; only generated tokens count.
+- Running all `max_new_tokens` steps when every row has already produced EOS.
+- Passing the whole sequence to a cached `step_fn` on every step, which appends the same positions to the cache again.
+- Feeding the last picked token back after the loop; the cache ends at `T_prompt + max_new_tokens - 1`.
 
 ## Ready when
 
@@ -566,12 +697,16 @@ Without looking anything up you can:
 - [ ] implement top-p including the sort, the exclusive cumsum, and the mapping back to vocabulary order
 - [ ] say why the repetition penalty has two branches, and what happens to a repeated id
 - [ ] draw samples with `multinomial` and a generator, with the right shape and dtype
-- [ ] write the naive greedy generation loop with the right shapes at every step
+- [ ] read `Callable[[Tensor], Tensor]` and say what contract a `StepFn` adds on top of the type
+- [ ] write the naive greedy generation loop with the right shapes at every step, with autograd off
+- [ ] swap greedy for sampling and say why one generator must serve the whole generation
+- [ ] stop a batch at EOS: pad finished rows, ignore the prompt, end once every row is done
 - [ ] explain what the KV cache stores, what it does not, and the cost it removes
 - [ ] write a cache that starts empty, appends along time and reports its length
 - [ ] say which mask each attention call needs: no cache, prefill, one-token decode, a chunk into a non-empty cache
 - [ ] say why `is_causal=True` is wrong once `T != S`
 - [ ] write the KV cache memory formula and compute it for a real model, with and without GQA
+- [ ] drive a cached model: prefill once, then one token per call, and say how long the cache ends up
 
 ## Going deeper
 

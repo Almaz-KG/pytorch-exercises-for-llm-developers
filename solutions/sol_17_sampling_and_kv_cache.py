@@ -1,6 +1,7 @@
 """Reference solutions for topic 17."""
 
 import math
+from collections.abc import Callable
 
 import torch
 import torch.nn as nn
@@ -53,12 +54,48 @@ def sample_from_logits(
     return torch.multinomial(probs, num_samples=1, generator=generator).squeeze(-1)
 
 
-def greedy_generate(step_fn, prompt: Tensor, max_new_tokens: int) -> Tensor:
+type StepFn = Callable[[Tensor], Tensor]
+
+
+@torch.no_grad()
+def greedy_generate(step_fn: StepFn, prompt: Tensor, max_new_tokens: int) -> Tensor:
     ids = prompt
     for _ in range(max_new_tokens):
         logits = step_fn(ids)
         nxt = logits[:, -1].argmax(dim=-1, keepdim=True)
         ids = torch.cat([ids, nxt], dim=1)
+    return ids
+
+
+@torch.no_grad()
+def sample_generate(
+    step_fn: StepFn,
+    prompt: Tensor,
+    max_new_tokens: int,
+    temperature: float = 1.0,
+    top_k: int = 0,
+    top_p: float = 1.0,
+    generator: torch.Generator | None = None,
+) -> Tensor:
+    ids = prompt
+    for _ in range(max_new_tokens):
+        logits = step_fn(ids)[:, -1]
+        nxt = sample_from_logits(logits, temperature, top_k, top_p, generator)
+        ids = torch.cat([ids, nxt[:, None]], dim=1)
+    return ids
+
+
+@torch.no_grad()
+def generate_until_eos(step_fn: StepFn, prompt: Tensor, max_new_tokens: int, eos_id: int) -> Tensor:
+    ids = prompt
+    finished = torch.zeros(prompt.shape[0], dtype=torch.bool, device=prompt.device)
+    for _ in range(max_new_tokens):
+        nxt = step_fn(ids)[:, -1].argmax(dim=-1)
+        nxt = torch.where(finished, eos_id, nxt)
+        ids = torch.cat([ids, nxt[:, None]], dim=1)
+        finished = finished | (nxt == eos_id)
+        if finished.all():
+            break
     return ids
 
 
@@ -114,3 +151,14 @@ def cache_memory_bytes(
 ) -> int:
     element = torch.empty(0, dtype=dtype).element_size()
     return 2 * batch * num_layers * num_kv_heads * seq_len * head_dim * element
+
+
+@torch.no_grad()
+def generate_with_cache(step_fn: StepFn, prompt: Tensor, max_new_tokens: int) -> Tensor:
+    ids = prompt
+    new = prompt
+    for _ in range(max_new_tokens):
+        nxt = step_fn(new)[:, -1].argmax(dim=-1, keepdim=True)
+        ids = torch.cat([ids, nxt], dim=1)
+        new = nxt
+    return ids
