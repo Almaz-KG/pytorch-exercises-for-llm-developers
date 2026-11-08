@@ -35,12 +35,15 @@ def top_k_filter(logits: Tensor, k: int) -> Tensor:
 
 
 def top_p_filter(logits: Tensor, p: float) -> Tensor:
-    """Nucleus sampling. Keep the smallest set of tokens whose total probability
-    is >= p (the token that crosses the threshold IS KEPT), everything else -> -inf.
+    """(B, V) -> (B, V): nucleus sampling.
 
-    The algorithm: sort in descending order, take the cumsum of the probabilities, drop those
-    whose accumulated sum BEFORE them is already >= p, return the mask in the original order
-    (the scatter from topic 05 comes in handy).
+    Walk the tokens from the most probable down, adding up their probabilities, and stop at
+    the first token that brings the total to >= p. That token and every one before it are kept,
+    everything after it -> -inf. So at least one token always survives.
+
+    In tensors: sort descending, softmax, cumsum. A token is dropped when the sum of the tokens
+    strictly BEFORE it is already >= p. That mask is in sorted order, so move it back to the
+    original vocabulary order (a scatter, topic 05) before applying it to the logits.
     """
     raise NotImplementedError
 
@@ -68,7 +71,21 @@ def sample_from_logits(
 
 
 # ==========================================================================
-# 17.2 The KV cache
+# 17.2 Generation
+# ==========================================================================
+
+
+def greedy_generate(step_fn, prompt: Tensor, max_new_tokens: int) -> Tensor:
+    """step_fn(ids) -> the logits (B, T, V) for the whole input. Append one
+    most probable token at a time, returning (B, T_prompt + max_new_tokens).
+
+    This is the naive version without a cache: the whole prefix is run through at every step.
+    """
+    raise NotImplementedError
+
+
+# ==========================================================================
+# 17.3 The KV cache
 # ==========================================================================
 
 
@@ -120,20 +137,6 @@ def cache_memory_bytes(
     """The memory for the KV cache: two tensors (K and V) per layer.
 
     This exact quantity is the reason GQA and MQA exist.
-    """
-    raise NotImplementedError
-
-
-# ==========================================================================
-# 17.3 Generation
-# ==========================================================================
-
-
-def greedy_generate(step_fn, prompt: Tensor, max_new_tokens: int) -> Tensor:
-    """step_fn(ids) -> the logits (B, T, V) for the whole input. Append one
-    most probable token at a time, returning (B, T_prompt + max_new_tokens).
-
-    This is the naive version without a cache: the whole prefix is run through at every step.
     """
     raise NotImplementedError
 
@@ -223,6 +226,22 @@ def test_sample_from_logits_distribution():
     assert (counts - 0.25).abs().max().item() < 0.03
 
 
+def test_greedy_generate():
+    """The stub model always predicts "the next token = the previous one + 1"."""
+
+    def step_fn(ids: Tensor) -> Tensor:
+        B, T = ids.shape
+        logits = torch.full((B, T, 10), -10.0)
+        nxt = (ids + 1) % 10
+        logits.scatter_(-1, nxt.unsqueeze(-1), 10.0)
+        return logits
+
+    prompt = torch.tensor([[0, 1]])
+    out = greedy_generate(step_fn, prompt, max_new_tokens=3)
+    assert out.shape == (1, 5)
+    torch.testing.assert_close(out, torch.tensor([[0, 1, 2, 3, 4]]))
+
+
 def test_kv_cache_append():
     cache = KVCache()
     assert len(cache) == 0
@@ -298,19 +317,3 @@ def test_cache_memory_bytes():
     # GQA with 8 kv heads shrinks the cache exactly fourfold
     gqa = cache_memory_bytes(1, 32, 8, 4096, 128, torch.bfloat16)
     assert mha // gqa == 4
-
-
-def test_greedy_generate():
-    """The stub model always predicts "the next token = the previous one + 1"."""
-
-    def step_fn(ids: Tensor) -> Tensor:
-        B, T = ids.shape
-        logits = torch.full((B, T, 10), -10.0)
-        nxt = (ids + 1) % 10
-        logits.scatter_(-1, nxt.unsqueeze(-1), 10.0)
-        return logits
-
-    prompt = torch.tensor([[0, 1]])
-    out = greedy_generate(step_fn, prompt, max_new_tokens=3)
-    assert out.shape == (1, 5)
-    torch.testing.assert_close(out, torch.tensor([[0, 1, 2, 3, 4]]))

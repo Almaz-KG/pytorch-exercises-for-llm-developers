@@ -138,22 +138,39 @@ When the model is sure, two tokens deserve consideration and `k = 50` lets in 48
 
 #### Top-p (nucleus sampling)
 
-Top-p fixes exactly that by letting the number of candidates adapt.
-It keeps the **smallest set of most probable tokens whose probabilities add up to at least `p`**.
-When the model is confident that set might be one or two tokens; when it is uncertain, several hundred.
+Top-p adjusts the number of candidate tokens to the model's confidence.
+Instead of a fixed number of tokens, it keeps the **smallest set of top tokens whose combined probability reaches at least `p`**.
+That set is called the **nucleus**.
 
-Done in tensors, per row:
+- When the model is confident, the nucleus might be just 1 or 2 tokens.
+- When the model is uncertain, it might include hundreds.
 
-1. Sort the logits in descending order, and keep the sort indices.
-2. Softmax the sorted logits and take the running sum along the row, `cumsum`.
-3. For each sorted token, look at the sum of the probabilities **before** it, not including itself.
-   Drop it if that sum is already `>= p`: the tokens before it already reached the target.
-   Keep it otherwise.
-4. Map the keep/drop decision from sorted order back to the original vocabulary order, and write `-inf` at the dropped positions.
+At `p = 0.9`, on two rows of four probabilities already sorted:
 
-The "before it" in step 3 is the important detail.
-It is what keeps the token that **crosses** the threshold.
-On the probabilities of the toy row `[3.0, 2.0, 1.0, 0.0]`:
+| Row | Running total | Kept |
+| --- | --- | --- |
+| `0.9692, 0.0178, 0.0065, 0.0065` (confident) | `0.97` after the first token | 1 token |
+| `0.25, 0.25, 0.25, 0.25` (uncertain) | `0.25, 0.50, 0.75, 1.00` | 4 tokens |
+
+**How it works, per row of the tensor:**
+
+1. Sort the logits in descending order and save the original indices.
+2. Turn the sorted logits into probabilities (`softmax`) and take their running sum (`cumsum`).
+3. Filter (the "before" rule): keep a token only if the probability accumulated **strictly** before it, not counting itself, is `< p`.
+   Every token after the nucleus is marked for dropping.
+   This decision is made in sorted order, so it is a `(B, V)` boolean mask over sorted positions.
+4. Map that mask back to the original vocabulary order, and only then write `-inf` at the dropped tokens.
+
+**Why check the sum *before* the token?**
+It is what keeps the token that pushes the total over the threshold `p`.
+Take the sorted probabilities `[0.64, 0.24, 0.09, 0.03]` with `p = 0.90`:
+
+- Inclusive sum (`cumsum`): `[0.64, 0.88, 0.97, 1.00]`.
+  Keeping tokens while this is `< 0.90` keeps only two, `0.88` in total, short of the target.
+- Exclusive sum (`cumsum - probs`): `[0.00, 0.64, 0.88, 0.97]`.
+  Keeping tokens while this is `< 0.90` keeps the first **three**, and the nucleus reaches `0.97`.
+
+Both sums are one `cumsum` away:
 
 ```python
 >>> p = torch.tensor([[3.0, 2.0, 1.0, 0.0]]).softmax(-1)
@@ -165,26 +182,26 @@ tensor([[0.6439, 0.8808, 0.9679, 1.0000]])
 tensor([[0.0000, 0.6439, 0.8808, 0.9679]])
 ```
 
-With `p = 0.9`, the exclusive sums are below 0.9 for the first three tokens, so three survive: the first two reach only 0.88, and the third is the one that crosses 0.9.
-Comparing the **inclusive** sum against `p` instead would keep only two tokens and stop short of the target, which is the off-by-one to avoid.
+The exclusive sum is either `cumsum - probs`, as above, or the inclusive `cumsum` shifted one place to the right with a `0` put in front.
 
-Two consequences of the exclusive sum, both tested:
+**Two edge cases the exclusive sum handles, both tested:**
 
-- the first token's exclusive sum is 0, so for any `p > 0` it is always kept, and a row can never end up all `-inf` (which would softmax to NaN, as topic 14 showed);
-- with `p = 1.0` nothing should be cut: every exclusive sum is below 1 in exact arithmetic.
+- **No empty rows.**
+  The top token has nothing before it, so its exclusive sum is `0`, and for any `p > 0` at least one token survives.
+  A row of all `-inf` would softmax to NaN (topic 14).
+- **`p = 1.0` keeps everything.**
+  Every exclusive sum is below `1.0`, so no token is dropped, at least in exact arithmetic.
 
-The exclusive sum is either `cumsum - probs`, or the inclusive `cumsum` shifted one place to the right with a `0` put in front.
-
-**Floating point at `p = 1.0`.**
-In float32 the running sum of a large row can drift slightly above 1, and then tokens far in the tail get dropped at `p = 1.0`.
+In float32 that second guarantee can break.
+The running sum of a large row can drift slightly above 1, and then tokens far in the tail get dropped at `p = 1.0`.
 On 8 rows of 50257 random logits with standard deviation 3, the inclusive sum ended as high as `1.0000076`, and a plain comparison at `p = 1.0` dropped 34834 tail tokens in total, each with a vanishing probability.
 On other rows it drops none; it depends on how the rounding falls.
 The four-token test does not see this, but it is why real implementations treat `p >= 1.0` as "filter off" and return the logits unchanged, the same way `k <= 0` switches top-k off.
 
-**Back to the original order.**
-After `sort`, position `j` of a row holds the token whose original index is `indices[j]`.
-A mask computed in sorted order is therefore in the wrong order for the logits, and applying it directly marks the wrong tokens: the test with logits `[0.1, 5.0, 0.2, 4.0]` checks that the kept tokens are 1 and 3, in their original places.
-`scatter` along the last axis with the sort indices writes each sorted entry back to where it came from (topic 05).
+**Restoring the original order (step 4).**
+This is the step that is easy to skip by accident, and the test with logits `[0.1, 5.0, 0.2, 4.0]` exists to catch it: the kept tokens must be 1 and 3, in their original places.
+After `sort`, position `j` holds the token whose original index is `indices[j]`.
+`scatter` along the last axis with those indices writes each sorted entry back to where it came from (topic 05).
 On neutral data, sorting values and scattering them back restores the row exactly:
 
 ```python
@@ -196,7 +213,19 @@ On neutral data, sorting values and scattering them back restores the row exactl
 tensor([[10., 30., 20.]])
 ```
 
-A boolean tensor scatters the same way.
+A boolean mask scatters the same way.
+Here a mask that flags the two **last sorted positions** comes back as a mask on the two smallest **original** entries, wherever they sit:
+
+```python
+>>> x = torch.tensor([[0.0, 3.0, 1.0, 2.0]])
+>>> _, i = x.sort(-1, descending=True)
+>>> i
+tensor([[1, 3, 2, 0]])
+>>> flagged = torch.tensor([[False, False, True, True]])    # in sorted order
+>>> torch.zeros_like(flagged).scatter(-1, i, flagged)        # in original order
+tensor([[ True, False,  True, False]])
+```
+
 The other route is `gather` with the inverse permutation, `i.argsort(-1)`, which gives the same result.
 
 #### Repetition penalty
@@ -274,10 +303,50 @@ At temperature 0 the result is the argmax of each row, and the test checks the v
 `argmax(-1)` returns exactly that: a `(B,)` int64 tensor.
 The defaults `top_k=0` and `top_p=1.0` mean both filters are off.
 
-### 17.2 The KV cache
+### 17.2 Generation
+
+`greedy_generate(step_fn, prompt, max_new_tokens)` is the naive loop, without a cache.
+`step_fn` stands for the model: given ids of shape `(B, T)`, it returns logits `(B, T, V)` for every position.
+The prompt is `(B, T_prompt)` int64, and the result is the prompt with `max_new_tokens` generated tokens after it, `(B, T_prompt + max_new_tokens)`.
+
+Each step does the same four things, with these shapes:
+
+| What | Shape |
+| --- | --- |
+| the current ids | `(B, T)` |
+| the model's logits for them | `(B, T, V)` |
+| the logits at the last position only | `(B, V)` |
+| the greedy pick for each row | `(B,)` int64 |
+| that pick as a column, ready to append | `(B, 1)` |
+| the ids with it appended along time | `(B, T + 1)` |
+
+Notes on each line:
+
+- `step_fn` gets the **whole** current sequence every time, prompt plus everything generated so far; that is what makes this version slow and obviously correct.
+- the last position is `logits[:, -1]`, which indexes the time axis; `logits[-1]` would take the last **sequence** in the batch.
+- the pick is an `argmax` over the vocabulary axis, the last one.
+- `argmax` drops the axis it reduces, so the `(B,)` result needs a size-1 axis put back, `[:, None]` or `unsqueeze(-1)`, before it lines up with `(B, T)` for `torch.cat(..., dim=1)`.
+
+A Python `for` loop over the generation steps is fine and unavoidable: each step needs the token the previous step produced.
+The ban on Python loops is about looping over the **elements** of a tensor, not over time steps.
+
+The test's `step_fn` is a stand-in that always predicts "previous token + 1, modulo 10", so from the prompt `[0, 1]` three steps must give `[0, 1, 2, 3, 4]`.
+It only predicts that correctly when it reads the logits at the **last** position.
+
+**Real generation loops add three things** the exercise leaves out:
+
+- they run under `torch.no_grad()` or `torch.inference_mode()`, because generation never calls `backward`, and otherwise autograd keeps the graph of every step alive;
+- they replace `argmax` with the sampling pipeline of 17.1 whenever the temperature is above 0;
+- they stop early once every sequence in the batch has produced EOS, and mask whatever a finished sequence generates afterwards, which is the "everything after the first EOS" `cumsum` trick from topic 05.
+
+**And they use a cache.**
+Rerunning the whole prefix on every step, the first note above, is what makes this version slow, and removing that cost is the subject of 17.3.
+With a cache, the loop changes shape: one prefill call on the whole prompt, then each step feeds only the newest token, `(B, 1)`, and the cache supplies the rest.
+
+### 17.3 The KV cache
 
 **The problem.**
-Generating with the naive loop from 17.3, step `t` runs the model over the whole prefix of `t` tokens, and only the last position's logits are used.
+Generating with the naive loop from 17.2, step `t` runs the model over the whole prefix of `t` tokens, and only the last position's logits are used.
 Attention over `t` tokens costs on the order of $t^2$ per layer, so a whole generation of `T` tokens costs on the order of $T^3$.
 Almost all of it is recomputation.
 Because attention is causal (topic 14), position `i` never looks at anything after it, so its keys and values, and indeed its whole column of activations, are the same on every step after it first appeared.
@@ -401,44 +470,6 @@ The formula is linear in batch and in sequence length, and that is what limits a
 The weights are loaded once and shared by every request, but the cache is per request and grows with every token, so the number of users a GPU can serve at once is the number of caches that fit beside the weights.
 vLLM's paged attention raised that number several times over on the same hardware by allocating the cache in fixed-size pages, like virtual memory, instead of reserving one contiguous block for each sequence's maximum length.
 
-### 17.3 Generation
-
-`greedy_generate(step_fn, prompt, max_new_tokens)` is the naive loop, without a cache.
-`step_fn` stands for the model: given ids of shape `(B, T)`, it returns logits `(B, T, V)` for every position.
-The prompt is `(B, T_prompt)` int64, and the result is the prompt with `max_new_tokens` generated tokens after it, `(B, T_prompt + max_new_tokens)`.
-
-Each step does the same four things, with these shapes:
-
-| What | Shape |
-| --- | --- |
-| the current ids | `(B, T)` |
-| the model's logits for them | `(B, T, V)` |
-| the logits at the last position only | `(B, V)` |
-| the greedy pick for each row | `(B,)` int64 |
-| that pick as a column, ready to append | `(B, 1)` |
-| the ids with it appended along time | `(B, T + 1)` |
-
-Notes on each line:
-
-- `step_fn` gets the **whole** current sequence every time, prompt plus everything generated so far; that is what makes this version slow and obviously correct.
-- the last position is `logits[:, -1]`, which indexes the time axis; `logits[-1]` would take the last **sequence** in the batch.
-- the pick is an `argmax` over the vocabulary axis, the last one.
-- `argmax` drops the axis it reduces, so the `(B,)` result needs a size-1 axis put back, `[:, None]` or `unsqueeze(-1)`, before it lines up with `(B, T)` for `torch.cat(..., dim=1)`.
-
-A Python `for` loop over the generation steps is fine and unavoidable: each step needs the token the previous step produced.
-The ban on Python loops is about looping over the **elements** of a tensor, not over time steps.
-
-The test's `step_fn` is a stand-in that always predicts "previous token + 1, modulo 10", so from the prompt `[0, 1]` three steps must give `[0, 1, 2, 3, 4]`.
-It only predicts that correctly when it reads the logits at the **last** position.
-
-**Real generation loops add three things** the exercise leaves out:
-
-- they run under `torch.no_grad()` or `torch.inference_mode()`, because generation never calls `backward`, and otherwise autograd keeps the graph of every step alive;
-- they replace `argmax` with the sampling pipeline of 17.1 whenever the temperature is above 0;
-- they stop early once every sequence in the batch has produced EOS, and mask whatever a finished sequence generates afterwards, which is the "everything after the first EOS" `cumsum` trick from topic 05.
-
-With a cache, the loop changes shape: one prefill call on the whole prompt, then each step feeds only the newest token, `(B, 1)`, and the cache supplies the rest.
-
 ## API you need
 
 ### Sampling
@@ -535,12 +566,12 @@ Without looking anything up you can:
 - [ ] implement top-p including the sort, the exclusive cumsum, and the mapping back to vocabulary order
 - [ ] say why the repetition penalty has two branches, and what happens to a repeated id
 - [ ] draw samples with `multinomial` and a generator, with the right shape and dtype
+- [ ] write the naive greedy generation loop with the right shapes at every step
 - [ ] explain what the KV cache stores, what it does not, and the cost it removes
 - [ ] write a cache that starts empty, appends along time and reports its length
 - [ ] say which mask each attention call needs: no cache, prefill, one-token decode, a chunk into a non-empty cache
 - [ ] say why `is_causal=True` is wrong once `T != S`
 - [ ] write the KV cache memory formula and compute it for a real model, with and without GQA
-- [ ] write the naive greedy generation loop with the right shapes at every step
 
 ## Going deeper
 

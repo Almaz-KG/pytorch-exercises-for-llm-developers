@@ -53,6 +53,15 @@ def sample_from_logits(
     return torch.multinomial(probs, num_samples=1, generator=generator).squeeze(-1)
 
 
+def greedy_generate(step_fn, prompt: Tensor, max_new_tokens: int) -> Tensor:
+    ids = prompt
+    for _ in range(max_new_tokens):
+        logits = step_fn(ids)
+        nxt = logits[:, -1].argmax(dim=-1, keepdim=True)
+        ids = torch.cat([ids, nxt], dim=1)
+    return ids
+
+
 class KVCache:
     def __init__(self):
         self.k: Tensor | None = None
@@ -105,12 +114,3 @@ def cache_memory_bytes(
 ) -> int:
     element = torch.empty(0, dtype=dtype).element_size()
     return 2 * batch * num_layers * num_kv_heads * seq_len * head_dim * element
-
-
-def greedy_generate(step_fn, prompt: Tensor, max_new_tokens: int) -> Tensor:
-    ids = prompt
-    for _ in range(max_new_tokens):
-        logits = step_fn(ids)
-        nxt = logits[:, -1].argmax(dim=-1, keepdim=True)
-        ids = torch.cat([ids, nxt], dim=1)
-    return ids
