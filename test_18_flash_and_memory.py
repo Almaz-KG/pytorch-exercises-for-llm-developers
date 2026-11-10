@@ -1,4 +1,4 @@
-"""Topic 18 (hard) - memory and numerics: online softmax, flash-attention, checkpointing.
+"""Topic 18 - memory and numerics: online softmax, flash-attention, checkpointing.
 
 Every task in this file is about one thing: how to compute the same result without allocating
 a huge intermediate tensor.
@@ -7,8 +7,6 @@ a huge intermediate tensor.
   - the logits (N, 50257) do not fit -> cross-entropy in chunks;
   - the activations of all the layers do not fit -> gradient checkpointing;
   - fp16 overflows -> loss scaling.
-
-This is already the level of CS336 assignment 2. If it passes, you are on first-name terms with transformers.
 """
 
 import math
@@ -37,7 +35,10 @@ def online_softmax_update(m_prev: Tensor, l_prev: Tensor, scores_block: Tensor) 
 
     This is the core of flash-attention: the sum of exponentials is updated without storing all the logits.
     """
-    raise NotImplementedError
+    block_max = scores_block.max(dim=-1, keepdim=True).values
+    m_new = m_prev.maximum(block_max)
+    l_new = l_prev * (m_prev - m_new).exp() + (scores_block - m_new).exp().sum(dim=-1, keepdim=True)
+    return m_new, l_new
 
 
 def chunked_softmax(x: Tensor, chunk: int) -> Tensor:
@@ -46,7 +47,20 @@ def chunked_softmax(x: Tensor, chunk: int) -> Tensor:
 
     The result is obliged to match an ordinary softmax down to the last bit of float32 precision.
     """
-    raise NotImplementedError
+    m_shape = list(x.shape)
+    m_shape[-1] = 1
+
+    m = torch.full(m_shape, fill_value=float("-inf"), device=x.device, dtype=x.dtype)
+    l = torch.full(m_shape, fill_value=0.0, device=x.device, dtype=x.dtype)
+
+    chunks = x.split(chunk, dim=-1)
+
+    for block in chunks:
+        m_new, l_new = online_softmax_update(m, l, block)
+        m = m_new
+        l = l_new
+
+    return (x - m).exp() / l
 
 
 # ==========================================================================
@@ -70,7 +84,38 @@ def flash_attention_forward(q: Tensor, k: Tensor, v: Tensor, block_size: int = 3
 
     The sizes are NOT obliged to be divisible by block_size.
     """
-    raise NotImplementedError
+    d = math.sqrt(q.shape[-1])
+
+    result = []
+    for i, q_chunk in enumerate(q.split(block_size, dim=-2)):
+        running_shape = list(q_chunk.shape)
+        running_shape[-1] = 1
+
+        m = torch.full(running_shape, fill_value=float("-inf"), device=q_chunk.device, dtype=q_chunk.dtype)
+        l = torch.full(running_shape, fill_value=0.0, device=q_chunk.device, dtype=q_chunk.dtype)
+        out_block = torch.full(q_chunk.shape, fill_value=0.0, device=q_chunk.device, dtype=q_chunk.dtype)
+
+        for j, (k_chunk, v_chunk) in enumerate(zip(k.split(block_size, dim=-2), v.split(block_size, dim=-2))):
+            s = q_chunk @ k_chunk.transpose(-2, -1) / d
+
+            if causal and i < j:  # TODO: Double check the edge-cases
+                continue
+
+            if causal and i == j:
+                ii = torch.arange(i * block_size, i * block_size + q_chunk.shape[-2])[:, None]
+                jj = torch.arange(j * block_size, j * block_size + k_chunk.shape[-2])[None, :]
+                s.masked_fill_(~(ii >= jj), value=float("-inf"))
+
+            m_new, l_new = online_softmax_update(m, l, s)
+            out_block = out_block * (m - m_new).exp()
+            p_new = (s - m_new).exp()
+            p = p_new @ v_chunk
+            out_block += p
+
+            m = m_new
+            l = l_new
+        result.append(out_block / l)
+    return torch.cat(result, dim=-2)
 
 
 # ==========================================================================
@@ -87,12 +132,23 @@ def chunked_cross_entropy(hidden: Tensor, weight: Tensor, targets: Tensor, chunk
     The gradients must flow both into hidden and into weight.
     For 8k tokens and a vocabulary of 128k such a logit tensor weighs 4 GB - hence the task.
     """
-    raise NotImplementedError
+    total = hidden.new_zeros(())
+    n = hidden.shape[0]
+    for start in range(0, n, chunk):
+        h = hidden[start : start + chunk]
+        t = targets[start : start + chunk]
+        logits = h @ weight.T
+        total = total + F.cross_entropy(logits, t, reduction="sum")
+    return total / n
 
 
 def chunked_logsumexp(x: Tensor, chunk: int) -> Tensor:
     """A logsumexp along the last axis in blocks, through the online update. (N, V) -> (N,)."""
-    raise NotImplementedError
+    m = torch.full((*x.shape[:-1], 1), float("-inf"), dtype=x.dtype, device=x.device)
+    l = torch.zeros_like(m)
+    for start in range(0, x.shape[-1], chunk):
+        m, l = online_softmax_update(m, l, x[..., start : start + chunk])
+    return (m + l.log()).squeeze(-1)
 
 
 # ==========================================================================
@@ -108,7 +164,9 @@ def checkpointed_sequential(blocks: nn.ModuleList, x: Tensor, use_checkpoint: bo
     The trade-off: roughly +30% time, but the memory for the activations drops from O(L) to O(sqrt(L))
     or even O(1) under a naive scheme.
     """
-    raise NotImplementedError
+    for block in blocks:
+        x = checkpoint(block, x, use_reentrant=False) if use_checkpoint else block(x)
+    return x
 
 
 def count_saved_tensors(blocks: nn.ModuleList, x: Tensor, use_checkpoint: bool) -> int:
@@ -118,7 +176,21 @@ def count_saved_tensors(blocks: nn.ModuleList, x: Tensor, use_checkpoint: bool) 
     Hint: the context torch.autograd.graph.saved_tensors_hooks(pack, unpack) calls
     pack on every saved tensor. We count the pack calls during the forward pass.
     """
-    raise NotImplementedError
+
+    result: int = 0
+
+    def pack(t: Tensor) -> Tensor:
+        nonlocal result
+        result += 1
+        return t
+
+    def unpack(t: Tensor) -> Tensor:
+        return t
+
+    with torch.autograd.graph.saved_tensors_hooks(pack, unpack):
+        checkpointed_sequential(blocks, x, use_checkpoint)
+
+    return result
 
 
 # ==========================================================================
@@ -132,21 +204,30 @@ def scale_and_check(grads: list[Tensor], scale: float) -> tuple[list[Tensor], bo
     This is the heart of GradScaler: if found_inf, the optimizer step is skipped and the scale is reduced.
     Return (the list of unscaled gradients, found_inf).
     """
-    raise NotImplementedError
+
+    grads_scaled = [x / scale for x in grads]
+    stable = any(not bool(torch.isfinite(g).all()) for g in grads_scaled)
+    return grads_scaled, stable
 
 
 def next_scale(scale: float, found_inf: bool, growth_interval_reached: bool) -> float:
     """The GradScaler rule: on found_inf halve the scale,
     otherwise, if the growth interval has been reached, double it, otherwise leave it as it is.
     """
-    raise NotImplementedError
+    if found_inf:
+        return scale / 2
+    if growth_interval_reached:
+        return scale * 2
+    return scale
 
 
 def safe_softmax_fp16(logits: Tensor) -> Tensor:
     """The logits arrive in float16 and may be large. Compute the softmax in such a way
     that there is no overflow, and return the result in float16.
     """
-    raise NotImplementedError
+    x = logits.to(torch.float32)
+    exp = (x - x.max(dim=-1, keepdim=True).values).exp()
+    return (exp / exp.sum(dim=-1, keepdim=True)).to(logits.dtype)
 
 
 # ==========================================================================
