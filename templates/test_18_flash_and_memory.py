@@ -1,4 +1,4 @@
-"""Topic 18 (hard) - memory and numerics: online softmax, flash-attention, checkpointing.
+"""Topic 18 - memory and numerics: online softmax, flash-attention, checkpointing.
 
 Every task in this file is about one thing: how to compute the same result without allocating
 a huge intermediate tensor.
@@ -8,7 +8,6 @@ a huge intermediate tensor.
   - the activations of all the layers do not fit -> gradient checkpointing;
   - fp16 overflows -> loss scaling.
 
-This is already the level of CS336 assignment 2. If it passes, you are on first-name terms with transformers.
 """
 
 import math

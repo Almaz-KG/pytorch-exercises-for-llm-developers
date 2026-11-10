@@ -7,6 +7,25 @@ The job is to replace every `raise NotImplementedError` with an implementation a
 The goal is not to "learn about PyTorch" but to build muscle memory.
 After twenty files, a transformer block, cross-entropy, AdamW and a KV cache should come out of the fingers without looking anything up.
 
+## How hard it is
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/difficulty-dark.svg">
+  <img alt="Difficulty of the twenty topics on a 1-10 scale, with hours for a first pass under each one" src="assets/difficulty-light.svg">
+</picture>
+
+The numbers are for an engineer who is at home in Python and with arrays, but new to PyTorch.
+Hours are for a first pass with no preparation: reading the theory, no peeking at `solutions/`, debugging until the tests are green.
+A second pass goes three to five times faster, which is the point of `reset.py`.
+
+Difficulty comes in peaks, not as a ramp, and the peaks are not where they look like they would be.
+Shapes, broadcasting and einops are the easy part, because a shape error is loud and names what went wrong.
+What makes a topic hard is a failure that stays quiet, and three things produce one:
+
+- **Hidden state** the test checks but the function body does not show: the autograd graph, optimizer moments, the KV cache (08, 16, 17, 18).
+- **Indirect addressing** with `gather` and `scatter`, where a wrong axis often still yields the right shape (05, 19).
+- **Math to derive on paper** before writing code: hand-written backward passes, activation derivatives, FLOP counts, RoPE frequencies (06, 12, 13, 19).
+
 ## Theory
 
 `theory/` holds one file per topic, and it is meant to be read before the matching exercise.
@@ -90,7 +109,7 @@ Redoing a topic a month later is the best way to check whether the muscle memory
 
 ## Order of topics
 
-Difficulty grows top to bottom, and later topics lean on earlier ones.
+Later topics lean on earlier ones, so the order matters even where the difficulty does not grow.
 
 | File | Theory | Topic | What it drills |
 | --- | --- | --- | --- |
@@ -110,12 +129,12 @@ Difficulty grows top to bottom, and later topics lean on earlier ones.
 | 14 | [read](theory/14_attention.md) | Attention | scaled dot-product, causality, MHA, GQA, cost |
 | 15 | [read](theory/15_transformer_block.md) | Transformer block | the pre-norm block, the whole model, initial loss equal to log(V) |
 | 16 | [read](theory/16_training_loop.md) | Training loop | AdamW from scratch, cosine schedule, clipping, gradient accumulation |
-| 17 | [read](theory/17_sampling_and_kv_cache.md) | Generation | temperature, top-k, top-p, the KV cache and its equivalence to a full pass |
+| 17 | [read](theory/17_sampling_and_kv_cache.md) | Generation | temperature, top-k, top-p, generation loops with EOS, the KV cache and its equivalence to a full pass |
 | 18 | [read](theory/18_flash_and_memory.md) | Flash and memory | online softmax, blockwise attention, chunked CE, checkpointing, loss scaling |
 | 19 | [read](theory/19_advanced_architectures.md) | Advanced mechanisms | a hand-written RMSNorm backward, window and document masks, MoE, speculative decoding, beam search |
 | 20 | [read](theory/20_data_and_batching.md) | Data and checkpoints | slicing batches out of a memmap, padding, save/load checkpoint |
 
-### Topics 01-07 are tensor mechanics.
+Topics 01-07 are tensor mechanics.
 08-09 are how PyTorch computes gradients and stores a model.
 10-15 are the transformer, brick by brick and then whole.
 16-17 are training and inference.

@@ -8,9 +8,9 @@ There are no new parts of the model in this topic.
 It takes the parts that already exist and makes them fit in memory.
 
 Three earlier topics each ended on a number too big to allocate.
-Topic 14 computed the attention score matrix of a 32k context: about 550 GB per layer.
-Topic 15 computed the activation memory of a whole model, and called its own formula an underestimate.
-Topic 10 built a loss over the vocabulary, and at 128k entries its logits are the single largest tensor in a training step.
+[Topic 14](./14_attention.md) computed the attention score matrix of a 32k context: about 550 GB per layer.
+[Topic 15](./15_transformer_block.md) computed the activation memory of a whole model, and called its own formula an underestimate.
+[Topic 10](./10_softmax_and_loss.md) built a loss over the vocabulary, and at 128k entries its logits are the single largest tensor in a training step.
 This file answers all three, and every task in it asks the same question: **how do you compute exactly the same result without ever allocating the huge intermediate?**
 
 - The `(T, S)` attention matrix does not fit, so the softmax is computed online, one block of keys at a time.
@@ -22,10 +22,6 @@ The idea behind the first two is the most reusable one in the repository: a redu
 The idea behind the third is the oldest trade in computing, memory for time.
 The fourth is about the number format itself.
 
-This is [CS336](https://cs336.stanford.edu/) assignment 2 territory, and it is the hardest file in the repository.
-Nothing in it is long; every function is a dozen lines at most.
-What makes it hard is that each one has an exact invariant, and a version that is off by one rescaling still runs and still returns numbers of the right shape.
-
 ## The mental model
 
 ### A few words you will meet
@@ -35,8 +31,6 @@ What makes it hard is that each one has an exact invariant, and a version that i
 | materialize | actually allocate a tensor in memory, as opposed to computing its effect piece by piece |
 | block, chunk, tile | a slice of an axis processed at once; a tile is a 2D block of a matrix, rows from one axis and columns from another |
 | running statistic | a small tensor carried through a loop over blocks and updated after each one, such as a running maximum |
-| online | computed in one left-to-right pass over the blocks, seeing each block once |
-| `m`, `l` | the running maximum and the running sum of exponentials relative to it, one of each per row |
 | saved tensor | a tensor that autograd keeps from the forward pass because the backward pass needs it |
 | checkpointing | not saving a region's intermediates, and recomputing them during the backward pass instead |
 | fp16, bf16 | the two 16-bit float formats: same size, different split between range and precision |
@@ -45,10 +39,9 @@ What makes it hard is that each one has an exact invariant, and a version that i
 
 ### A refresher: the stable softmax and logsumexp
 
-Topic 10 built both, and everything here is a rearrangement of them.
 
 `exp` overflows quickly: in float32 $\exp(89)$ is already `inf`.
-The fix is that subtracting the same constant from every entry of a row changes nothing, so you subtract the row's maximum `m` first:
+The fix is subtracting the same constant from every entry of a row, so you subtract the row's maximum `m` first:
 
 ```math
 \begin{aligned}
@@ -66,7 +59,7 @@ For the `(T, S)` scores of attention, or the `(N, V)` logits of a large vocabula
 
 ### A refresher: what `-inf` does in this arithmetic
 
-Masks write `-inf` into scores (topic 14), and the online algorithms below subtract running maxima that start at `-inf`.
+Masks write `-inf` into scores ([topic 14](./14_attention.md)), and the online algorithms below subtract running maxima that start at `-inf`.
 Four facts decide whether such code returns numbers or NaN:
 
 ```python
@@ -198,7 +191,7 @@ The outer loop is over query blocks because each query row's result depends only
 The finished blocks are written into a preallocated output (`torch.empty_like(q)` and slice assignment) or collected and joined with `torch.cat` along the query axis.
 The tests check the forward pass only, so either way is fine.
 
-The scale is $1 / \sqrt{d_{\text{head}}}$, with `Dh` the last axis of `q`, as in topic 14; the reference `F.scaled_dot_product_attention` uses exactly that.
+The scale is $1 / \sqrt{d_{\text{head}}}$, with `Dh` the last axis of `q`, as in [topic 14](./14_attention.md); the reference `F.scaled_dot_product_attention` uses exactly that.
 Leading axes `(B, H)` need no special handling: `@` treats them as batch axes, and slicing a block means slicing the second-to-last axis, `q[..., i : i + block, :]`.
 
 **Large scores.**
@@ -209,9 +202,9 @@ All scores equal means a uniform softmax, so the expected output is the plain me
 
 #### The causal mask, tile by tile
 
-With `causal=True`, query $i$ may see key $j$ only when $j \le i$, as in topic 14.
+With `causal=True`, query $i$ may see key $j$ only when $j \le i$, as in [topic 14](./14_attention.md).
 Inside a tile, $i$ and $j$ are **absolute** positions, not positions within the tile.
-A tile covering query rows $[i_0, i_1)$ and key columns $[j_0, j_1)$ builds its mask from `arange(i0, i1)` and `arange(j0, j1)`, compared by broadcasting exactly as in topic 14.
+A tile covering query rows $[i_0, i_1)$ and key columns $[j_0, j_1)$ builds its mask from `arange(i0, i1)` and `arange(j0, j1)`, compared by broadcasting exactly as in [topic 14](./14_attention.md).
 A neutral tile, rows 2 to 4 and columns 3 to 5, with `True` marking the **forbidden** entries $j > i$:
 
 ```python
@@ -249,7 +242,7 @@ Slicing gives the short last block, as in 18.1, so the tile mask has to be built
 **Which diagonal `is_causal` means.**
 `F.scaled_dot_product_attention(..., is_causal=True)` builds its mask as `torch.ones(T, S).tril()`, that is, query `i` sees keys `0..i` counted from the top-left corner.
 With `T == S`, as in every test here, that is the ordinary causal mask.
-With `T != S` it is not the "last `T` positions" alignment that topic 14 needed for a KV cache, so the built-in is only a valid reference for causal attention when the lengths match.
+With `T != S` it is not the "last `T` positions" alignment that [topic 14](./14_attention.md) needed for a KV cache, so the built-in is only a valid reference for causal attention when the lengths match.
 
 #### Why the real kernel is fast
 
@@ -273,7 +266,7 @@ At `N = 8192` tokens and `V = 128256` (Llama 3) in float32 that is $8192 \cdot 1
 On a large-vocabulary model it is the biggest tensor in the whole step, bigger than any layer's activations.
 
 **The decomposition.**
-From topic 10, the loss of one token is
+From [topic 10](./10_softmax_and_loss.md), the loss of one token is
 
 ```math
 \text{loss}_n = \mathrm{logsumexp}(\text{logits}_n) - \text{logits}_n[\text{target}_n] \qquad \text{logits}_n = \text{weight} \cdot \text{hidden}_n, \ \text{shape } (V,)
@@ -281,22 +274,22 @@ From topic 10, the loss of one token is
 
 and the mean loss is $\sum_n \text{loss}_n / N$.
 Every term depends on its own row of `hidden` only, so the rows can be processed in groups: take rows `[i, i + chunk)` of `hidden`, `(chunk, D)`, multiply by `weight.T`, `(D, V)`, to get that group's `(chunk, V)` logits, reduce them to that group's sum of losses, and go on to the next group.
-`weight` is `(V, D)`, the `nn.Linear` layout of `lm_head` (topic 09), so the logits of a chunk are `hidden_chunk @ weight.T`, the same expression the test uses for its reference.
+`weight` is `(V, D)`, the `nn.Linear` layout of `lm_head` ([topic 09](./09_nn_module.md)), so the logits of a chunk are `hidden_chunk @ weight.T`, the same expression the test uses for its reference.
 `targets` is sliced with the same bounds as `hidden`.
 
-The per-group reduction is any of the loss formulations from topic 10.
+The per-group reduction is any of the loss formulations from [topic 10](./10_softmax_and_loss.md).
 `F.cross_entropy(logits, targets, reduction="sum")` returns the sum over the rows instead of the mean, which is the form a chunked total needs; `logsumexp` and a `gather` of the target logits per row is the same thing by hand.
 
 **The averaging.**
 Divide the total by `N`, once, at the end.
 The test uses `N = 20` in chunks of 7, so the chunks are 7, 7 and 6 rows.
 Averaging the per-chunk means gives $(m_1 + m_2 + m_3) / 3$, which weighs each of the 6 tokens in the last chunk more than each of the 14 others: wrong whenever the chunks differ in size.
-This is the same trap as the gradient-accumulation division in topic 16.
+This is the same trap as the gradient-accumulation division in [topic 16](./16_training_loop.md).
 
 **The gradients.**
 They must reach both `hidden` and `weight`, and they do if the chunked computation is an ordinary differentiable graph built from slicing, `@` and the loss.
 Slicing `hidden` is differentiable, so each chunk's gradient lands in its own rows of `hidden.grad`.
-`weight` is used once per chunk, and autograd adds up the contributions from every use, so `weight.grad` comes out as the sum over all chunks, which is the gradient of the full loss (topic 08).
+`weight` is used once per chunk, and autograd adds up the contributions from every use, so `weight.grad` comes out as the sum over all chunks, which is the gradient of the full loss ([topic 08](./08_autograd.md)).
 Anything that breaks the graph breaks this: `torch.no_grad()`, `.detach()`, `.item()` on an intermediate, or building the total with a Python float.
 Summing tensors with `+` or `sum(list_of_tensors)` keeps it intact.
 
@@ -318,15 +311,16 @@ It is the piece a loss kernel needs when even one row of logits is too wide to h
 
 ### 18.4 Gradient checkpointing
 
-**What autograd saves.**
 To compute gradients, the backward pass needs values from the forward pass, and autograd keeps them as **saved tensors** attached to the graph.
 Each operation saves only what its own derivative needs.
 `y = x @ w` saves `x` and `w`, because $\partial y / \partial w$ needs `x` and $\partial y / \partial x$ needs `w`.
+
+
 `tanh` saves its output, because its derivative is $1 - \tanh(x)^2$.
 For a stack of `nn.Linear` followed by `nn.Tanh`, that is three saved tensors per block: the input, the weight and the tanh output.
 
 For a transformer the saved tensors of all `L` layers are alive at the same moment, between the end of the forward pass and the point where the backward pass reaches each layer.
-That is the activation memory of topic 15, and for long sequences it is the largest memory consumer in training.
+That is the activation memory of [topic 15](./15_transformer_block.md), and for long sequences it is the largest memory consumer in training.
 
 **The trade.**
 Checkpointing a region means: during the forward pass, run it **without** saving its intermediates, keeping only its inputs; during the backward pass, when the gradient reaches that region, run its forward pass again from the kept inputs, this time saving everything, and then backpropagate through it as usual.
@@ -462,7 +456,7 @@ The same applies to a flag combined from several tensors: combine the Python val
 Logits of 60000, which fp16 can hold, are far beyond that.
 The max subtraction from the refresher removes the overflow of the `exp`, but the sum of many exponentials, and any intermediate on the way, still lives in a format with three significant digits and a ceiling of 65504.
 
-The robust pattern is the **upcast sandwich** from topic 11: convert the input to float32, do the whole reduction there, max subtraction included, and convert the result back to the input's dtype.
+The robust pattern is the **upcast sandwich** from [topic 11](./11_normalization.md): convert the input to float32, do the whole reduction there, max subtraction included, and convert the result back to the input's dtype.
 The result of a softmax is in $[0, 1]$, which fp16 represents well; only the intermediates needed the range.
 The test checks all of it: the result is float16, every entry is finite, and the row sums to 1.
 On neutral data, a norm of a vector whose squares overflow fp16:
@@ -486,7 +480,7 @@ fp16 with loss scaling survives on hardware without bf16 support and in older co
 
 **What autocast does and does not touch.**
 `torch.autocast(device_type, dtype)` runs matmuls and convolutions in half precision and keeps softmax, normalization and loss reductions in float32: the same list of "reductions that need range" this topic keeps arriving at.
-A hand-written function inside an autocast region is not on that list and has to do its own upcasting, as topic 11 warns.
+A hand-written function inside an autocast region is not on that list and has to do its own upcasting, as [topic 11](./11_normalization.md) warns.
 The parameters themselves usually stay in float32 as "master weights", and the optimizer updates those.
 
 ## API you need
@@ -518,7 +512,7 @@ The parameters themselves usually stay in float32 as "master weights", and the o
 | --- | --- |
 | `hidden[i : i + chunk] @ weight.T` | one chunk's logits, `(chunk, V)` |
 | `F.cross_entropy(logits, targets, reduction="sum")` | the sum of per-row losses instead of the mean |
-| `torch.logsumexp(t, dim=-1)`, `t.gather(-1, idx[:, None])` | the two terms of the loss by hand (topic 10) |
+| `torch.logsumexp(t, dim=-1)`, `t.gather(-1, idx[:, None])` | the two terms of the loss by hand ([topic 10](./10_softmax_and_loss.md)) |
 | `sum(list_of_tensors)` | add tensors up, keeping the graph |
 
 ### Checkpointing

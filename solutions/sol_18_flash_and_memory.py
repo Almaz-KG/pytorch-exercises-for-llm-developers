@@ -24,14 +24,6 @@ def chunked_softmax(x: Tensor, chunk: int) -> Tensor:
     return (x - m).exp() / l
 
 
-def chunked_logsumexp(x: Tensor, chunk: int) -> Tensor:
-    m = torch.full((*x.shape[:-1], 1), float("-inf"), dtype=x.dtype, device=x.device)
-    l = torch.zeros_like(m)
-    for start in range(0, x.shape[-1], chunk):
-        m, l = online_softmax_update(m, l, x[..., start : start + chunk])
-    return (m + l.log()).squeeze(-1)
-
-
 def flash_attention_forward(q: Tensor, k: Tensor, v: Tensor, block_size: int = 32, causal: bool = False) -> Tensor:
     B, H, T, Dh = q.shape
     S = k.shape[-2]
@@ -76,6 +68,14 @@ def chunked_cross_entropy(hidden: Tensor, weight: Tensor, targets: Tensor, chunk
         logits = h @ weight.T
         total = total + F.cross_entropy(logits, t, reduction="sum")
     return total / n
+
+
+def chunked_logsumexp(x: Tensor, chunk: int) -> Tensor:
+    m = torch.full((*x.shape[:-1], 1), float("-inf"), dtype=x.dtype, device=x.device)
+    l = torch.zeros_like(m)
+    for start in range(0, x.shape[-1], chunk):
+        m, l = online_softmax_update(m, l, x[..., start : start + chunk])
+    return (m + l.log()).squeeze(-1)
 
 
 def checkpointed_sequential(blocks: nn.ModuleList, x: Tensor, use_checkpoint: bool) -> Tensor:

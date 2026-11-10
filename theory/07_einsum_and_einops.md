@@ -17,7 +17,7 @@ That constraint is the whole point.
 
 ## The mental model
 
-### einsum in one sentence
+### 7.1 einsum in one sentence
 
 Name the axes of every input, name the axes of the output, and every named axis that does **not** appear in the output is summed over.
 
