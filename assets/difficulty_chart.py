@@ -7,27 +7,27 @@ The numbers are the same as on the difficulty page; edit DATA here and rerun.
 import sys
 from pathlib import Path
 
-DATA = [  # (topic, difficulty 1-10, hours low, hours high)
-    (1, 1, 1.5, 2.5),
-    (2, 2, 2, 3),
-    (3, 2, 2, 3),
-    (4, 3, 2.5, 3.5),
-    (5, 6, 6, 9),
-    (6, 5, 3, 5),
-    (7, 1, 1.5, 2.5),
-    (8, 9, 8, 12),
-    (9, 4, 4, 5),
-    (10, 4, 3, 4),
-    (11, 4, 2.5, 4),
-    (12, 5, 3, 4),
-    (13, 7, 5, 7),
-    (14, 5, 4, 6),
-    (15, 5, 4, 6),
-    (16, 9, 9, 12),
-    (17, 8, 7, 10),
-    (18, 10, 10, 14),
-    (19, 9, 9, 12),
-    (20, 3, 2, 4),
+DATA = [  # (topic, difficulty 1-10, hours average)
+    (1, 1, "~1"),
+    (2, 2, "~3"),
+    (3, 2, "~3"),
+    (4, 3, "~4"),
+    (5, 6, "~8"),
+    (6, 5, "~4"),
+    (7, 1, "~1"),
+    (8, 9, "~10"),
+    (9, 4, "~4"),
+    (10, 4, "~3"),
+    (11, 4, "~3"),
+    (12, 5, "~4"),
+    (13, 7, "~6"),
+    (14, 5, "~5"),
+    (15, 5, "~5"),
+    (16, 9, "~10"),
+    (17, 8, "~8"),
+    (18, 10, "~12"),
+    (19, 9, "~11"),
+    (20, 3, "~3"),
 ]
 PHASES = [
     (1, 7, "tensors"),
@@ -73,7 +73,7 @@ def render(t: dict) -> str:
     bw = 28
     y = lambda v: PB - v / 10 * (PB - T)
     lvl = lambda d: t["lv"][0] if d <= 3 else t["lv"][1] if d <= 6 else t["lv"][2]
-    lo, hi = sum(d[2] for d in DATA), sum(d[3] for d in DATA)
+
     o = [
         (
             f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" '
@@ -82,8 +82,8 @@ def render(t: dict) -> str:
         f'<rect width="{W}" height="{H}" rx="6" fill="{t["bg"]}"/>',
         f'<text x="{L}" y="36" font-size="20" font-weight="600" fill="{t["ink"]}">Difficulty by topic</text>',
         (
-            f'<text x="{L}" y="60" font-size="13" fill="{t["ink2"]}">1-10 for a Python engineer new to PyTorch, '
-            f"first pass with no preparation · about {round(lo, -1):g}-{round(hi, -1):g} hours in total</text>"
+            f'<text x="{L}" y="60" font-size="13" fill="{t["ink2"]}"> for a Python engineer new to PyTorch, '
+            f"first pass with no preparation about {90:g}-{130:g} hours in total</text>"
         ),
     ]
     for k, (name, i) in enumerate([("easy 1-3", 0), ("medium 4-6", 1), ("hard 7-10", 2)]):
@@ -96,7 +96,7 @@ def render(t: dict) -> str:
             f'<text x="{L - 10}" y="{y(v) + 4}" text-anchor="end" font-family="{MONO}" font-size="11" '
             f'fill="{t["ink3"]}">{v}</text>'
         )
-    for n, d, h0, h1 in DATA:
+    for n, d, avg in DATA:
         cx = L + band * (n - 1) + band / 2
         o.append(f'<rect x="{cx - bw / 2}" y="{y(d)}" width="{bw}" height="{PB - y(d)}" rx="2" fill="{lvl(d)}"/>')
         o.append(
@@ -109,7 +109,7 @@ def render(t: dict) -> str:
         )
         o.append(
             f'<text x="{cx}" y="{PB + 35}" text-anchor="middle" font-family="{MONO}" font-size="9.5" '
-            f'fill="{t["ink3"]}">{fmt(h0)}-{fmt(h1)}</text>'
+            f'fill="{t["ink3"]}">{avg}</text>'
         )
     o.append(
         f'<text x="{L - 10}" y="{PB + 35}" text-anchor="end" font-family="{MONO}" font-size="9.5" '
