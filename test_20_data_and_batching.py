@@ -32,26 +32,41 @@ def get_batch(
     The start position i must allow reading data[i : i + context_length + 1],
     that is, i is chosen from [0, len(data) - context_length - 1].
     """
-    raise NotImplementedError
+    print(batch_size, context_length, len(data))
+
+    generator = generator if generator is not None else np.random.default_rng()
+
+    max_len = len(data) - context_length
+    starts = [generator.integers(0, max_len) for _ in range(batch_size)]
+    starts = torch.Tensor(starts, device="cpu").long()
+
+    offsets = torch.Tensor(np.arange(context_length), device="cpu").long()
+    data_tenson = torch.as_tensor(data, dtype=torch.long)
+
+    indexes = starts[:, None] + offsets
+    inputs = data_tenson[indexes]
+    targets = data_tenson[indexes + 1]
+    return inputs, targets
 
 
 def max_start_index(num_tokens: int, context_length: int) -> int:
     """The largest admissible start index of a window (inclusive). The classic source of an off-by-one."""
-    raise NotImplementedError
+    return num_tokens - context_length - 1
 
 
 def steps_per_epoch(num_tokens: int, batch_size: int, context_length: int) -> int:
     """How many optimizer steps it takes for the model to see all the tokens exactly once
     (rounding down - an incomplete last batch is not taken).
     """
-    raise NotImplementedError
+    return num_tokens // (batch_size * context_length)
 
 
 def sequential_windows(data: np.ndarray, context_length: int) -> Tensor:
     """Cut the stream into NON-OVERLAPPING windows of length context_length, discarding the tail.
     Return (num_windows, context_length) int64. This is how validation is done: deterministically and without repeats.
     """
-    raise NotImplementedError
+    x = torch.as_tensor(data=data, dtype=torch.long)
+    return x.unfold(dimension=0, size=context_length, step=context_length)
 
 
 # ==========================================================================
@@ -63,7 +78,17 @@ def collate_with_padding(sequences: list[list[int]], pad_id: int) -> tuple[Tenso
     """A list of sequences of different lengths -> (ids (B, T_max) int64, mask (B, T_max) bool),
     where T_max is the length of the longest one and mask=True on the real tokens.
     """
-    raise NotImplementedError
+    rows = len(sequences)
+    cols = max([len(i) for i in sequences])
+
+    ids = torch.full((rows, cols), fill_value=pad_id, dtype=torch.long)
+    mask = torch.zeros((rows, cols), dtype=torch.bool)
+
+    for i, s in enumerate(sequences):
+        if s:
+            ids[i, : len(s)] = torch.tensor(s, dtype=torch.long)
+            mask[i, : len(s)] = True
+    return ids, mask
 
 
 def make_labels(ids: Tensor, mask: Tensor, ignore_index: int = -100) -> Tensor:
@@ -71,7 +96,17 @@ def make_labels(ids: Tensor, mask: Tensor, ignore_index: int = -100) -> Tensor:
     the padding positions replaced by ignore_index, and the last position of every row also ignore_index
     (there is no next token for it).
     """
-    raise NotImplementedError
+    print(ids)
+    print(mask)
+    print(ignore_index)
+
+    labels = torch.full_like(ids, ignore_index)
+    print(labels)
+    labels[:, :-1] = ids[:, 1:]
+    print(labels)
+    labels[:, :-1][~mask[:, 1:]] = ignore_index
+    print(labels)
+    return labels
 
 
 # ==========================================================================
@@ -85,12 +120,18 @@ def save_checkpoint(model: nn.Module, optimizer: torch.optim.Optimizer, iteratio
     Saving the optimizer state is mandatory: without the Adam moments the training
     sags after a restart.
     """
-    raise NotImplementedError
+    state = {"model": model.state_dict(), "optimizer": optimizer.state_dict(), "iteration": iteration}
+    torch.save(state, out)
 
 
 def load_checkpoint(src: io.BytesIO, model: nn.Module, optimizer: torch.optim.Optimizer) -> int:
     """Load the state into the model and the optimizer in place, and return the iteration number."""
-    raise NotImplementedError
+    state = torch.load(src)
+
+    model.load_state_dict(state["model"])
+    optimizer.load_state_dict(state["optimizer"])
+
+    return state["iteration"]
 
 
 # ==========================================================================

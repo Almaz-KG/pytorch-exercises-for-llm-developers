@@ -4,7 +4,7 @@
 
 ## Why this topic
 
-Topics 15 and 16 built a model and a loop that trains it.
+[Topics 15](./15_transformer_block.md) and [16](./16_training_loop.md) built a model and a loop that trains it.
 Neither of them says where the token ids come from, or what happens to the weights when the run stops.
 This topic is those two ends of the pipeline: what feeds `(B, T)` batches of ids in at one end, and what writes a resumable state to disk at the other.
 
@@ -12,7 +12,6 @@ None of it is deep, and all of it is load-bearing.
 It is where two of the least glamorous and most expensive bugs live: an off-by-one in the window bounds that reads one token past the end of the data, and a checkpoint that saves the weights but cannot actually be resumed from.
 Both run without an error, and both cost you a training run before anyone notices.
 
-The exercise asks for exactly the functions the CS336 assignment asks for (`get_batch`, `save_checkpoint`, `load_checkpoint`), plus the smaller pieces around them: the window arithmetic, deterministic validation windows, padding for variable-length data, and the labels that go with it.
 
 ## The mental model
 
