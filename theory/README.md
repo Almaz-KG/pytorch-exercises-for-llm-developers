@@ -1,8 +1,6 @@
 # Theory
 
 One file per topic, meant to be read straight through before you open the matching `test_NN_*.py`.
-
-The promise of this directory is that the repository is self-contained.
 After reading `theory/NN_<topic>.md` you should be able to solve every stub in `test_NN_<topic>.py` in one sitting.
 
 ## The machine you are assembling
