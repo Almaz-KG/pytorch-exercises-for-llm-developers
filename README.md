@@ -51,6 +51,8 @@ When you want the answer outright, that is what `solutions/` is for.
 
 ## Running
 
+You need [uv](https://docs.astral.sh/uv/); it brings a matching Python (3.12 or 3.13) on its own.
+
 ```sh
 uv sync                                   # once
 uv run pre-commit install                 # once: ruff check --fix and ruff format on every commit
@@ -62,6 +64,11 @@ uv run pytest -k rope                     # a single test by name
 
 The first run of an untouched file is nothing but `NotImplementedError`.
 That is the intended starting state, not a broken environment.
+
+The `test_NN_*.py` files you solve are working copies.
+Git does not track them, and the first `pytest` or `reset.py` run creates them from `templates/`.
+Your solutions therefore stay on your machine, and `git pull` never collides with them.
+When a pull changes a template, `uv run python reset.py --diff NN` shows how your copy differs from it.
 
 Each test covers one stub, so a failure names the single function to go and write, and the stubs can be
 done in any order. The few tests that check that several finished pieces agree with each other - a
@@ -99,6 +106,9 @@ uv run python reset.py --restore attempts/2026-08-25_12-56-10/test_14_attention.
 The status output shows, per topic, how many `NotImplementedError` stubs remain, which makes it easy to come back after a break.
 Redoing a topic a month later is the best way to check whether the muscle memory stuck; that is what rollback is for.
 
+`attempts/` is git-ignored, like the working copies.
+To keep your solutions and their archive in your own repository, delete the last two lines of `.gitignore`.
+
 ## Rules of the game
 
 - No loops over tensor elements unless a task says otherwise. Everything vectorized.
@@ -106,6 +116,12 @@ Redoing a topic a month later is the best way to check whether the muscle memory
 - The tests are off limits. A test bent to fit an implementation teaches nothing.
 - Write the formula on paper first, then the code. Especially in topics 08, 18, 19.
 - Module and parameter names are fixed by the docstrings (`q_proj`, `w1`, `ln1`, `lm_head` and so on, no biases anywhere). Several tests assert on `state_dict` keys, so the names are load-bearing.
+
+## With an AI assistant at hand
+
+An assistant in the editor can fill in any of these files in seconds, and that is exactly the work the drills exist for you to do.
+`AGENTS.md`, and `CLAUDE.md` for Claude Code, tell coding agents to explain, review and debug through questions, and not to write the stubs for you.
+They hold only as long as you do not overrule them.
 
 ## Order of topics
 
@@ -140,3 +156,7 @@ Topics 01-07 are tensor mechanics.
 16-17 are training and inference.
 18-19 are what all of it is for: memory, speed and modern architectural tricks.
 20 is the plumbing without which training never starts.
+
+## License
+
+[MIT](LICENSE).

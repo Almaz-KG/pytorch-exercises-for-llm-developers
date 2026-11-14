@@ -16,6 +16,9 @@ several finished pieces agree with each other - a split/merge roundtrip, a KV ca
 forward pass - and those carry `@pytest.mark.depends_on("a", "b")`. Such a test is skipped until
 every stub it names is implemented, so it stays quiet while you work on the parts and turns itself
 on once the last one is done.
+
+The working copies `test_NN_*.py` are git-ignored, so a fresh clone has none. Before collection this
+file creates every missing one from `templates/`, which makes the first `uv run pytest` work as is.
 """
 
 import importlib
@@ -55,6 +58,9 @@ def _is_stub(obj) -> bool:
 
 
 def pytest_configure(config):
+    from reset import ensure_working_copies
+
+    ensure_working_copies()
     config.addinivalue_line(
         "markers",
         "depends_on(*names): a test that checks several pieces against each other; "

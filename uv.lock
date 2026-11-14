@@ -740,7 +740,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pytorch-exercises"
+name = "pytorch-exercises-for-llm-developers"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

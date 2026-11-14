@@ -363,6 +363,9 @@ A buffer roundtrip:
 - `max_start = num_tokens - context_length - 1`, inclusive; forgetting the `- 1` reads one token past the end on the target slice.
 - `rng.integers(low, high)` excludes `high`; drawing starts up to and including `max_start` needs `max_start + 1`.
 - A slice past the end of a NumPy array is silently shorter, not an error.
+- Converting the whole memmap to a tensor before indexing it: every call then reads the entire corpus and allocates eight bytes per token.
+  On the tests' thousand tokens that costs nothing; on a 20B-token corpus it is 160 GB per batch.
+  Only the `B` windows should ever be read and cast.
 - Ids left as `uint16` (or `int32`) after the memmap: `nn.Embedding` refuses `uint16`, `cross_entropy` wants `int64`, and the test asserts `int64`.
 - `torch.from_numpy` shares memory with its source, including a memmap, and warns on a read-only one.
 - Ignoring the `generator` argument and drawing from global state, which makes the batch independent of the seed passed in.

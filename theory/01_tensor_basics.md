@@ -189,6 +189,9 @@ tensor([  0., 101., 102.,   3.])     # untouched this time
 - Integer division: `torch.arange(5) / 2` promotes to float32, but `//` on int64 stays integer and truncates.
 - `torch.full((2, 2), 1)` gives int64, `torch.full((2, 2), 1.0)` gives float32.
   When a specific dtype is required, pass `dtype=` rather than hoping the fill value implies it.
+- `torch.Tensor([...])`, with a capital `T`, is the legacy constructor and always gives float32, whatever the data.
+  float32 holds integers exactly only up to $2^{24}$ = 16,777,216, so `torch.Tensor([16_777_217]).long()` is `16777216`, and token ids or indices into a large corpus come back silently rounded.
+  `torch.tensor` infers int64 from Python ints.
 - Summing a bool tensor gives int64, not bool.
   `mask.sum()` is a count, `mask.any()` and `mask.all()` are the boolean questions.
 - `x.T` on a tensor with more than two dimensions is deprecated and warns.

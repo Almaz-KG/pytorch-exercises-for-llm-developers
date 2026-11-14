@@ -1,8 +1,10 @@
 [project]
-name = "pytorch-exercises"
+name = "pytorch-exercises-for-llm-developers"
 version = "0.1.0"
 description = "Rustlings-style PyTorch / tensor-algebra exercises, LLM-flavoured"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.14"
 dependencies = [
     "einops>=0.8",

@@ -135,6 +135,31 @@ def test_get_batch_works_with_memmap(tmp_path):
     torch.testing.assert_close(y[:, :-1], x[:, 1:])
 
 
+class _MaxDrawGenerator:
+    """Stands in for np.random.Generator: integers() always returns the largest value its bounds allow."""
+
+    def integers(self, low, high=None, size=None, dtype=np.int64, endpoint=False):
+        if high is None:
+            low, high = 0, low
+        top = high if endpoint else high - 1
+        return np.dtype(dtype).type(top) if size is None else np.full(size, top, dtype=dtype)
+
+
+def test_get_batch_last_window_past_2_24():
+    """A real corpus runs past 2**24 tokens, where float32 no longer holds every integer exactly.
+
+    The last window must be read exactly, not one token off.
+    """
+    context_length = 8
+    max_start = 2**24 + 1  # odd, so a round trip through float32 lands on 2**24
+    data = np.zeros(max_start + context_length + 1, dtype=np.uint16)  # 32 MB
+    data[-(context_length + 3) :] = np.arange(1, context_length + 4)
+    x, y = get_batch(data, batch_size=2, context_length=context_length, generator=_MaxDrawGenerator())
+    window = torch.from_numpy(data[max_start:].astype(np.int64))
+    torch.testing.assert_close(x, window[:-1].expand(2, -1))
+    torch.testing.assert_close(y, window[1:].expand(2, -1))
+
+
 @pytest.mark.parametrize("context_length", [1, 8, 64])
 def test_get_batch_context_lengths(context_length):
     data = np.arange(500, dtype=np.int64)

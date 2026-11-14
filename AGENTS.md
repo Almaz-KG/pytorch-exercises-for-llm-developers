@@ -14,23 +14,23 @@ A few tests check that several finished pieces agree with each other; those carr
 `@pytest.mark.depends_on(...)` and skip until every stub they name is implemented.
 
 This is not a course assignment and there is no grader.
-It is deliberate practice, owned and written by the repo owner, and the point is muscle memory: after twenty files a transformer block, cross-entropy, AdamW and a KV cache should come out of the fingers without lookup.
+It is deliberate practice, and the point is muscle memory: after twenty files a transformer block, cross-entropy, AdamW and a KV cache should come out of the fingers without lookup.
 An agent that writes the drills defeats the only purpose the repo has.
 
 ## The one rule that matters
 
-The owner writes the exercise code.
+The learner writes the exercise code.
 
 Do not fill in `NotImplementedError` stubs, do not hand over a working implementation for an unsolved topic, and do not paste one into chat as "an example".
 Explain, review and debug through dialog instead.
-When the owner wants the answer outright, point at the matching `solutions/sol_NN_*.py` rather than retyping it.
+When the learner wants the answer outright, point at the matching `solutions/sol_NN_*.py` rather than retyping it.
 
 If asked directly for implementation work anyway, say once why that undercuts the exercise, then follow the decision without further argument.
 
 ## What agents should do
 
 - Explain the concept behind a topic: shapes, dtypes, broadcasting rules, the algebra of attention, what a gradient of some expression actually is.
-- Review code the owner has already written, and point at bugs, edge cases, missing invariants or clumsy formulations.
+- Review code the learner has already written, and point at bugs, edge cases, missing invariants or clumsy formulations.
 - Debug through questions: what was expected, what came out, what the intermediate tensors look like on a toy input.
 - Decode error messages and `assert_close` diffs, including shape mismatches and dtype surprises.
 - Suggest sanity checks: a length-3 toy sequence, a shape assertion, a comparison against a `torch`/`F` reference, a printed intermediate.
@@ -44,11 +44,11 @@ If asked directly for implementation work anyway, say once why that undercuts th
 
 ## What agents should not do
 
-- Replace a `raise NotImplementedError` in a `test_NN_*.py` file that the owner is currently working through.
+- Replace a `raise NotImplementedError` in a `test_NN_*.py` file that the learner is working through.
 - Produce a pasteable solution for an unsolved stub in chat, in a comment, in pseudocode or as a "sketch" that only needs renaming.
 - Touch anything below the `# TESTS` banner to make a stub pass; a test bent to fit an implementation teaches nothing.
-- Edit `templates/`, ever: `reset.py` compares against it byte for byte to decide whether a topic is untouched.
-- Edit `attempts/`, which is an archive of past work.
+- Edit `templates/` for anything but authoring a topic or fixing a broken test: it is the tracked source of every exercise, and `reset.py` compares the working copies against it byte for byte.
+- Edit `attempts/`, which is the learner's archive of past work.
 - Volunteer the answer mid-debugging because the bug happens to be obvious.
 - Reach for a third-party implementation of a topic that the repo already covers.
 - Put a stub's implementation into `theory/` because it is documentation rather than code. The same rule applies there: a reader should finish a theory file knowing every piece and still have to assemble them.
@@ -57,8 +57,8 @@ If asked directly for implementation work anyway, say once why that undercuts th
 
 | Path | Editable by an agent |
 | --- | --- |
-| `test_NN_*.py` | Only when authoring a new topic or fixing a broken test, never to solve one |
-| `templates/` | No |
+| `templates/` | Only when authoring a new topic or fixing a broken test, never to solve one |
+| `test_NN_*.py` | Only below the `# TESTS` banner, to carry over a test fixed in `templates/`; these git-ignored working copies are the learner's own work |
 | `solutions/` | Yes, when a solution is wrong or a new topic needs one |
 | `attempts/` | No |
 | `conftest.py`, `reset.py`, `pyproject.toml`, `mkdocs.yml`, docs | Yes |
@@ -69,25 +69,25 @@ If asked directly for implementation work anyway, say once why that undercuts th
 - Python >= 3.12, < 3.14; ruff with line length 120 and `UP` enabled.
 - A pre-commit hook (`.pre-commit-config.yaml`) runs `ruff check --fix` and `ruff format` on every commit; do not skip it with `--no-verify`.
 - No element-wise Python loops over tensors unless a docstring explicitly allows them; `einops` is the intended tool for head splitting and attention algebra.
-- Names mirror the reference implementations the owner works against: `q_proj`, `k_proj`, `v_proj`, `output_proj`, `w1`, `w2`, `w3`, `ln1`, `ln2`, `ln_final`, `token_embeddings`, `lm_head`, no biases anywhere.
+- Names mirror Stanford CS336's `assignment1-basics`: `q_proj`, `k_proj`, `v_proj`, `output_proj`, `w1`, `w2`, `w3`, `ln1`, `ln2`, `ln_final`, `token_embeddings`, `lm_head`, no biases anywhere.
   Several tests assert on `state_dict` keys, so these names are load-bearing.
 - Everything is in English: the root docs (`README.md`, `CLAUDE.md`, this file) and the docstrings and comments
-  inside the exercises and the solutions. The archived files under `attempts/` keep their original Russian.
+  inside the exercises and the solutions. Files under `attempts/` are the learner's archive and stay as they are.
 - `F401` is ignored in `test_*.py` on purpose: imports are staged ahead of the solution, so unused ones stay.
 
 ## Example interactions
 
 **Good:**
-> Owner: "My causal mask is wrong in topic 14, what is my mistake?"
+> Learner: "My causal mask is wrong in topic 14, what is my mistake?"
 >
 > Agent: "Three things to check, in order: whether the mask is applied before the softmax, whether it broadcasts to the shape of the score tensor you expect, and whether masked positions become a large negative value rather than zero. Take a length-3 toy sequence and print the scores before and after masking. What do those look like?"
 
 **Good:**
-> Owner: "Just show me the RoPE implementation."
+> Learner: "Just show me the RoPE implementation."
 >
 > Agent: "That is in `solutions/sol_13_embeddings_and_rope.py` if you want the whole thing. Before you open it: you already have the angle table right, and the part that is off is the pairing of dimensions in the rotation. Want to try that first?"
 
 **Bad:**
-> Owner: "Topic 12 does not pass."
+> Learner: "Topic 12 does not pass."
 >
 > Agent: "Here is the full SwiGLU implementation: ..."
