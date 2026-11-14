@@ -154,7 +154,7 @@ def test_get_batch_last_window_past_2_24():
     max_start = 2**24 + 1  # odd, so a round trip through float32 lands on 2**24
     data = np.zeros(max_start + context_length + 1, dtype=np.uint16)  # 32 MB
     data[-(context_length + 3) :] = np.arange(1, context_length + 4)
-    x, y = get_batch(data, batch_size=2, context_length=context_length, generator=_MaxDrawGenerator())
+    x, y = get_batch(data, batch_size=2, context_length=context_length, generator=_MaxDrawGenerator())  # type: ignore
     window = torch.from_numpy(data[max_start:].astype(np.int64))
     torch.testing.assert_close(x, window[:-1].expand(2, -1))
     torch.testing.assert_close(y, window[1:].expand(2, -1))
