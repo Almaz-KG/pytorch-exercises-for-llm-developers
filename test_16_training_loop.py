@@ -31,10 +31,7 @@ def sgd_step(params: list[Tensor], lr: float) -> None:
 
     Necessarily under torch.no_grad(), otherwise the update lands in the graph.
     """
-    with torch.no_grad():
-        for p in params:
-            if p.grad is not None:
-                p -= lr * p.grad
+    raise NotImplementedError
 
 
 def adamw_step(
@@ -53,15 +50,7 @@ def adamw_step(
     t is the step number, starting from 1 (needed for the bias correction).
     Change nothing in place: return new tensors, that way it is easier to check.
     """
-
-    b1, b2 = betas
-    m = b1 * m + (1 - b1) * grad
-    m_n = m / (1 - math.pow(b1, t))
-    v = b2 * v + (1 - b2) * (grad**2)
-    v_n = v / (1 - math.pow(b2, t))
-    p = p - lr * weight_decay * p
-    p_n = p - lr * m_n / (v_n.sqrt() + eps)
-    return p_n, m, v
+    raise NotImplementedError
 
 
 class AdamW(torch.optim.Optimizer):
@@ -75,43 +64,10 @@ class AdamW(torch.optim.Optimizer):
     """
 
     def __init__(self, params, lr: float = 1e-3, betas=(0.9, 0.999), eps: float = 1e-8, weight_decay: float = 0.01):
-        defaults = {
-            "lr": lr,
-            "betas": betas,
-            "eps": eps,
-            "weight_decay": weight_decay,
-        }
-        super().__init__(params, defaults)
+        raise NotImplementedError
 
-    @torch.no_grad()
-    def step(self, closure=None):  # type: ignore
-        loss = None
-        if closure is not None:
-            with torch.enable_grad():
-                loss = closure()
-        for group in self.param_groups:
-            b1, b2 = group["betas"]
-            lr, eps, wd = group["lr"], group["eps"], group["weight_decay"]
-            for p in group["params"]:
-                if p.grad is None:
-                    continue
-                state = self.state[p]
-                if not state:
-                    state["step"] = 0
-                    state["m"] = torch.zeros_like(p)
-                    state["v"] = torch.zeros_like(p)
-
-                state["step"] += 1
-                t = state["step"]
-                m, v = state["m"], state["v"]
-                g = p.grad
-                m.mul_(b1).add_(g, alpha=1 - b1)
-                v.mul_(b2).addcmul_(g, g, value=1 - b2)
-                m_hat = m / (1 - b1**t)
-                v_hat = v / (1 - b2**t)
-                p.mul_(1 - lr * wd)
-                p.addcdiv_(m_hat, v_hat.sqrt() + eps, value=-lr)
-        return loss
+    def step(self, closure=None):
+        raise NotImplementedError
 
 
 # ==========================================================================
@@ -128,13 +84,7 @@ def cosine_lr(step: int, lr_max: float, lr_min: float, warmup_steps: int, cosine
 
     The cosine: lr_min + 0.5 * (1 + cos(pi * (step - warmup) / (cosine_steps - warmup))) * (lr_max - lr_min)
     """
-    if step < warmup_steps:
-        return lr_max * (step / warmup_steps)
-    if step >= cosine_steps:
-        return lr_min
-    return lr_min + 0.5 * (1 + math.cos(math.pi * (step - warmup_steps) / (cosine_steps - warmup_steps))) * (
-        lr_max - lr_min
-    )
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -148,13 +98,7 @@ def clip_grad_norm(params: list[Tensor], max_norm: float, eps: float = 1e-6) -> 
     If the norm is greater than max_norm, all the gradients are multiplied by max_norm / (norm + eps).
     Implement it yourself, without torch.nn.utils.clip_grad_norm_.
     """
-    grads = [p.grad for p in params if p.grad is not None]
-    total = torch.sqrt(sum(g.pow(2).sum() for g in grads))  # type: ignore
-    if total.item() > max_norm:
-        scale = max_norm / (total + eps)
-        for g in grads:
-            g.mul_(scale)
-    return float(total.item())
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -171,13 +115,7 @@ def accumulate_gradients(model: nn.Module, batches: list[tuple[Tensor, Tensor]])
 
     The loss is the MSE between model(x) and y. Zero the gradients at the start.
     """
-    model.zero_grad(set_to_none=True)
-    total = 0.0
-    for x, y in batches:
-        loss = F.mse_loss(model(x), y) / len(batches)
-        loss.backward()
-        total += loss.item()
-    return total
+    raise NotImplementedError
 
 
 def train_steps(model: nn.Module, x: Tensor, y: Tensor, steps: int, lr: float) -> list[float]:
@@ -186,18 +124,7 @@ def train_steps(model: nn.Module, x: Tensor, y: Tensor, steps: int, lr: float) -
     The order of the operations inside a step is part of the muscle memory too:
     forward -> loss -> zero_grad -> backward -> clip -> step.
     """
-    optimizer = AdamW(model.parameters(), lr=lr)
-    results: list[float] = []
-
-    for _ in range(steps):
-        loss = F.mse_loss(model(x), y)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        clip_grad_norm(list(model.parameters()), 1.0)
-        optimizer.step()
-        results.append(loss.item())
-
-    return results
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -207,17 +134,17 @@ def train_steps(model: nn.Module, x: Tensor, y: Tensor, steps: int, lr: float) -
 
 def training_flops(num_params: int, num_tokens: int) -> int:
     """The 6ND rule: the forward pass is roughly 2ND, the backward pass roughly 4ND."""
-    return 6 * num_params * num_tokens
+    raise NotImplementedError
 
 
 def chinchilla_tokens(num_params: int) -> int:
     """The compute-optimal number of tokens by Chinchilla: roughly 20 tokens per parameter."""
-    return 20 * num_params
+    raise NotImplementedError
 
 
 def tokens_per_step(batch_size: int, seq_len: int, grad_accum: int) -> int:
     """How many tokens the model actually sees per optimizer step."""
-    return batch_size * seq_len * grad_accum
+    raise NotImplementedError
 
 
 # ==========================================================================

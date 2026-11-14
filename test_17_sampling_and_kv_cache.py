@@ -11,7 +11,6 @@ from scratch is O(T^2) per step. Instead the K and V of the past positions are s
 appended to. The main thing to check is that the cache gives EXACTLY the same result.
 """
 
-import math
 from collections.abc import Callable
 
 import pytest
@@ -30,24 +29,12 @@ def apply_temperature(logits: Tensor, temperature: float) -> Tensor:
     from which the argmax is picked deterministically (for example a one-hot of -inf and 0):
     that is greedy mode.
     """
-    if temperature < 0.0:
-        raise ValueError(f"Temperature mut be non-negative, got {temperature}")
-
-    if temperature == 0.0:
-        argmax = logits.argmax(dim=-1, keepdim=True)
-        result = torch.full_like(logits, float("-inf"))
-        return result.scatter_(-1, argmax, 0.0)
-    return logits / temperature
+    raise NotImplementedError
 
 
 def top_k_filter(logits: Tensor, k: int) -> Tensor:
     """(B, V) -> (B, V): replace everything except the top-k with -inf. At k <= 0 return it as is."""
-    if k <= 0 or k > logits.shape[-1]:
-        return logits
-    values, indx = torch.topk(logits, k=k)
-    result = torch.full_like(logits, fill_value=float("-inf"))
-    result.scatter_(dim=-1, index=indx, src=values)
-    return result
+    raise NotImplementedError
 
 
 def top_p_filter(logits: Tensor, p: float) -> Tensor:
@@ -61,14 +48,7 @@ def top_p_filter(logits: Tensor, p: float) -> Tensor:
     strictly BEFORE it is already >= p. That mask is in sorted order, so move it back to the
     original vocabulary order (a scatter, topic 05) before applying it to the logits.
     """
-    if p < 0.0:
-        return logits
-    s, i = logits.sort(dim=-1, descending=True)
-    softmax = s.softmax(dim=-1)
-    cumsum = softmax.cumsum(dim=-1)
-    indx = (cumsum - softmax) < p
-    s.masked_fill_(~indx, value=float("-inf"))
-    return torch.empty_like(logits).scatter(-1, i, s)
+    raise NotImplementedError
 
 
 def repetition_penalty(logits: Tensor, generated: Tensor, penalty: float) -> Tensor:
@@ -77,17 +57,7 @@ def repetition_penalty(logits: Tensor, generated: Tensor, penalty: float) -> Ten
 
     logits: (B, V), generated: (B, T) the tokens already produced.
     """
-    print(penalty)
-    print(logits)
-    print(generated)
-    logits = logits.clone()
-    l_generated = logits.gather(-1, generated)
-    print(l_generated)
-    penalization = torch.where(l_generated > 0, l_generated / penalty, l_generated * penalty)
-    print(penalization)
-    result = logits.scatter_(-1, generated, penalization)
-    print(result)
-    return result
+    raise NotImplementedError
 
 
 def sample_from_logits(
@@ -100,13 +70,7 @@ def sample_from_logits(
     """(B, V) -> (B,) int64. The order of the operations is the standard one: temperature, top-k, top-p, softmax,
     multinomial. At temperature == 0 - a greedy choice without any randomness.
     """
-    if generator is None:
-        generator = torch.Generator().manual_seed(1026)
-    logits = apply_temperature(logits, temperature)
-    logits = top_k_filter(logits, k=top_k)
-    logits = top_p_filter(logits, p=top_p)
-    softmax = logits.softmax(dim=-1)
-    return torch.multinomial(softmax, 1, generator=generator).squeeze(-1)
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -120,7 +84,6 @@ def sample_from_logits(
 type StepFn = Callable[[Tensor], Tensor]
 
 
-@torch.no_grad()
 def greedy_generate(step_fn: StepFn, prompt: Tensor, max_new_tokens: int) -> Tensor:
     """(B, T_prompt) -> (B, T_prompt + max_new_tokens) int64, the prompt unchanged at the front.
 
@@ -128,15 +91,9 @@ def greedy_generate(step_fn: StepFn, prompt: Tensor, max_new_tokens: int) -> Ten
     and the argmax of the logits at the LAST position is appended to every row.
     Generation never calls backward, so step_fn must run with autograd switched off.
     """
-    ids = prompt
-    for _ in range(max_new_tokens):
-        logits = step_fn(ids)
-        next = logits[:, -1].argmax(dim=-1, keepdim=True)
-        ids = torch.cat([ids, next], dim=1)
-    return ids
+    raise NotImplementedError
 
 
-@torch.no_grad()
 def sample_generate(
     step_fn: StepFn,
     prompt: Tensor,
@@ -152,16 +109,9 @@ def sample_generate(
     One generator serves the whole generation: the same seed gives the same text, another seed
     another text.
     """
-
-    ids = prompt
-    for _ in range(max_new_tokens):
-        logits = step_fn(ids)
-        next = sample_from_logits(logits[:, -1], temperature=temperature, top_k=top_k, top_p=top_p, generator=generator)
-        ids = torch.cat([ids, next[:, None]], dim=1)
-    return ids
+    raise NotImplementedError
 
 
-@torch.no_grad()
 def generate_until_eos(step_fn: StepFn, prompt: Tensor, max_new_tokens: int, eos_id: int) -> Tensor:
     """Greedy generation that stops early: (B, T_prompt) -> (B, T_prompt + n), n <= max_new_tokens.
 
@@ -169,17 +119,7 @@ def generate_until_eos(step_fn: StepFn, prompt: Tensor, max_new_tokens: int, eos
     A finished row gets eos_id appended from then on, whatever the model predicts, so all rows keep
     the same length. The loop stops as soon as every row is finished, or after max_new_tokens steps.
     """
-    ids = prompt
-    finished = torch.zeros(prompt.shape[0], dtype=torch.bool, device=prompt.device)
-
-    for _ in range(max_new_tokens):
-        next = step_fn(ids)[:, -1].argmax(dim=-1)
-        next = torch.where(finished, eos_id, next)
-        ids = torch.cat([ids, next[:, None]], dim=1)
-        finished = finished | (next == eos_id)
-        if finished.all():
-            break
-    return ids
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -195,29 +135,13 @@ class KVCache:
     """
 
     def __init__(self):
-        self.k_cache: Tensor | None = None
-        self.v_cache: Tensor | None = None
+        raise NotImplementedError
 
     def append(self, k: Tensor, v: Tensor) -> tuple[Tensor, Tensor]:
-        if k.shape != v.shape:
-            raise ValueError(f"Shapes of k {k.shape} and v {v.shape} must match")
-
-        if self.k_cache is None and self.v_cache is None:
-            self.k_cache = k
-            self.v_cache = v
-            return self.k_cache, self.v_cache
-        elif self.k_cache is not None and self.v_cache is not None:
-            self.k_cache = torch.cat([self.k_cache, k], dim=2)
-            self.v_cache = torch.cat([self.v_cache, v], dim=2)
-            return self.k_cache, self.v_cache
-        else:
-            raise ValueError("Uknown state of the cache")
+        raise NotImplementedError
 
     def __len__(self) -> int:
-        if self.k_cache is None:
-            assert self.v_cache is None, "Unknown state of the cache"
-            return 0
-        return self.k_cache.shape[-2]
+        raise NotImplementedError
 
 
 class CachedSelfAttention(nn.Module):
@@ -239,35 +163,10 @@ class CachedSelfAttention(nn.Module):
 
     def __init__(self, d_model: int, num_heads: int):
         super().__init__()
-        self.num_heads = num_heads
-        self.q_proj = nn.Linear(d_model, d_model, bias=False)
-        self.k_proj = nn.Linear(d_model, d_model, bias=False)
-        self.v_proj = nn.Linear(d_model, d_model, bias=False)
-
-        self.output_proj = nn.Linear(d_model, d_model, bias=False)
-
-    def _reshape_heads(self, x: Tensor) -> Tensor:
-        from einops import rearrange
-
-        return rearrange(x, "b t (h d) -> b h t d", h=self.num_heads)
+        raise NotImplementedError
 
     def forward(self, x: Tensor, cache: KVCache | None = None) -> Tensor:
-        B, T, D = x.shape
-        prev = len(cache) if cache is not None else 0
-        q, k, v = (
-            self._reshape_heads(self.q_proj(x)),
-            self._reshape_heads(self.k_proj(x)),
-            self._reshape_heads(self.v_proj(x)),
-        )
-        if cache is not None:
-            k, v = cache.append(k, v)
-        scores = q @ k.transpose(-2, -1) / math.sqrt(q.shape[-1])
-        S = k.shape[-2]
-        q_pos = torch.arange(prev, prev + T, device=x.device)[:, None]
-        k_pos = torch.arange(S, device=x.device)[None, :]
-        scores = scores.masked_fill_(q_pos < k_pos, float("-inf"))
-        out = scores.softmax(dim=-1) @ v
-        return self.output_proj(out.transpose(1, 2).reshape(B, T, D))
+        raise NotImplementedError
 
 
 def cache_memory_bytes(
@@ -277,7 +176,7 @@ def cache_memory_bytes(
 
     This exact quantity is the reason GQA and MQA exist.
     """
-    return 2 * batch * num_layers * num_kv_heads * seq_len * head_dim * dtype.itemsize
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -285,7 +184,6 @@ def cache_memory_bytes(
 # ==========================================================================
 
 
-@torch.inference_mode()
 def generate_with_cache(step_fn: StepFn, prompt: Tensor, max_new_tokens: int) -> Tensor:
     """Greedy generation driven the way a cached model is driven. The result is the same as
     greedy_generate's, (B, T_prompt + max_new_tokens).
@@ -294,13 +192,7 @@ def generate_with_cache(step_fn: StepFn, prompt: Tensor, max_new_tokens: int) ->
     the whole prompt once (the prefill), then just the token picked on the previous step, (B, 1).
     It returns logits for exactly the positions it was given.
     """
-    ids = prompt
-    new = prompt
-    for _ in range(max_new_tokens):
-        next = step_fn(new)[:, -1].argmax(dim=-1, keepdim=True)
-        ids = torch.cat([ids, next], dim=1)
-        new = next
-    return ids
+    raise NotImplementedError
 
 
 # ==========================================================================

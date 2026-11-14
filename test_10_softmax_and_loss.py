@@ -23,24 +23,17 @@ from torch import Tensor
 
 def softmax_manual(x: Tensor, dim: int) -> Tensor:
     """A numerically stable softmax along the axis dim, without torch.softmax."""
-    max_value = x.max(dim=dim, keepdim=True)[0]
-    n = (x - max_value).exp()
-    return n / n.sum(dim=dim, keepdim=True)
+    raise NotImplementedError
 
 
 def log_softmax_manual(x: Tensor, dim: int) -> Tensor:
     """A numerically stable log_softmax: x - logsumexp(x, dim, keepdim=True). Without torch.log_softmax."""
-    shifted = x - x.max(dim=dim, keepdim=True).values
-    return shifted - shifted.exp().sum(dim=dim, keepdim=True).log()
+    raise NotImplementedError
 
 
 def temperature_softmax(logits: Tensor, temperature: float) -> Tensor:
     """softmax(logits / T). As T -> 0 the distribution tends to the argmax, at large T to the uniform one."""
-    assert temperature != 0
-    l = logits / temperature
-    max_value = l.max(dim=-1, keepdim=True).values
-    n = (l - max_value).exp()
-    return n / n.sum(dim=-1, keepdim=True)
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -54,10 +47,7 @@ def cross_entropy_from_logits(logits: Tensor, targets: Tensor) -> Tensor:
     Without F.cross_entropy and without F.log_softmax: only logsumexp and gather.
     The formula: loss_i = logsumexp(logits_i) - logits_i[target_i].
     """
-    max_logits = logits.max(dim=-1, keepdim=True).values
-    lse = max_logits + (logits - max_logits).exp().sum(dim=-1, keepdim=True).log()
-    t = logits.gather(dim=-1, index=targets[:, None])
-    return (lse - t).mean()
+    raise NotImplementedError
 
 
 def sequence_cross_entropy(logits: Tensor, targets: Tensor, ignore_index: int = -100) -> Tensor:
@@ -66,33 +56,7 @@ def sequence_cross_entropy(logits: Tensor, targets: Tensor, ignore_index: int = 
     The positions where targets == ignore_index enter neither the sum nor the denominator.
     This is the real loss of a language model with padding.
     """
-    # print(logits)
-    flat_logits = logits.reshape(-1, logits.shape[-1])
-    flat_targets = targets.reshape(-1)
-    print(flat_targets)
-    valid_mask = flat_targets != ignore_index
-    print(valid_mask)
-
-    safe_targets = flat_targets.clamp(min=0)
-    print(safe_targets)
-
-    logits_max = flat_logits.max(dim=-1, keepdim=True).values
-    print(logits_max.T)
-    lse_logits = logits_max + (flat_logits - logits_max).exp().sum(dim=-1, keepdim=True).log()
-    print(lse_logits.T)
-
-    valid_targets = flat_logits.gather(dim=-1, index=safe_targets[..., None])
-    print(valid_targets.T)
-
-    xxx = (lse_logits - valid_targets).squeeze(-1)
-    print(xxx)
-    print(xxx.shape)
-    print(valid_mask.shape)
-
-    nominator = (xxx * valid_mask).sum()
-    denominator = (valid_mask).sum().clamp(min=1)
-
-    return (nominator) / denominator
+    raise NotImplementedError
 
 
 def label_smoothing_loss(logits: Tensor, targets: Tensor, smoothing: float) -> Tensor:
@@ -101,19 +65,12 @@ def label_smoothing_loss(logits: Tensor, targets: Tensor, smoothing: float) -> T
 
     Return the batch-averaged loss.
     """
-    V = logits.shape[-1]
-
-    max_logits = logits.max(dim=-1, keepdim=True).values
-    lse = max_logits + (logits - max_logits).exp().sum(dim=-1, keepdim=True).log()
-    log_p = logits - lse
-    t_vals = log_p.gather(dim=-1, index=targets[..., None])
-    loss = -((1 - smoothing) * t_vals + (smoothing / V) * log_p.sum(dim=-1, keepdim=True)).mean()
-    return loss
+    raise NotImplementedError
 
 
 def perplexity(loss: Tensor) -> Tensor:
     """The perplexity from the mean loss in nats. An understanding check: it is simply exp(loss)."""
-    return loss.exp()
+    raise NotImplementedError
 
 
 def kl_divergence(student_logits: Tensor, teacher_logits: Tensor) -> Tensor:
@@ -122,16 +79,7 @@ def kl_divergence(student_logits: Tensor, teacher_logits: Tensor) -> Tensor:
     This is the distillation loss. It has to be computed through the log_softmax of both,
     without dividing probabilities explicitly.
     """
-    max_s = student_logits.max(dim=-1, keepdim=True).values
-    max_t = teacher_logits.max(dim=-1, keepdim=True).values
-
-    lse_s = max_s + (student_logits - max_s).exp().sum(dim=-1, keepdim=True).log()
-    lse_t = max_t + (teacher_logits - max_t).exp().sum(dim=-1, keepdim=True).log()
-
-    probs_s = student_logits - lse_s
-    probs_t = teacher_logits - lse_t
-
-    return (probs_t.exp() * (probs_t - probs_s)).sum(dim=-1).mean()
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -144,20 +92,7 @@ def cross_entropy_grad(logits: Tensor, targets: Tensor) -> Tensor:
 
     The answer: (softmax(logits) - onehot(targets)) / N.
     """
-    print(logits.shape)
-    print(targets.shape)
-
-    N, V = logits.shape[0], logits.shape[-1]
-    print(N)
-    le = (logits - logits.max(dim=-1, keepdim=True).values).exp()
-    softmax = le / le.sum(dim=-1, keepdim=True)
-
-    print(softmax.shape)
-    print(softmax)
-    print(targets)
-    onehot = (targets[..., None] == torch.arange(V)).float()
-    print(onehot)
-    return (softmax - onehot) / N
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -170,13 +105,7 @@ def shift_invariance_gap(x: Tensor, shift: float) -> Tensor:
 
     ~0 is expected: that is the shift invariance.
     """
-
-    def softmax_again(tensor: Tensor) -> Tensor:
-        max_t = tensor.max(dim=-1, keepdim=True).values
-        n = (tensor - max_t).exp()
-        return n / n.sum(dim=-1, keepdim=True)
-
-    return (softmax_again(x) - softmax_again(x + shift)).abs().max()
+    raise NotImplementedError
 
 
 def uniform_loss(vocab_size: int) -> float:
@@ -185,7 +114,7 @@ def uniform_loss(vocab_size: int) -> float:
     The answer has to be known by heart: it is log(V). For V=50257 that is ~10.8 -
     the first thing checked on the first step of training.
     """
-    return math.log(vocab_size)
+    raise NotImplementedError
 
 
 # ==========================================================================

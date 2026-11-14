@@ -1,161 +1,99 @@
-# PyTorch exercises
+# PyTorch exercises for LLM developers
 
-Drills on PyTorch and tensor algebra, tied to how all of it actually works inside an LLM.
-The format is borrowed from [rustlings](https://rustlings.rust-lang.org/) and [100-exercises-to-learn-rust](https://github.com/mainmatter/100-exercises-to-learn-rust): one file per topic, holding function stubs with docstrings and the tests that check those stubs.
-The job is to replace every `raise NotImplementedError` with an implementation and drive the file to green.
+Twenty files of PyTorch drills, from tensor basics to a KV cache and FlashAttention-style blockwise attention.
+Each file holds function stubs per one topic and the tests to check your implementation.
+Replace `raise NotImplementedError` with your code until all tests are green.
 
-The goal is not to "learn about PyTorch" but to build muscle memory.
-After twenty files, a transformer block, cross-entropy, AdamW and a KV cache should come out of the fingers without looking anything up.
 
-## How hard it is
+**Theory:** [almaz-kg.github.io/pytorch-exercises-for-llm-developers](https://almaz-kg.github.io/pytorch-exercises-for-llm-developers/), or the same Markdown in [`theory/`](theory/README.md).
+
+## Quick start
+
+You need [uv](https://docs.astral.sh/uv/). It brings Python 3.12 or 3.13 on its own.
+
+```sh
+uv sync
+uv run pytest test_01_tensor_basics.py -x
+```
+
+An untouched file will fail with `NotImplementedError`. That is the starting point, not a broken setup.
+
+## How hard is it?
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/difficulty-dark.svg">
   <img alt="Difficulty of the twenty topics on a 1-10 scale, with hours for a first pass under each one" src="assets/difficulty-light.svg">
 </picture>
 
-The numbers are for an engineer who is at home in Python and with arrays, but new to PyTorch.
-Hours are for a first pass with no preparation: reading the theory, no peeking at `solutions/`, debugging until the tests are green.
-A second pass goes three to five times faster, which is the point of `reset.py`.
+About 100 hours for a first pass, if you are at home in Python and arrays but new to PyTorch.
+A second pass should go three to five times faster.
 
-Difficulty comes in peaks, not as a ramp, and the peaks are not where they look like they would be.
-Shapes, broadcasting and einops are the easy part, because a shape error is loud and names what went wrong.
-What makes a topic hard is a failure that stays quiet, and three things produce one:
+## Topics
 
-- **Hidden state** the test checks but the function body does not show: the autograd graph, optimizer moments, the KV cache (08, 16, 17, 18).
-- **Indirect addressing** with `gather` and `scatter`, where a wrong axis often still yields the right shape (05, 19).
-- **Math to derive on paper** before writing code: hand-written backward passes, activation derivatives, FLOP counts, RoPE frequencies (06, 12, 13, 19).
+Later topics lean on earlier ones, so go in order.
+01-07 are tensor mechanics, 08-09 autograd and `nn.Module`, 10-15 the transformer brick by brick, 16-17 training and inference, 18-19 memory and modern tricks, 20 data plumbing.
 
-## Theory
+| # | Topic | What it drills |
+| --- | --- | --- |
+| 01 | [Tensor basics](theory/01_tensor_basics.md) | dtype, shape, memory, in-place, copy vs view |
+| 02 | [Shapes and views](theory/02_shapes_and_views.md) | reshape, permute, contiguous, splitting heads, expand vs repeat |
+| 03 | [Broadcasting](theory/03_broadcasting.md) | right-aligned shapes, masks, ALiBi, pairwise distances |
+| 04 | [Reductions](theory/04_reductions.md) | dim and keepdim, masked means, logsumexp, gradient norms |
+| 05 | [Indexing and gather](theory/05_indexing_and_gather.md) | embedding lookup, gathering logits, scatter, top-k mask |
+| 06 | [Matrix multiplication](theory/06_matmul.md) | linear and its backward by hand, LoRA, FLOPs |
+| 07 | [einsum and einops](theory/07_einsum_and_einops.md) | the whole attention algebra in one line |
+| 08 | [Autograd](theory/08_autograd.md) | gradient accumulation, vjp, custom `autograd.Function`, STE |
+| 09 | [nn.Module](theory/09_nn_module.md) | Parameter vs buffer, state_dict, init, weight tying, hooks |
+| 10 | [Softmax and loss](theory/10_softmax_and_loss.md) | stable softmax, cross-entropy from scratch, KL |
+| 11 | [Normalization](theory/11_normalization.md) | LayerNorm, RMSNorm, float32 upcast, pre-norm vs post-norm |
+| 12 | [Activations and FFN](theory/12_activations_and_ffn.md) | GELU, SiLU, SwiGLU, sizing d_ff |
+| 13 | [Embeddings and RoPE](theory/13_embeddings_and_rope.md) | sinusoids, rotations, relative positions |
+| 14 | [Attention](theory/14_attention.md) | scaled dot-product, causal mask, MHA, GQA |
+| 15 | [Transformer block](theory/15_transformer_block.md) | the pre-norm block, the full model, initial loss of log(V) |
+| 16 | [Training loop](theory/16_training_loop.md) | AdamW from scratch, cosine schedule, clipping, accumulation |
+| 17 | [Generation](theory/17_sampling_and_kv_cache.md) | temperature, top-k, top-p, EOS, KV cache vs a full pass |
+| 18 | [Flash and memory](theory/18_flash_and_memory.md) | online softmax, blockwise attention, chunked CE, checkpointing |
+| 19 | [Advanced mechanisms](theory/19_advanced_architectures.md) | RMSNorm backward, document masks, MoE, speculative decoding |
+| 20 | [Data and checkpoints](theory/20_data_and_batching.md) | memmap batches, padding, save and load |
 
-`theory/` holds one file per topic, and it is meant to be read before the matching exercise.
-The files are plain Markdown, and they are also the source of a small static site, which is the nicer way to read them while solving:
-search across all twenty topics, a sidebar, prev/next links and a dark theme.
+## How do I work through a topic?
 
-```sh
-uv run mkdocs serve -o           # serve on localhost:8000 and open a browser
-uv run mkdocs build              # render to site/ and read it offline
-
-open theory/14_attention.md      # or just read the Markdown, then solve test_14_attention.py
-```
-
-`mkdocs serve` watches `theory/` and rebuilds on save.
-The site is [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/), configured in `mkdocs.yml`; `site/` is generated and git-ignored.
-
-The point of that directory is that this repository is self-contained: after reading `theory/NN_<topic>.md` you should be able to
-solve every stub in `test_NN_<topic>.py` in one sitting, with no search engine and no chat window open next to it.
-Each file gives the concepts and the formulas, every `torch` / `nn` / `F` / `einops` call the topic uses, the traps that topic is
-built to provoke, and a short readiness checklist.
-What it deliberately does not give is a solution to any stub: the examples in it run on neutral data, not on the exercise's own task.
-When you want the answer outright, that is what `solutions/` is for.
-
-## Running
-
-You need [uv](https://docs.astral.sh/uv/); it brings a matching Python (3.12 or 3.13) on its own.
-
-```sh
-uv sync                                   # once
-uv run pre-commit install                 # once: ruff check --fix and ruff format on every commit
-
-uv run pytest test_01_tensor_basics.py -x # the current file, stop at the first failure
-uv run pytest -x                          # everything, in order
-uv run pytest -k rope                     # a single test by name
-```
-
-The first run of an untouched file is nothing but `NotImplementedError`.
-That is the intended starting state, not a broken environment.
-
-The `test_NN_*.py` files you solve are working copies.
-Git does not track them, and the first `pytest` or `reset.py` run creates them from `templates/`.
-Your solutions therefore stay on your machine, and `git pull` never collides with them.
-When a pull changes a template, `uv run python reset.py --diff NN` shows how your copy differs from it.
-
-Each test covers one stub, so a failure names the single function to go and write, and the stubs can be
-done in any order. The few tests that check that several finished pieces agree with each other - a
-split/merge roundtrip, a KV cache against a full forward pass - are skipped until every piece they need
-is implemented, and turn themselves on once the last one lands:
+1. Read `theory/NN_<topic>.md`.
+2. Run the tests for that file and fix the first failure. Each test covers one stub.
+3. Stuck? `solutions/` has a reference for every topic.
+4. Come back in a month, roll the topic back and do it again.
 
 ```sh
-uv run pytest test_02_shapes_and_views.py -rs   # -rs spells out what each skip is still waiting for
+uv run pytest test_14_attention.py -x            # one file, stop at the first failure
+uv run pytest -k rope                            # one test by name
+uv run pytest test_14_attention.py -rs           # what each skipped test is waiting for
+SOLUTIONS=1 uv run pytest test_14_attention.py   # run the same tests against solutions/
+
+uv run python reset.py                           # status: how many stubs are left per topic
+uv run python reset.py 14                        # roll topic 14 back to its template
+uv run python reset.py --diff 14                 # your version vs the template
 ```
 
-If you are stuck, `solutions/` holds a reference implementation of every topic.
-You can peek at one spot, or run the whole suite against the reference:
+## Where do my solutions go?
 
-```sh
-SOLUTIONS=1 uv run pytest test_14_attention.py   # the tests run against solutions/sol_14_attention.py
-```
+The `test_NN_*.py` files in the root are your working copies.
 
-`SOLUTIONS=1` swaps the functions and classes in the test module for the same-named ones from `solutions/`.
-It doubles as the check that the tests themselves are correct.
+`reset.py` does not lose work: before it overwrites a file, it moves your version to `attempts/<date_time>/`.
+With `--no-archive` parameter it will skip the copy.
+`uv run python reset.py --restore attempts/<date_time>/test_14_attention.py` brings it back.
 
-## Rolling back your solutions
+## Rules
 
-The original stubs for every topic live in `templates/`, byte-for-byte copies of the files as they started.
-Rollback works without git, and your current version is always moved to `attempts/<date_time>/` before it gets overwritten, so nothing is lost.
+- No Python loops over tensor elements, unless the docstring allows one.
+- Do not touch the tests. A test bent to fit your code teaches nothing.
+- Formula on paper first, code second. Especially in 08, 18 and 19.
+- Keep the module names from the docstrings (`q_proj`, `w1`, `ln1`, `lm_head`, no biases). Tests check `state_dict` keys.
 
-```sh
-uv run python reset.py                 # status: what is touched, how many stubs are left
-uv run python reset.py 14              # roll topic 14 back (number, name or part of the name)
-uv run python reset.py 14 15 16        # several topics at once
-uv run python reset.py --all           # roll everything back and start over
-uv run python reset.py --diff 14       # how my version differs from the original
-uv run python reset.py --restore attempts/2026-08-25_12-56-10/test_14_attention.py
-```
+## What about AI assistants?
 
-The status output shows, per topic, how many `NotImplementedError` stubs remain, which makes it easy to come back after a break.
-Redoing a topic a month later is the best way to check whether the muscle memory stuck; that is what rollback is for.
-
-`attempts/` is git-ignored, like the working copies.
-To keep your solutions and their archive in your own repository, delete the last two lines of `.gitignore`.
-
-## Rules of the game
-
-- No loops over tensor elements unless a task says otherwise. Everything vectorized.
-- If a task says "without `torch.softmax`" or "via einsum", that is part of the exercise, not nitpicking.
-- The tests are off limits. A test bent to fit an implementation teaches nothing.
-- Write the formula on paper first, then the code. Especially in topics 08, 18, 19.
-- Module and parameter names are fixed by the docstrings (`q_proj`, `w1`, `ln1`, `lm_head` and so on, no biases anywhere). Several tests assert on `state_dict` keys, so the names are load-bearing.
-
-## With an AI assistant at hand
-
-An assistant in the editor can fill in any of these files in seconds, and that is exactly the work the drills exist for you to do.
-`AGENTS.md`, and `CLAUDE.md` for Claude Code, tell coding agents to explain, review and debug through questions, and not to write the stubs for you.
-They hold only as long as you do not overrule them.
-
-## Order of topics
-
-Later topics lean on earlier ones, so the order matters even where the difficulty does not grow.
-
-| File | Theory | Topic | What it drills |
-| --- | --- | --- | --- |
-| 01 | [read](theory/01_tensor_basics.md) | Tensor basics | dtype, shape, memory, in-place, copy vs view |
-| 02 | [read](theory/02_shapes_and_views.md) | Shapes and views | reshape, permute, contiguous, splitting and merging heads, expand vs repeat |
-| 03 | [read](theory/03_broadcasting.md) | Broadcasting | right-aligned shapes, masks, ALiBi, pairwise distances |
-| 04 | [read](theory/04_reductions.md) | Reductions | dim and keepdim, masked means, logsumexp, gradient norms |
-| 05 | [read](theory/05_indexing_and_gather.md) | Indexing and gather | embedding lookup, gathering logits, scatter, top-k mask |
-| 06 | [read](theory/06_matmul.md) | Matrix multiplication | shapes, linear and its backward by hand, LoRA, FLOPs |
-| 07 | [read](theory/07_einsum_and_einops.md) | einsum and einops | the whole attention algebra in one line |
-| 08 | [read](theory/08_autograd.md) | Autograd | backward, gradient accumulation, vjp, custom autograd.Function, STE |
-| 09 | [read](theory/09_nn_module.md) | nn.Module | Parameter vs buffer, state_dict, initialization, weight tying, hooks |
-| 10 | [read](theory/10_softmax_and_loss.md) | Softmax and loss | stable softmax, cross-entropy from scratch, KL, the gradient of CE |
-| 11 | [read](theory/11_normalization.md) | Normalization | LayerNorm, RMSNorm, upcasting to float32, pre-norm vs post-norm |
-| 12 | [read](theory/12_activations_and_ffn.md) | Activations and FFN | GELU, SiLU, SwiGLU, the arithmetic of d_ff |
-| 13 | [read](theory/13_embeddings_and_rope.md) | Embeddings and RoPE | sinusoids, rotations, relative positions |
-| 14 | [read](theory/14_attention.md) | Attention | scaled dot-product, causality, MHA, GQA, cost |
-| 15 | [read](theory/15_transformer_block.md) | Transformer block | the pre-norm block, the whole model, initial loss equal to log(V) |
-| 16 | [read](theory/16_training_loop.md) | Training loop | AdamW from scratch, cosine schedule, clipping, gradient accumulation |
-| 17 | [read](theory/17_sampling_and_kv_cache.md) | Generation | temperature, top-k, top-p, generation loops with EOS, the KV cache and its equivalence to a full pass |
-| 18 | [read](theory/18_flash_and_memory.md) | Flash and memory | online softmax, blockwise attention, chunked CE, checkpointing, loss scaling |
-| 19 | [read](theory/19_advanced_architectures.md) | Advanced mechanisms | a hand-written RMSNorm backward, window and document masks, MoE, speculative decoding, beam search |
-| 20 | [read](theory/20_data_and_batching.md) | Data and checkpoints | slicing batches out of a memmap, padding, save/load checkpoint |
-
-Topics 01-07 are tensor mechanics.
-08-09 are how PyTorch computes gradients and stores a model.
-10-15 are the transformer, brick by brick and then whole.
-16-17 are training and inference.
-18-19 are what all of it is for: memory, speed and modern architectural tricks.
-20 is the plumbing without which training never starts.
+An assistant in your editor fills any of these files in seconds, and then you have learned nothing.
+[`AGENTS.md`](AGENTS.md) tell coding agents to explain, review and debug through questions instead of writing the stubs.
+That holds only as long as you do not overrule them.
 
 ## License
 

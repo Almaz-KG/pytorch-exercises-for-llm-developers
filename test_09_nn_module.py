@@ -33,13 +33,10 @@ class MyLinear(nn.Module):
 
     def __init__(self, in_features: int, out_features: int, bias: bool = True):
         super().__init__()
-        self.weight = nn.Parameter(torch.empty(out_features, in_features))
-        self.bias = None if not bias else nn.Parameter(torch.zeros(out_features))
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        if self.bias is not None:
-            return x @ self.weight.T + self.bias
-        return x @ self.weight.T
+        raise NotImplementedError
 
 
 class MyEmbedding(nn.Module):
@@ -47,10 +44,10 @@ class MyEmbedding(nn.Module):
 
     def __init__(self, num_embeddings: int, embedding_dim: int):
         super().__init__()
-        self.weight = nn.Parameter(torch.randn(num_embeddings, embedding_dim))
+        raise NotImplementedError
 
     def forward(self, ids: Tensor) -> Tensor:
-        return self.weight[ids]
+        raise NotImplementedError
 
 
 class CausalMask(nn.Module):
@@ -62,11 +59,10 @@ class CausalMask(nn.Module):
 
     def __init__(self, max_len: int):
         super().__init__()
-        idx = torch.arange(max_len)
-        self.register_buffer("mask", idx[:, None] >= idx[None, :], persistent=True)
+        raise NotImplementedError
 
     def forward(self, seq_len: int) -> Tensor:
-        return self.mask[:seq_len, :seq_len]  # type: ignore
+        raise NotImplementedError
 
 
 class BlockStack(nn.Module):
@@ -78,12 +74,10 @@ class BlockStack(nn.Module):
 
     def __init__(self, d_model: int, n_layers: int):
         super().__init__()
-        self.layers = nn.ModuleList([nn.Linear(d_model, d_model) for _ in range(n_layers)])
+        raise NotImplementedError
 
     def forward(self, x: Tensor) -> Tensor:
-        for l in self.layers:
-            x = l(x)
-        return x
+        raise NotImplementedError
 
 
 # ==========================================================================
@@ -93,19 +87,17 @@ class BlockStack(nn.Module):
 
 def count_parameters(model: nn.Module, trainable_only: bool = True) -> int:
     """The number of elements (not tensors) in the parameters of the model."""
-    return sum([p.numel() for p in model.parameters() if p.requires_grad or not trainable_only])
+    raise NotImplementedError
 
 
 def parameter_names(model: nn.Module) -> list[str]:
     """A sorted list of the full parameter names, as they sit in the state_dict."""
-    return sorted([n for n, _ in model.named_parameters()])
+    raise NotImplementedError
 
 
 def total_bytes(model: nn.Module) -> int:
     """How many bytes all the parameters and buffers of the model take."""
-    params = sum([p.numel() * p.element_size() for _, p in model.named_parameters()])
-    buffers = sum([b.numel() * b.element_size() for _, b in model.named_buffers()])
-    return params + buffers
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -120,10 +112,7 @@ def init_linear_(layer: nn.Linear, std: float) -> nn.Linear:
     Hint: nn.init.trunc_normal_ and nn.init.zeros_. Everything in-place, under torch.no_grad
     (the functions from nn.init already do that for you).
     """
-    nn.init.trunc_normal_(layer.weight, mean=0.0, std=std, a=-3 * std, b=3 * std)
-    if layer.bias is not None:
-        nn.init.zeros_(layer.bias)
-    return layer
+    raise NotImplementedError
 
 
 def init_all_linears_(model: nn.Module, std: float) -> nn.Module:
@@ -132,13 +121,7 @@ def init_all_linears_(model: nn.Module, std: float) -> nn.Module:
 
     Hint: model.apply(fn) calls fn on every submodule.
     """
-
-    def fn(module: nn.Module) -> None:
-        if isinstance(module, nn.Linear):
-            init_linear_(module, std)
-
-    model.apply(fn)
-    return model
+    raise NotImplementedError
 
 
 def init_residual_projections_(model: nn.Module, base_std: float, n_layers: int) -> nn.Module:
@@ -152,11 +135,7 @@ def init_residual_projections_(model: nn.Module, base_std: float, n_layers: int)
 
     Hint: model.named_modules() yields the dotted path of every submodule.
     """
-    std = base_std / math.sqrt(2 * n_layers)
-    for name, module in model.named_modules():
-        if isinstance(module, nn.Linear) and name.rsplit(".", 1)[-1] in ("output_proj", "w2"):
-            init_linear_(module, std)
-    return model
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -168,11 +147,7 @@ def save_load_roundtrip(model: nn.Module, fresh: nn.Module) -> nn.Module:
     """Save the state_dict of model into a byte buffer (io.BytesIO) through torch.save,
     load it back from that buffer into fresh, a new model of the same architecture, and return fresh.
     """
-    buffer = io.BytesIO()
-    torch.save(model.state_dict(), buffer)
-    buffer.seek(0)
-    fresh.load_state_dict(torch.load(buffer, weights_only=True))
-    return fresh
+    raise NotImplementedError
 
 
 def strip_prefix(state_dict: dict[str, Tensor], prefix: str) -> dict[str, Tensor]:
@@ -181,7 +156,7 @@ def strip_prefix(state_dict: dict[str, Tensor], prefix: str) -> dict[str, Tensor
 
     This exact function lives in the conftest.py of the first CS336 assignment.
     """
-    return {n.removeprefix(prefix): p for n, p in state_dict.items()}
+    raise NotImplementedError
 
 
 def tie_weights(embedding: nn.Embedding, head: nn.Linear) -> None:
@@ -190,7 +165,7 @@ def tie_weights(embedding: nn.Embedding, head: nn.Linear) -> None:
     After the call a change in one must be visible in the other, and the number of unique
     parameters of the model must go down.
     """
-    embedding.weight = head.weight
+    raise NotImplementedError
 
 
 # ==========================================================================
@@ -203,13 +178,7 @@ def dropout_behaviour(p: float, x: Tensor) -> tuple[Tensor, Tensor]:
 
     The point: to convince yourself by hand that model.eval() switches dropout off rather than "reducing" it.
     """
-    drop = nn.Dropout(p)
-    drop.train(True)
-    r = drop(x)
-    drop.train(False)
-    rr = drop(x)
-
-    return r, rr
+    raise NotImplementedError
 
 
 def capture_activations(model: nn.Sequential, x: Tensor) -> dict[str, Tensor]:
@@ -218,25 +187,7 @@ def capture_activations(model: nn.Sequential, x: Tensor) -> dict[str, Tensor]:
     This is the main way to debug "where the activations blew up" in a large model.
     The hooks are better removed once they have been used.
     """
-    result = {}
-    handlers = []
-
-    def make_hook(name):
-        def hook(_module, _inputs, output):
-            result[name] = output.detach()
-
-        return hook
-
-    for name, module in model.named_children():
-        handlers.append(module.register_forward_hook(make_hook(name)))
-
-    try:
-        model(x)
-    finally:
-        for h in handlers:
-            h.remove()
-
-    return result
+    raise NotImplementedError
 
 
 # ==========================================================================
