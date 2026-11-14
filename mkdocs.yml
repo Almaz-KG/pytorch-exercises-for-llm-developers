@@ -3,6 +3,7 @@
 
 site_name: PyTorch exercises for LLM developers
 site_description: Theory for the rustlings-style PyTorch drills - read the topic, then solve its file.
+site_url: https://almaz-kg.github.io/pytorch-exercises-for-llm-developers/
 docs_dir: theory
 site_dir: site
 use_directory_urls: true

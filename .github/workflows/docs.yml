@@ -1,0 +1,64 @@
+# Builds the theory site from `theory/` and publishes it to GitHub Pages.
+# Pull requests only build, so a broken link fails the check before it can ship (`strict: true` in mkdocs.yml).
+# One-time setup: Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
+
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "theory/**"
+      - "mkdocs.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "theory/**"
+      - "mkdocs.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      # Only the `docs` group: the site needs mkdocs-material, not torch.
+      - run: uv sync --locked --only-group docs
+
+      - run: uv run --no-sync mkdocs build --strict
+
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
