@@ -74,6 +74,21 @@ def make_labels(ids: Tensor, mask: Tensor, ignore_index: int = -100) -> Tensor:
     raise NotImplementedError
 
 
+def document_mask(doc_ids: Tensor) -> Tensor:
+    """doc_ids: (T,) int64 - the document number for every position of the packed sequence.
+    Return (T, T) bool: causality AND a ban on looking into somebody else's document.
+
+    This is how computation is saved during training: several short documents are packed into one
+    example of length T, but the attention between them has to be blocked.
+    """
+    raise NotImplementedError
+
+
+def block_diagonal_lengths_to_doc_ids(lengths: list[int]) -> Tensor:
+    """[3, 2, 4] -> tensor([0,0,0,1,1,2,2,2,2]). A helper for document_mask."""
+    raise NotImplementedError
+
+
 # ==========================================================================
 # 20.3 Checkpoints
 # ==========================================================================
@@ -198,6 +213,27 @@ def test_make_labels():
     mask = torch.tensor([[True, True, True], [True, True, False]])
     labels = make_labels(ids, mask)
     torch.testing.assert_close(labels, torch.tensor([[2, 3, -100], [5, -100, -100]]))
+
+
+def test_document_mask():
+    doc_ids = torch.tensor([0, 0, 1, 1, 1])
+    m = document_mask(doc_ids)
+    expected = torch.tensor(
+        [
+            [1, 0, 0, 0, 0],
+            [1, 1, 0, 0, 0],
+            [0, 0, 1, 0, 0],
+            [0, 0, 1, 1, 0],
+            [0, 0, 1, 1, 1],
+        ],
+        dtype=torch.bool,
+    )
+    assert torch.equal(m, expected)
+
+
+def test_block_diagonal_lengths_to_doc_ids():
+    torch.testing.assert_close(block_diagonal_lengths_to_doc_ids([2, 3]), torch.tensor([0, 0, 1, 1, 1]))
+    torch.testing.assert_close(block_diagonal_lengths_to_doc_ids([3, 2, 4]), torch.tensor([0, 0, 0, 1, 1, 2, 2, 2, 2]))
 
 
 def test_save_checkpoint():

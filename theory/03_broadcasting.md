@@ -184,7 +184,7 @@ Topic 06 does that expansion.
 **Why anyone wanted ALiBi.**
 A model trained with absolute position embeddings has never seen position 5000 and behaves unpredictably there.
 ALiBi encodes only *distance*, as a penalty that grows linearly and is fixed rather than learned, so a model trained at 2k can be run at 8k and degrade gracefully instead of falling apart.
-It was one of the first credible answers to the long-context problem and lost to RoPE, which topic 13 builds, mostly because RoPE extrapolates about as well and composes better with the rest of the architecture.
+It was one of the first credible answers to the long-context problem and lost to RoPE, which topic 12 builds, mostly because RoPE extrapolates about as well and composes better with the rest of the architecture.
 
 ## Going deeper
 

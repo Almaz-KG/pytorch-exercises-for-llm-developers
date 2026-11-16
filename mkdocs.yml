@@ -100,17 +100,16 @@ nav:
       - 05 - Indexing and gather: 05_indexing_and_gather.md
       - 06 - Matrix multiplication: 06_matmul.md
       - 07 - einsum and einops: 07_einsum_and_einops.md
-  - Gradients and models:
-      - 08 - Autograd: 08_autograd.md
-      - 09 - nn.Module: 09_nn_module.md
   - The transformer:
-      - 10 - Softmax and loss: 10_softmax_and_loss.md
-      - 11 - Normalization: 11_normalization.md
-      - 12 - Activations and FFN: 12_activations_and_ffn.md
-      - 13 - Embeddings and RoPE: 13_embeddings_and_rope.md
-      - 14 - Attention: 14_attention.md
-      - 15 - Transformer block: 15_transformer_block.md
+      - 08 - nn.Module: 08_nn_module.md
+      - 09 - Softmax and loss: 09_softmax_and_loss.md
+      - 10 - Normalization: 10_normalization.md
+      - 11 - Activations and FFN: 11_activations_and_ffn.md
+      - 12 - Embeddings and RoPE: 12_embeddings_and_rope.md
+      - 13 - Attention: 13_attention.md
+      - 14 - Transformer block: 14_transformer_block.md
   - Training and inference:
+      - 15 - Autograd: 15_autograd.md
       - 16 - Training loop: 16_training_loop.md
       - 17 - Generation: 17_sampling_and_kv_cache.md
   - Memory and modern tricks:

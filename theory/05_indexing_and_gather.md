@@ -18,8 +18,8 @@ Then there is `gather`, which reads one value per row, and `scatter`, which writ
 Knowing which one you are using, what shape it returns, and whether it shares memory with the original is most of the skill.
 
 Almost everything later in the repository leans on this file.
-The embedding layer in topic 13 is one line of indexing.
-The loss in topic 10 is a `gather`.
+The embedding layer in topic 12 is one line of indexing.
+The loss in topic 09 is a `gather`.
 Top-k sampling in topic 17 is a `topk` plus a `scatter`.
 Mixture-of-experts in topic 19 is an `index_add_`.
 
@@ -209,7 +209,7 @@ That gives the standard three-step pattern for "one value per row along the last
 3. `squeeze(-1)` the result, to remove that axis again.
 
 The same three steps work with any number of leading axes: `(B, T, V)` scores with `(B, T)` chosen ids is exactly the same situation as `(2, 3)` with `(2,)`.
-Topic 10 uses this to read out the score of the correct token at every position, and it is the most common `gather` in all of language-model training.
+Topic 09 uses this to read out the score of the correct token at every position, and it is the most common `gather` in all of language-model training.
 
 **gather along a different axis.**
 Nothing forces `dim` to be the last axis.
@@ -227,7 +227,7 @@ An off-by-one here does not raise: it silently reads padding instead of the last
 
 **Reordering rows.**
 "Put row `idx[0]` first, then row `idx[1]`, and so on" is just `x[idx]` from 5.1.
-Beam search, which keeps several candidate continuations per prompt and drops the bad ones after each step, reorders its stored state this way after every step (topic 19).
+Beam search, which keeps several candidate continuations per prompt and drops the bad ones after each step, reorders its stored state this way after every step.
 
 ### 5.3 scatter
 
@@ -253,7 +253,7 @@ The result's dtype is the dtype of `dst`, so if you want floats, start from a fl
 
 **One-hot vectors.**
 A one-hot vector of length `V` is all zeros except a single 1 at a chosen position.
-It is how "the correct answer is class 3" is written as a tensor, and topic 10 needs it.
+It is how "the correct answer is class 3" is written as a tensor, and topic 09 needs it.
 `F.one_hot` exists, but it is nothing more than a scatter of 1s into zeros, which is what the exercise asks you to write.
 The output should be the shape of the ids plus one new last axis of size `V`.
 
@@ -277,7 +277,7 @@ The example above gives exactly the same result with `index_add_`, and it is the
 
 **Keeping only the k largest.**
 Top-k sampling (topic 17) keeps the `k` best scores in each row and makes every other one impossible.
-"Impossible" means `-inf`: topic 10's softmax turns `-inf` into a probability of exactly 0.
+"Impossible" means `-inf`: topic 09's softmax turns `-inf` into a probability of exactly 0.
 
 `torch.topk(x, k, dim=-1)` returns two tensors, the `k` largest values per row and their positions, both of shape `(..., k)`:
 
@@ -428,7 +428,7 @@ tensor([[1, 2],
 Beam search wants the copies of one prompt **next to each other**, the first form.
 Then the beams of prompt `p` are rows `p * num_beams` up to `p * num_beams + num_beams - 1`, and a flat row number splits back into "which prompt, which beam" with a single `divmod(row, num_beams)`.
 With the other ordering every step needs an extra index remapping, and getting it wrong produces fluent text for the wrong prompt, with no error.
-It is the same ordering trap as expanding key/value heads in grouped-query attention (topic 02 and topic 14).
+It is the same ordering trap as expanding key/value heads in grouped-query attention (topic 02 and topic 13).
 
 ## API you need
 

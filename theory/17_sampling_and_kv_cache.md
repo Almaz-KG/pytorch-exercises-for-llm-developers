@@ -4,7 +4,7 @@
 
 ## Why this topic
 
-Topic 15 built a model that maps a row of token ids to logits, and topic 16 trained it.
+Topic 14 built a model that maps a row of token ids to logits, and topic 16 trained it.
 A trained model still does not write anything.
 **Generation** is the loop around it: run the model, take the scores at the last position, pick one token, append it to the input, and run again, until enough tokens have been produced or the model says it is done.
 17.2 writes that loop three ways: greedy, sampled, and stopping at EOS, and 17.4 writes it once more for a model with a cache.
@@ -24,7 +24,7 @@ With it, each step runs the model over one token only.
 The invariant this topic tests, and the one that matters, is that the cache changes the cost and **nothing else**: step-by-step generation with a cache must give exactly the numbers a single full forward pass gives.
 
 The cache also explains a good part of LLM serving.
-Its size, not the weights, decides how many users fit on a GPU at once, and grouped-query attention from topic 14 exists to make it smaller.
+Its size, not the weights, decides how many users fit on a GPU at once, and grouped-query attention from topic 13 exists to make it smaller.
 
 ## The mental model
 
@@ -48,7 +48,7 @@ Its size, not the weights, decides how many users fit on a GPU at once, and grou
 
 ### A refresher: `-inf` is how a token is removed
 
-Topic 10 built the softmax, and topic 14 used the one property of it that this whole topic relies on.
+Topic 09 built the softmax, and topic 13 used the one property of it that this whole topic relies on.
 $\exp(-\infty) = 0$, so a logit of `-inf` gets probability exactly 0, and the surviving tokens share the whole 1 among themselves in the same proportions as before:
 
 ```python
@@ -189,7 +189,7 @@ The exclusive sum is either `cumsum - probs`, as above, or the inclusive `cumsum
 
 - **No empty rows.**
   The top token has nothing before it, so its exclusive sum is `0`, and for any `p > 0` at least one token survives.
-  A row of all `-inf` would softmax to NaN (topic 14).
+  A row of all `-inf` would softmax to NaN (topic 13).
 - **`p = 1.0` keeps everything.**
   Every exclusive sum is below `1.0`, so no token is dropped, at least in exact arithmetic.
 
@@ -309,7 +309,7 @@ The defaults `top_k=0` and `top_p=1.0` mean both filters are off.
 
 #### The model as a `StepFn`
 
-A whole transformer from [topic 15](./15_transformer_block.md) is a `StepFn`.
+A whole transformer from [topic 14](./14_transformer_block.md) is a `StepFn`.
 ```python
 type StepFn = Callable[[Tensor], Tensor]
 ```
@@ -421,7 +421,7 @@ The `cumsum` trick from topic 05, "everything after the first EOS", is the alter
 Generating with the naive loop from 17.2, step `t` runs the model over the whole prefix of `t` tokens, and only the last position's logits are used.
 Attention over `t` tokens costs on the order of $t^2$ per layer, so a whole generation of `T` tokens costs on the order of $T^3$.
 Almost all of it is recomputation.
-Because attention is causal (topic 14), position `i` never looks at anything after it, so its keys and values, and indeed its whole column of activations, are the same on every step after it first appeared.
+Because attention is causal (topic 13), position `i` never looks at anything after it, so its keys and values, and indeed its whole column of activations, are the same on every step after it first appeared.
 
 **The fix.**
 For each layer, keep the `k` and `v` of every position seen so far.
@@ -478,9 +478,9 @@ For this exercise `cat` is the right tool: the copying costs time, not correctne
 
 #### `CachedSelfAttention`
 
-This is the multi-head causal self-attention of topics 14 and 15, with one new argument.
+This is the multi-head causal self-attention of topics 13 and 14, with one new argument.
 The four projections are `q_proj`, `k_proj`, `v_proj`, `output_proj`, each `nn.Linear(D, D, bias=False)`; the test checks `named_parameters()` against exactly those four names.
-The head split cuts `D` as `(H, Dh)` and then moves the head axis in front of time, the order from topic 14; the test builds its reference with `unflatten(-1, (H, Dh)).transpose(1, 2)`, and with the scale $1 / \sqrt{d_{\text{head}}}$ that `F.scaled_dot_product_attention` uses by default.
+The head split cuts `D` as `(H, Dh)` and then moves the head axis in front of time, the order from topic 13; the test builds its reference with `unflatten(-1, (H, Dh)).transpose(1, 2)`, and with the scale $1 / \sqrt{d_{\text{head}}}$ that `F.scaled_dot_product_attention` uses by default.
 
 `forward(x, cache=None)`:
 
@@ -498,7 +498,7 @@ Which mask is needed depends on the call:
 | a chunk of `T > 1` tokens into a non-empty cache | `T` | `S > T` | causal with an offset: query $i$ sits at absolute position $S - T + i$ |
 
 The tests exercise the first two rows: a full pass, six one-token steps from an empty cache, and a prefill of 3 positions followed by two one-token steps.
-The third row is the general case, and topic 14 built its table by comparing `arange(S - T, S)` against `arange(S)`.
+The third row is the general case, and topic 13 built its table by comparing `arange(S - T, S)` against `arange(S)`.
 
 Two ways to get the decode row wrong.
 A causal mask built as `tril` of a `(1, S)` table is not "no mask", it allows only the **first** key:
@@ -515,7 +515,7 @@ So `is_causal=True` is correct only when `T == S`; with a cache and `T > 1` the 
 **Positions.**
 This module has no positional encoding, so its keys and values depend on nothing but the token.
 A model with RoPE or a learned position table must give the new token its true position, `len(cache)` before the append, not 0.
-That is the offset from topic 13, and forgetting it is the classic reason cached generation diverges from uncached generation.
+That is the offset from topic 12, and forgetting it is the classic reason cached generation diverges from uncached generation.
 
 **The equivalence test** is the main test of the topic.
 Running the module on all six positions at once and running it one position at a time with a cache must agree to `1e-5`.
@@ -530,7 +530,7 @@ The cache stores, for every layer, a key and a value per KV head, per position, 
 ```
 
 The `2` is `k` and `v`.
-`bytes_per_element` comes from the dtype, `dtype.itemsize` (topic 14): 2 for bfloat16 and float16, 4 for float32.
+`bytes_per_element` comes from the dtype, `dtype.itemsize` (topic 13): 2 for bfloat16 and float16, 4 for float32.
 `H_kv` is the number of **key/value** heads: with grouped-query attention it is smaller than the number of query heads, and the cache shrinks by exactly their ratio.
 
 A worked example: a 70B-class model with `L = 80`, `Dh = 128`, a single sequence of `T = 8192` tokens in bfloat16.
@@ -570,7 +570,7 @@ The first test of the section records every input the stand-in model receives an
 The second is the composition test of the whole topic: it builds a one-layer model from an embedding, your `CachedSelfAttention` and an output projection, wraps it twice, once as an uncached `StepFn` and once around a `KVCache`, and checks that `greedy_generate` and `generate_with_cache` produce identical ids.
 It stays skipped until all four pieces are written.
 
-A model with positions has one more thing to get right here: the token passed on call `t` sits at absolute position `T_prompt + t - 2`, not at 0, which is the offset from topic 13 and the "Positions" note in 17.3.
+A model with positions has one more thing to get right here: the token passed on call `t` sits at absolute position `T_prompt + t - 2`, not at 0, which is the offset from topic 12 and the "Positions" note in 17.3.
 
 ## API you need
 

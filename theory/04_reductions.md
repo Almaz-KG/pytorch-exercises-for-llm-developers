@@ -211,7 +211,7 @@ Without looking anything up you can:
 
 **Why logsumexp keeps coming back.**
 It is the same trick three times over.
-In topic 10 it is the softmax denominator, and cross-entropy is written as `logsumexp(logits) - logits[target]` precisely so the exponentials never have to be materialized.
+In topic 09 it is the softmax denominator, and cross-entropy is written as `logsumexp(logits) - logits[target]` precisely so the exponentials never have to be materialized.
 In topic 18 it becomes *online* softmax: a running maximum and a running sum that can be updated as new blocks of scores arrive, which is what lets flash attention compute an exact softmax without ever holding the full score row in memory.
 Learning to write it by hand here is what makes topic 18 readable.
 

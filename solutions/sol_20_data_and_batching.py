@@ -52,6 +52,18 @@ def make_labels(ids: Tensor, mask: Tensor, ignore_index: int = -100) -> Tensor:
     return torch.where(valid, labels, torch.full_like(labels, ignore_index))
 
 
+def document_mask(doc_ids: Tensor) -> Tensor:
+    t = doc_ids.shape[0]
+    idx = torch.arange(t, device=doc_ids.device)
+    causal = idx[:, None] >= idx[None, :]
+    same_doc = doc_ids[:, None] == doc_ids[None, :]
+    return causal & same_doc
+
+
+def block_diagonal_lengths_to_doc_ids(lengths: list[int]) -> Tensor:
+    return torch.repeat_interleave(torch.arange(len(lengths)), torch.tensor(lengths))
+
+
 def save_checkpoint(model: nn.Module, optimizer: torch.optim.Optimizer, iteration: int, out: io.BytesIO) -> None:
     torch.save(
         {

@@ -4,7 +4,7 @@
 
 ## Why this topic
 
-Topic 15 produced a model and a loss, and topic 08 showed how a loss turns into a gradient for every weight.
+Topic 14 produced a model and a loss, and topic 15 showed how a loss turns into a gradient for every weight.
 This topic closes the loop: it is what turns those gradients into new weights, over and over, until the loss is low.
 
 It is also where tensor exercises turn into training engineering.
@@ -38,7 +38,7 @@ Those three numbers are what you reason with before you launch anything.
 
 ### A refresher: where gradients live
 
-Three facts from topic 08 carry this whole topic.
+Three facts from topic 15 carry this whole topic.
 
 **`backward()` adds, it does not overwrite.**
 Every call to `loss.backward()` adds its result into `p.grad`.
@@ -392,7 +392,7 @@ Training a model with `N` parameters on `D` tokens costs approximately
 The forward pass is about $2ND$: each parameter takes part in one multiply-accumulate per token, and the $2$ is the multiply plus the add.
 The backward pass is about twice the forward, $4ND$, because for every weight matrix it computes two products of the same size as the forward one: the gradient with respect to the layer's input, to pass further back, and the gradient with respect to the weights.
 
-The rule ignores attention's $T^2$ term, which is a correction rather than the main story below roughly 8k context (topic 14).
+The rule ignores attention's $T^2$ term, which is a correction rather than the main story below roughly 8k context (topic 13).
 The `N` and `D` in it are counts, not this repository's shape letters.
 
 A neutral example: a 125M-parameter model on 2.5B tokens costs $6 \cdot 125 \times 10^6 \cdot 2.5 \times 10^9 = 1.875 \times 10^{18}$ FLOPs.

@@ -34,7 +34,7 @@ When a 1-D argument is involved, PyTorch temporarily prepends or appends a 1 to 
 ### 6.1 Building shapes by hand
 
 Peel off the last two axes of each operand, check that `a[-1] == b[-2]`, broadcast the remaining leading shapes against each other, and append `(a[-2], b[-1])`.
-Doing this on paper makes the attention shapes in topic 14 read themselves.
+Doing this on paper makes the attention shapes in topic 13 read themselves.
 
 A **Gram matrix**, every pairwise dot product of the rows of `(N, D)`, is `x @ x.transpose(-2, -1)`, giving `(N, N)`.
 That is the same computation as attention scores with `q == k`, which is not a coincidence: attention scores *are* a Gram matrix between the query and key projections.
@@ -211,7 +211,7 @@ When the same float32 code gives slightly different numbers on two GPUs, or betw
 **Where the 12 comes from.**
 $12 L d_{\text{model}}^2$ is the parameter count people quote for a transformer, and it is worth being able to rebuild: $4 d_{\text{model}}^2$ of attention plus $2 d_{\text{model}} d_{\text{ff}}$ of FFN, with $d_{\text{ff}} = 4 d_{\text{model}}$, is $4 + 8 = 12$.
 A model using SwiGLU has three FFN matrices instead of two and usually shrinks $d_{\text{ff}}$ to $\frac{8}{3} d_{\text{model}}$ to keep the same total, which is why odd numbers like 11008 appear in real configs.
-Topic 12 does that arithmetic.
+Topic 11 does that arithmetic.
 
 ## Going deeper
 

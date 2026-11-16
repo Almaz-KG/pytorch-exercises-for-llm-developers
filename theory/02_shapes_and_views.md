@@ -8,7 +8,7 @@ None of that is arithmetic.
 It is bookkeeping, and getting it wrong produces a model that trains to a mediocre loss instead of crashing.
 
 The most common real bug in hand-written attention lives here: splitting heads in the wrong order mixes different heads' channels together while every shape assertion stays happy.
-Topic 14 does the head split again from memory, topic 17 does the `cat` that grows a cache, topic 20 does the windowing that cuts training examples out of a token stream.
+Topic 13 does the head split again from memory, topic 17 does the `cat` that grows a cache, topic 20 does the windowing that cuts training examples out of a token stream.
 
 What you need from topic 01: storage, strides, and the difference between a copy and a view.
 

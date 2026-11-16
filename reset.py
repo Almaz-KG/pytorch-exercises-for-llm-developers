@@ -8,11 +8,11 @@ Before a rollback your version is always moved to `attempts/<date_time>/`,
 so a solution is never lost, even without git.
 
     uv run python reset.py                 # status: what is touched, how many stubs are left
-    uv run python reset.py 14              # roll topic 14 back (archiving the current version)
+    uv run python reset.py 14              # roll topic 13 back (archiving the current version)
     uv run python reset.py 14 15 16        # several topics at once
     uv run python reset.py --all           # roll everything back
     uv run python reset.py --diff 14       # how my version differs from the original
-    uv run python reset.py --restore attempts/2026-08-25_12-30-11/test_14_attention.py
+    uv run python reset.py --restore attempts/2026-08-25_12-30-11/test_13_attention.py
 """
 
 import argparse
@@ -58,7 +58,7 @@ def ensure_working_copies() -> list[Path]:
 
 
 def resolve(spec: str) -> Path:
-    """Accepts '3', '14', 'test_14_attention.py', 'attention'; returns the path to the working copy."""
+    """Accepts '3', '14', 'test_13_attention.py', 'attention'; returns the path to the working copy."""
     spec = spec.removesuffix(".py")
     topics = all_topics()
     tiers = [

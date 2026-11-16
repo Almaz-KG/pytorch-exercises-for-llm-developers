@@ -4,7 +4,7 @@
 
 ## Why this topic
 
-[Topics 15](./15_transformer_block.md) and [16](./16_training_loop.md) built a model and a loop that trains it.
+[Topics 14](./14_transformer_block.md) and [16](./16_training_loop.md) built a model and a loop that trains it.
 Neither of them says where the token ids come from, or what happens to the weights when the run stops.
 This topic is those two ends of the pipeline: what feeds `(B, T)` batches of ids in at one end, and what writes a resumable state to disk at the other.
 
@@ -27,8 +27,9 @@ Both run without an error, and both cost you a training run before anyone notice
 | `Generator` | a NumPy random number generator object with its own private state |
 | padding, `pad_id` | filler ids appended so that sequences of different lengths fit one rectangular tensor |
 | mask | a `(B, T)` bool tensor, `True` on real tokens and `False` on padding |
+| packing, `doc_ids` | several documents in one example, and the document index of every position |
 | labels | the targets for the loss, with `ignore_index` wherever there is nothing to predict |
-| `ignore_index` | `-100`: a label value that `F.cross_entropy` skips (topic 10) |
+| `ignore_index` | `-100`: a label value that `F.cross_entropy` skips (topic 09) |
 | checkpoint | everything needed to continue a run: model weights, optimizer state, step number |
 
 ### The shape of LM training data
@@ -189,7 +190,7 @@ Position 3 is a real token, but its next token is padding, so its label is ignor
 A row with no padding at all still loses its last label.
 On a right-padded row a padding position is always followed by padding, so it is covered by the same rule; with left padding a pad position can be followed by a real token, which is why general-purpose code ignores a label unless **both** position `t` and position `t + 1` are real.
 
-`-100` is the conventional `ignore_index`, and `F.cross_entropy(..., ignore_index=-100)` drops those positions from both the sum and the count it divides by (topic 10).
+`-100` is the conventional `ignore_index`, and `F.cross_entropy(..., ignore_index=-100)` drops those positions from both the sum and the count it divides by (topic 09).
 The labels keep the dtype of the ids, `int64`.
 
 The last-column rule is the one people forget.
@@ -198,6 +199,24 @@ Without it, the last real token of each row is trained to predict a pad id, or w
 **Do not write into `ids`.**
 `ids[:, 1:]` is a view (topic 01), so assigning into it, or `masked_fill_` on it, changes the caller's tensor.
 Build the labels in a new tensor, for example one created with `torch.full_like(ids, ignore_index)` and then filled by slice assignment, or with `torch.where`.
+
+**Packing and the document mask.**
+Pretraining corpora are full of documents far shorter than the context.
+Padding each one out to `T` would waste most of the compute on filler, so several documents are concatenated into one length-`T` example instead, which is exactly what a window of the stream in 20.1 already is.
+By default attention then crosses document boundaries, and the model learns to condition on unrelated text that happened to precede it.
+The fix is a mask, in the convention of topic 13: a `(T, T)` boolean table, rows are queries `i`, columns are keys `j`, `True` means "may look".
+
+The packed example comes with `doc_ids` of `(T,)`: the index of the document each position belongs to.
+Query $i$ may see key $j$ when **both** hold: $j \le i$, and $j$ belongs to the same document as $i$.
+The second condition alone is not enough, since inside one document a position would see its own future; the first alone is the plain causal mask, which leaks across documents.
+The "same document" table is an outer equality comparison of `doc_ids` with itself, and the result is causal triangles along the diagonal, one per document, and nothing between them.
+
+The helper `block_diagonal_lengths_to_doc_ids` goes from a list of document lengths to `doc_ids`: document 0 repeated as many times as the first length, then document 1, and so on.
+`torch.repeat_interleave(values, repeats)` repeats each element of `values` the number of times given by the matching element of `repeats`.
+`repeats` must be a tensor or a single int; a Python list raises `TypeError`, so wrap it with `torch.tensor(...)` first.
+The test compares against an int64 tensor, which is what `torch.arange` gives by default.
+
+Real code hands the same information to a fused kernel as cumulative sequence lengths (FlashAttention's `cu_seqlens`) rather than building a `(T, T)` table, but the table is what that kernel computes implicitly.
 
 ### 20.3 Checkpoints
 
@@ -297,6 +316,8 @@ Hence the conventional order: build the model, build the optimizer over its para
 | `t[:, 1:]`, `t[:, :-1]` | drop the first, the last column; views |
 | `torch.where(cond, a, b)` | elementwise choice, broadcasting `a` and `b` |
 | `~mask`, `mask_a & mask_b` | invert, combine bool masks |
+| `a[:, None] == a[None, :]` | outer equality, `(T, T)` bool |
+| `torch.repeat_interleave(values, repeats)` | each value repeated its own number of times; `repeats` a tensor or an int |
 
 ### Checkpoints
 
@@ -328,6 +349,18 @@ The off-by-one, on a ten-token stream with windows of four:
 
 Start 5 is valid and its target reads exactly to the end; start 6 would ask for a target ending at index 10, which does not exist.
 Writing this out on a length-10 array once is faster than reasoning about it.
+
+An outer comparison of labels, and repeating values by counts:
+
+```python
+>>> colors = torch.tensor([0, 1, 0])
+>>> colors[:, None] == colors[None, :]          # same color?
+tensor([[ True, False,  True],
+        [False,  True, False],
+        [ True, False,  True]])
+>>> torch.repeat_interleave(torch.tensor([10, 20]), torch.tensor([1, 3]))
+tensor([10, 20, 20, 20])
+```
 
 `rng.integers` never returns its `high`:
 
@@ -376,6 +409,8 @@ A buffer roundtrip:
 - Forgetting that the last column of every row has no label.
 - Writing the labels into a view of `ids` and corrupting the caller's tensor.
 - Padding on the right for batched generation, where left padding is what you want.
+- A document mask needs causality **and** the same-document condition; either alone is wrong.
+- `repeat_interleave` takes a tensor of repeats, not a Python list.
 - Saving the model but not the optimizer, which costs a loss spike on every resume.
 - Saving the optimizer but not the iteration, which replays the learning rate schedule from the start.
 - Using different key names in `save_checkpoint` and `load_checkpoint`, or names other than `"model"`, `"optimizer"`, `"iteration"`.
@@ -395,6 +430,7 @@ Without looking anything up you can:
 - [ ] explain why random windows are right for training and wrong for validation
 - [ ] build a padded batch with its bool mask, and say why generation pads on the left
 - [ ] construct labels with both `ignore_index` rules, and say which position's padding decides
+- [ ] build a document mask for a packed example, and turn document lengths into document ids
 - [ ] list the three things a resumable checkpoint must contain, and what breaks if each is missing
 - [ ] describe what is inside an optimizer `state_dict`, and why it only loads into the same parameter order
 - [ ] say why a `BytesIO` needs `seek(0)` and why `torch.load` defaults to `weights_only=True`
@@ -404,7 +440,7 @@ Without looking anything up you can:
 A real training data pipeline adds a few things on top of this topic.
 Documents are shuffled before concatenation, so the stream is not ordered by source.
 A separate held-out shard is kept that the training stream never touches.
-Increasingly, several documents are packed into each window with document masks (topic 19) rather than letting attention straddle boundaries.
+Increasingly, the document mask of 20.2 is used rather than letting attention straddle boundaries; [Efficient Sequence Packing without Cross-contamination](https://arxiv.org/abs/2107.02027), Krell et al. 2021, measures what packing saves and why the mask is needed.
 Distributed training also needs every rank to draw different windows, usually by seeding each rank's generator differently, and checkpoints the data loader's position so that a resume does not replay the same tokens.
 Real checkpoints also carry the RNG states and the run configuration, and large runs shard them across files, one per rank.
 

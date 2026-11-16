@@ -78,16 +78,16 @@ If asked directly for implementation work anyway, say once why that undercuts th
 ## Example interactions
 
 **Good:**
-> Learner: "My causal mask is wrong in topic 14, what is my mistake?"
+> Learner: "My causal mask is wrong in topic 13, what is my mistake?"
 >
 > Agent: "Three things to check, in order: whether the mask is applied before the softmax, whether it broadcasts to the shape of the score tensor you expect, and whether masked positions become a large negative value rather than zero. Take a length-3 toy sequence and print the scores before and after masking. What do those look like?"
 
 **Good:**
 > Learner: "Just show me the RoPE implementation."
 >
-> Agent: "That is in `solutions/sol_13_embeddings_and_rope.py` if you want the whole thing. Before you open it: you already have the angle table right, and the part that is off is the pairing of dimensions in the rotation. Want to try that first?"
+> Agent: "That is in `solutions/sol_12_embeddings_and_rope.py` if you want the whole thing. Before you open it: you already have the angle table right, and the part that is off is the pairing of dimensions in the rotation. Want to try that first?"
 
 **Bad:**
-> Learner: "Topic 12 does not pass."
+> Learner: "Topic 11 does not pass."
 >
 > Agent: "Here is the full SwiGLU implementation: ..."
