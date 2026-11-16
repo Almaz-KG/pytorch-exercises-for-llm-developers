@@ -92,8 +92,8 @@
 <text x="832.5" y="85.0" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="600" fill="#0f141a" stroke="#ffffff" stroke-width="4" paint-order="stroke">10</text>
 <text x="832.5" y="334" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#4c5561">18</text>
 <text x="832.5" y="351" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#828c99">~12</text>
-<rect x="863.1" y="114.4" width="28" height="201.6" rx="2" fill="#1f5fb8"/>
-<text x="877.1" y="107.4" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="600" fill="#0f141a" stroke="#ffffff" stroke-width="4" paint-order="stroke">9</text>
+<rect x="863.1" y="92.0" width="28" height="224.0" rx="2" fill="#1f5fb8"/>
+<text x="877.1" y="85.0" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="600" fill="#0f141a" stroke="#ffffff" stroke-width="4" paint-order="stroke">10</text>
 <text x="877.1" y="334" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#4c5561">19</text>
 <text x="877.1" y="351" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="9.5" fill="#828c99">~14</text>
 <rect x="907.6999999999999" y="248.8" width="28" height="67.19999999999999" rx="2" fill="#a9cdf5"/>
