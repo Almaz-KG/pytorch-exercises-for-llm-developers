@@ -33,28 +33,28 @@ A second pass should go three to five times faster.
 Later topics lean on earlier ones, so go in order.
 01-07 are tensor mechanics, 08-14 the transformer brick by brick starting from `nn.Module`, 15-17 training and inference starting from autograd, 18-19 memory and modern tricks, 20 data plumbing.
 
-| # | Topic | What it drills |
-| --- | --- | --- |
-| 01 | [Tensor basics](theory/01_tensor_basics.md) | dtype, shape, memory, in-place, copy vs view |
-| 02 | [Shapes and views](theory/02_shapes_and_views.md) | reshape, permute, contiguous, splitting heads, expand vs repeat |
-| 03 | [Broadcasting](theory/03_broadcasting.md) | right-aligned shapes, masks, ALiBi, pairwise distances |
-| 04 | [Reductions](theory/04_reductions.md) | dim and keepdim, masked means, logsumexp, gradient norms |
-| 05 | [Indexing and gather](theory/05_indexing_and_gather.md) | embedding lookup, gathering logits, scatter, top-k mask |
-| 06 | [Matrix multiplication](theory/06_matmul.md) | linear and its backward by hand, LoRA, FLOPs |
-| 07 | [einsum and einops](theory/07_einsum_and_einops.md) | the whole attention algebra in one line |
-| 08 | [nn.Module](theory/08_nn_module.md) | Parameter vs buffer, state_dict, init, weight tying, hooks |
-| 09 | [Softmax and loss](theory/09_softmax_and_loss.md) | stable softmax, cross-entropy from scratch, KL |
-| 10 | [Normalization](theory/10_normalization.md) | LayerNorm, RMSNorm, float32 upcast, pre-norm vs post-norm |
-| 11 | [Activations and FFN](theory/11_activations_and_ffn.md) | GELU, SiLU, SwiGLU, sizing d_ff |
-| 12 | [Embeddings and RoPE](theory/12_embeddings_and_rope.md) | sinusoids, rotations, relative positions |
-| 13 | [Attention](theory/13_attention.md) | scaled dot-product, causal mask, MHA, GQA, sliding windows, sinks |
-| 14 | [Transformer block](theory/14_transformer_block.md) | the pre-norm block, the full model, initial loss of log(V) |
-| 15 | [Autograd](theory/15_autograd.md) | gradient accumulation, vjp, custom `autograd.Function`, STE, RMSNorm backward |
-| 16 | [Training loop](theory/16_training_loop.md) | AdamW from scratch, cosine schedule, clipping, accumulation |
-| 17 | [Generation](theory/17_sampling_and_kv_cache.md) | temperature, top-k, top-p, EOS, KV cache vs a full pass |
-| 18 | [Flash and memory](theory/18_flash_and_memory.md) | online softmax, blockwise attention, chunked CE, checkpointing |
-| 19 | [Advanced mechanisms](theory/19_advanced_architectures.md) | MLA, Gated DeltaNet, modern MoE, n-gram memory, speculative decoding |
-| 20 | [Data and checkpoints](theory/20_data_and_batching.md) | memmap batches, padding, packing with document masks, save and load |
+| # | Topic | Stubs | What it drills |
+| --- | --- | ---: | --- |
+| 01 | [Tensor basics](theory/01_tensor_basics.md) | 15 | dtype, shape, memory, in-place, copy vs view |
+| 02 | [Shapes and views](theory/02_shapes_and_views.md) | 19 | reshape, permute, contiguous, splitting heads, expand vs repeat |
+| 03 | [Broadcasting](theory/03_broadcasting.md) | 14 | right-aligned shapes, masks, ALiBi, pairwise distances |
+| 04 | [Reductions](theory/04_reductions.md) | 18 | dim and keepdim, masked means, logsumexp, gradient norms |
+| 05 | [Indexing and gather](theory/05_indexing_and_gather.md) | 15 | embedding lookup, gathering logits, scatter, top-k mask |
+| 06 | [Matrix multiplication](theory/06_matmul.md) | 13 | linear and its backward by hand, LoRA, FLOPs |
+| 07 | [einsum and einops](theory/07_einsum_and_einops.md) | 20 | the whole attention algebra in one line |
+| 08 | [nn.Module](theory/08_nn_module.md) | 19 | Parameter vs buffer, state_dict, init, weight tying, hooks |
+| 09 | [Softmax and loss](theory/09_softmax_and_loss.md) | 11 | stable softmax, cross-entropy from scratch, KL |
+| 10 | [Normalization](theory/10_normalization.md) | 11 | LayerNorm, RMSNorm, float32 upcast, pre-norm vs post-norm |
+| 11 | [Activations and FFN](theory/11_activations_and_ffn.md) | 12 | GELU, SiLU, SwiGLU, sizing d_ff |
+| 12 | [Embeddings and RoPE](theory/12_embeddings_and_rope.md) | 11 | sinusoids, rotations, relative positions |
+| 13 | [Attention](theory/13_attention.md) | 14 | scaled dot-product, causal mask, MHA, GQA, sliding windows, sinks |
+| 14 | [Transformer block](theory/14_transformer_block.md) | 12 | the pre-norm block, the full model, initial loss of log(V) |
+| 15 | [Autograd](theory/15_autograd.md) | 18 | gradient accumulation, vjp, custom `autograd.Function`, STE, RMSNorm backward |
+| 16 | [Training loop](theory/16_training_loop.md) | 11 | AdamW from scratch, cosine schedule, clipping, accumulation |
+| 17 | [Generation](theory/17_sampling_and_kv_cache.md) | 15 | temperature, top-k, top-p, EOS, KV cache vs a full pass |
+| 18 | [Flash and memory](theory/18_flash_and_memory.md) | 10 | online softmax, blockwise attention, chunked CE, checkpointing |
+| 19 | [Advanced mechanisms](theory/19_advanced_architectures.md) | 17 | MLA, Gated DeltaNet, modern MoE, n-gram memory, speculative decoding |
+| 20 | [Data and checkpoints](theory/20_data_and_batching.md) | 10 | memmap batches, padding, packing with document masks, save and load |
 
 ## How do I work through a topic?
 
